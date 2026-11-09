@@ -1,0 +1,28 @@
+# 인증값과 로컬 증거
+.secrets/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+api-evidence/
+pdf-evidence/
+private-data/
+private-notes/
+*.pdf
+*.hwp
+*.hwpx
+
+# 실행 환경·산출물
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+output/
+reports/
+.publish/
+.DS_Store
+*.log
