@@ -1,0 +1,64 @@
+{
+  "as_of": "2026-11-09",
+  "scope": "과거 실응답 검증의 메타데이터. 원문은 포함하지 않으며 공개 코드 테스트와 구분한다.",
+  "api_services": 10,
+  "api_operations": 14,
+  "sale": {
+    "district_code": "11215",
+    "months": [
+      "202511",
+      "202610"
+    ],
+    "rows": 956,
+    "cancelled": 45,
+    "usable_before_matching": 911
+  },
+  "rights": {
+    "rows": 7,
+    "cancelled": 1,
+    "presale_including_cancelled": 3,
+    "occupancy_including_cancelled": 4
+  },
+  "historical_matching": {
+    "policy": "exclusive_area_test_plus_or_minus_1_m2_and_5km",
+    "groups": 75,
+    "linked": 33,
+    "held": 42,
+    "current_dong_to_gu_policy_validated": false
+  },
+  "reports": [
+    {
+      "local_source": "api-evidence/20261109_comparable_links/validation.json",
+      "sha256": "1f6123de5b49c32a707c05dc3967f5795b1c3b7fd3170cb110d04d5ab1178fc3",
+      "included_in_repository": false,
+      "checks_passed": 102,
+      "checks_total": 102
+    },
+    {
+      "local_source": "api-evidence/20261109_additional_services/validation.json",
+      "sha256": "3ce3bd619637dc535e655db22184f7ab6459187cbdb6141290df381a2195d942",
+      "included_in_repository": false,
+      "checks_passed": 80,
+      "checks_total": 80
+    },
+    {
+      "local_source": "pdf-evidence/2026930040/validation.json",
+      "sha256": "50521666dc401bf1d37ace3f249718dcdd95d59a40440b227c995970d42bee27",
+      "included_in_repository": false,
+      "checks_passed": 72,
+      "checks_total": 72,
+      "all_passed": true
+    },
+    {
+      "local_source": "api-evidence/20261109_regression/summary.json",
+      "sha256": "e25399dbd13401a0981d87f7234e0ea64362a92e7e648cd4e89ffaae54a752d1",
+      "included_in_repository": false,
+      "all_passed": true
+    }
+  ],
+  "repository_tests": {
+    "fixtures": "synthetic",
+    "network_required": false,
+    "api_credentials_required": false
+  }
+}

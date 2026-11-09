@@ -1,0 +1,246 @@
+{
+  "validation_date": "2026-11-06",
+  "note": "사용자 공통 인증키로 호출한 공식 API 응답과 자체 앱 Kakao 공식 REST 테스트 응답. 추가 공공 API 2종과 최근 6개월 거래 포함. HTTP 상태 미관찰은 null. 인증값 미포함.",
+  "captures": [
+    {
+      "label": "applyhome_apt",
+      "probe": "applyhome_apt",
+      "evidence_directory": "api-evidence/20261106_live/applyhome_apt",
+      "expected_record_count": 2,
+      "param_overrides": {
+        "perPage": 2
+      },
+      "transport": "browser_saved_response",
+      "http_status": null
+    },
+    {
+      "label": "applyhome_apt_model",
+      "probe": "applyhome_apt_model",
+      "evidence_directory": "api-evidence/20261106_live/applyhome_apt_model",
+      "expected_record_count": 5,
+      "param_overrides": {},
+      "transport": "browser_saved_response",
+      "http_status": null
+    },
+    {
+      "label": "applyhome_remainder",
+      "probe": "applyhome_remainder",
+      "evidence_directory": "api-evidence/20261106_live/applyhome_remainder",
+      "expected_record_count": 2,
+      "param_overrides": {
+        "perPage": 2
+      },
+      "transport": "browser_saved_response",
+      "http_status": null
+    },
+    {
+      "label": "applyhome_remainder_model",
+      "probe": "applyhome_remainder_model",
+      "evidence_directory": "api-evidence/20261106_live/applyhome_remainder_model",
+      "expected_record_count": 5,
+      "param_overrides": {},
+      "transport": "browser_saved_response",
+      "http_status": null
+    },
+    {
+      "label": "apt_trade",
+      "probe": "apt_trade",
+      "evidence_directory": "api-evidence/20261106_live/apt_trade",
+      "expected_record_count": 5,
+      "param_overrides": {},
+      "transport": "browser_saved_response",
+      "http_status": null
+    },
+    {
+      "label": "apt_list",
+      "probe": "apt_list",
+      "evidence_directory": "api-evidence/20261106_live/apt_list",
+      "expected_record_count": 97,
+      "param_overrides": {},
+      "transport": "browser_saved_response",
+      "http_status": null
+    },
+    {
+      "label": "apt_basic",
+      "probe": "apt_basic",
+      "evidence_directory": "api-evidence/20261106_live/apt_basic",
+      "expected_record_count": 1,
+      "param_overrides": {},
+      "transport": "browser_saved_response",
+      "http_status": null
+    },
+    {
+      "label": "case_detail",
+      "probe": "applyhome_remainder",
+      "evidence_directory": "api-evidence/20261106_live/case_detail",
+      "expected_record_count": 1,
+      "param_overrides": {
+        "cond[HOUSE_MANAGE_NO::EQ]": "2026930040",
+        "cond[PBLANC_NO::EQ]": "2026930040"
+      },
+      "transport": "browser_saved_response",
+      "http_status": null
+    },
+    {
+      "label": "case_model",
+      "probe": "applyhome_remainder_model",
+      "evidence_directory": "api-evidence/20261106_live/case_model",
+      "expected_record_count": 1,
+      "param_overrides": {
+        "cond[HOUSE_MANAGE_NO::EQ]": "2026930040",
+        "cond[PBLANC_NO::EQ]": "2026930040"
+      },
+      "transport": "browser_saved_response",
+      "http_status": null
+    },
+    {
+      "label": "kakao_address",
+      "probe": "kakao_address",
+      "evidence_directory": "api-evidence/20261106_live/kakao_address",
+      "expected_record_count": 1,
+      "param_overrides": {},
+      "transport": "official_test_tool_copy",
+      "http_status": 200
+    },
+    {
+      "label": "building_title",
+      "probe": "building_title",
+      "evidence_directory": "api-evidence/20261106_live/building_title",
+      "expected_record_count": 4,
+      "expected_status": "success",
+      "param_overrides": {
+        "sigunguCd": "11215",
+        "bjdongCd": "10100",
+        "platGbCd": "0",
+        "bun": "0292",
+        "ji": "0000",
+        "_type": "json",
+        "numOfRows": 100,
+        "pageNo": 1
+      },
+      "transport": "browser_saved_response",
+      "http_status": null
+    },
+    {
+      "label": "apt_rights_41210_202609",
+      "probe": "apt_rights",
+      "evidence_directory": "api-evidence/20261106_live/apt_rights_41210_202609",
+      "expected_record_count": 21,
+      "expected_status": "success",
+      "param_overrides": {
+        "LAWD_CD": "41210",
+        "DEAL_YMD": "202609",
+        "pageNo": 1,
+        "numOfRows": "1000"
+      },
+      "transport": "browser_saved_response",
+      "http_status": null
+    },
+    {
+      "label": "apt_rights_11215_202609_empty",
+      "probe": "apt_rights",
+      "evidence_directory": "api-evidence/20261106_live/apt_rights_11215_202609_empty",
+      "expected_record_count": 0,
+      "expected_status": "success_empty",
+      "param_overrides": {
+        "LAWD_CD": "11215",
+        "DEAL_YMD": "202609",
+        "pageNo": 1,
+        "numOfRows": "1000"
+      },
+      "transport": "browser_saved_response",
+      "http_status": null
+    },
+    {
+      "label": "apt_trade_11215_202605",
+      "probe": "apt_trade",
+      "evidence_directory": "api-evidence/20261106_live/apt_trade_11215_202605",
+      "expected_record_count": 205,
+      "expected_status": "success",
+      "param_overrides": {
+        "LAWD_CD": "11215",
+        "DEAL_YMD": "202605",
+        "pageNo": 1,
+        "numOfRows": "1000"
+      },
+      "transport": "browser_saved_response",
+      "http_status": null
+    },
+    {
+      "label": "apt_trade_11215_202606",
+      "probe": "apt_trade",
+      "evidence_directory": "api-evidence/20261106_live/apt_trade_11215_202606",
+      "expected_record_count": 78,
+      "expected_status": "success",
+      "param_overrides": {
+        "LAWD_CD": "11215",
+        "DEAL_YMD": "202606",
+        "pageNo": 1,
+        "numOfRows": "1000"
+      },
+      "transport": "browser_saved_response",
+      "http_status": null
+    },
+    {
+      "label": "apt_trade_11215_202607",
+      "probe": "apt_trade",
+      "evidence_directory": "api-evidence/20261106_live/apt_trade_11215_202607",
+      "expected_record_count": 80,
+      "expected_status": "success",
+      "param_overrides": {
+        "LAWD_CD": "11215",
+        "DEAL_YMD": "202607",
+        "pageNo": 1,
+        "numOfRows": "1000"
+      },
+      "transport": "browser_saved_response",
+      "http_status": null
+    },
+    {
+      "label": "apt_trade_11215_202608",
+      "probe": "apt_trade",
+      "evidence_directory": "api-evidence/20261106_live/apt_trade_11215_202608",
+      "expected_record_count": 54,
+      "expected_status": "success",
+      "param_overrides": {
+        "LAWD_CD": "11215",
+        "DEAL_YMD": "202608",
+        "pageNo": 1,
+        "numOfRows": "1000"
+      },
+      "transport": "browser_saved_response",
+      "http_status": null
+    },
+    {
+      "label": "apt_trade_11215_202609",
+      "probe": "apt_trade",
+      "evidence_directory": "api-evidence/20261106_live/apt_trade_11215_202609",
+      "expected_record_count": 48,
+      "expected_status": "success",
+      "param_overrides": {
+        "LAWD_CD": "11215",
+        "DEAL_YMD": "202609",
+        "pageNo": 1,
+        "numOfRows": "1000"
+      },
+      "transport": "browser_saved_response",
+      "http_status": null
+    },
+    {
+      "label": "apt_trade_11215_202610",
+      "probe": "apt_trade",
+      "evidence_directory": "api-evidence/20261106_live/apt_trade_11215_202610",
+      "expected_record_count": 39,
+      "expected_status": "success",
+      "param_overrides": {
+        "LAWD_CD": "11215",
+        "DEAL_YMD": "202610",
+        "pageNo": 1,
+        "numOfRows": "1000"
+      },
+      "transport": "browser_saved_response",
+      "http_status": null
+    }
+  ],
+  "distribution_note": "역사적 실응답 검증 목록. api-evidence 원문은 이 저장소에 포함하지 않으며 별도 접근·이용 조건 확인이 필요하다."
+}

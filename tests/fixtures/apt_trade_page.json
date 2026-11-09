@@ -1,0 +1,118 @@
+{
+  "fixture_kind": "synthetic",
+  "notice": "실제 매물·API 응답이 아닌 경계 검사 전용 합성 자료",
+  "response": {
+    "header": {
+      "resultCode": "000"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "aptNm": "합성테스트아파트",
+            "aptSeq": "SYNTHETIC-0000",
+            "sggCd": "11215",
+            "umdCd": "10300",
+            "umdNm": "구의동",
+            "jibun": "999-1",
+            "landCd": "1",
+            "bonbun": "0999",
+            "bubun": "0001",
+            "dealAmount": "48,000",
+            "excluUseAr": "58.43",
+            "dealYear": "2026",
+            "dealMonth": "9",
+            "dealDay": "15",
+            "floor": "4",
+            "buildYear": "2000",
+            "cdealType": "",
+            "cdealDay": ""
+          },
+          {
+            "aptNm": "합성테스트아파트",
+            "aptSeq": "SYNTHETIC-0001",
+            "sggCd": "11215",
+            "umdCd": "10300",
+            "umdNm": "구의동",
+            "jibun": "999-1",
+            "landCd": "1",
+            "bonbun": "0999",
+            "bubun": "0001",
+            "dealAmount": "48,000",
+            "excluUseAr": "58.43",
+            "dealYear": "2026",
+            "dealMonth": "9",
+            "dealDay": "16",
+            "floor": "4",
+            "buildYear": "2000",
+            "cdealType": "",
+            "cdealDay": ""
+          },
+          {
+            "aptNm": "합성테스트아파트",
+            "aptSeq": "SYNTHETIC-0002",
+            "sggCd": "11215",
+            "umdCd": "10300",
+            "umdNm": "구의동",
+            "jibun": "999-1",
+            "landCd": "1",
+            "bonbun": "0999",
+            "bubun": "0001",
+            "dealAmount": "48,000",
+            "excluUseAr": "58.43",
+            "dealYear": "2026",
+            "dealMonth": "9",
+            "dealDay": "17",
+            "floor": "4",
+            "buildYear": "2000",
+            "cdealType": "",
+            "cdealDay": ""
+          },
+          {
+            "aptNm": "합성테스트아파트",
+            "aptSeq": "SYNTHETIC-0003",
+            "sggCd": "11215",
+            "umdCd": "10300",
+            "umdNm": "구의동",
+            "jibun": "999-1",
+            "landCd": "1",
+            "bonbun": "0999",
+            "bubun": "0001",
+            "dealAmount": "48,000",
+            "excluUseAr": "58.43",
+            "dealYear": "2026",
+            "dealMonth": "9",
+            "dealDay": "18",
+            "floor": "4",
+            "buildYear": "2000",
+            "cdealType": "",
+            "cdealDay": ""
+          },
+          {
+            "aptNm": "합성테스트아파트",
+            "aptSeq": "SYNTHETIC-0004",
+            "sggCd": "11215",
+            "umdCd": "10300",
+            "umdNm": "구의동",
+            "jibun": "999-1",
+            "landCd": "1",
+            "bonbun": "0999",
+            "bubun": "0001",
+            "dealAmount": "48,000",
+            "excluUseAr": "58.43",
+            "dealYear": "2026",
+            "dealMonth": "9",
+            "dealDay": "19",
+            "floor": "4",
+            "buildYear": "2000",
+            "cdealType": "",
+            "cdealDay": ""
+          }
+        ]
+      },
+      "totalCount": 48,
+      "pageNo": 1,
+      "numOfRows": 5
+    }
+  }
+}
