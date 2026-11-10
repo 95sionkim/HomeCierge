@@ -45,6 +45,8 @@ NAVER 예제는 API HUB의 `X-NCP-APIGW-API-KEY-ID`·`X-NCP-APIGW-API-KEY` 방�
 
 아래 명령은 실제 API를 호출하고 `api-evidence/`에 응답을 저장한다. 보관·이용 조건과 인증값을 확인한 다음 실행한다. CI에는 넣지 않는다.
 
+2026-11-09 리뷰에서 인증값 정제의 조건부 응답 손상·이스케이프 제거 누락을 재현했으며 현재 PRD 작업에서는 수정하지 않았다. **추가 실호출 전에 해당 결함을 수정하고 회귀검사한다.** 실제 인증값을 사용하지 않는 기본 검사와 구분한다. [리뷰 보완 추적표](../prd/03-review-resolution.md)
+
 ```sh
 python3 scripts/probe_apis.py --probe applyhome_remainder --param 'cond[HOUSE_MANAGE_NO::EQ]=2026930040' --param 'cond[PBLANC_NO::EQ]=2026930040'
 python3 scripts/probe_apis.py --probe apt_trade --param LAWD_CD=11215 --param DEAL_YMD=202610 --param numOfRows=5
@@ -60,7 +62,7 @@ python3 scripts/collect_recent_trades.py --probe apt_trade --lawd-cd 11215 --sta
 
 `--dry-run`을 제거하면 해당 12개월의 모든 페이지를 실제 수집한다. 권리 거래는 `--probe apt_rights`로 별도 수집한다. `summary.json`·월별 `coverage.json`·`normalized.json`에 페이지 완전성·단위·날짜·해제 상태를 기록한다. 인증/통신/업무 오류와 부분 수집을 정상 0건으로 처리하지 않는다. `ready_for_matching`은 후속 주소·면적 연결 준비 상태이며 최종 비교 승인 상태가 아니다.
 
-기본 월 범위는 도구의 진단 편의값이다. 제품의 사용일 기준 최근 1년·당월 처리·정확한 계약일 경계는 D-02에서 정한다.
+도구의 기본 월 범위는 진단 편의값이다. 현행 [PRD §6.5](../prd/01-product-prd.md)의 기본은 조회일까지 최근 1년이며 당월도 포함한다. 필요한 월을 수집한 뒤 실제 계약일로 걸러야 하며, 2026-11-10 조회 예시는 2025-11-11~2026-11-10 양 끝 날짜를 포함한다. 도구의 월 기본값이나 과거 12개월 명령을 제품 기간으로 대체하지 않는다. 윤일·시간대 경계와 갱신 주기는 D-02에서 구체화한다.
 
 ## 기본 테스트와 역사적 검증을 구분한다
 
