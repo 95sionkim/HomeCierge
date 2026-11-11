@@ -1,0 +1,27 @@
+{
+  "name": "homecierge-infrastructure",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "26.x"
+  },
+  "scripts": {
+    "dev": "node --env-file-if-exists=.secrets/backend.env --import tsx dev/server.ts",
+    "check": "tsc --noEmit",
+    "test": "tsx --test tests/backend/*.test.ts",
+    "test:db": "node --test tests/database/*.test.mjs",
+    "build": "npm run check",
+    "db:cli": "supabase"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.119.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.16",
+    "@types/node": "26.6.6",
+    "supabase": "3.1.0",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
+  }
+}

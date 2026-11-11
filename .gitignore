@@ -26,3 +26,11 @@ reports/
 .publish/
 .DS_Store
 *.log
+
+# Node.js·클라우드 로컬 연결 정보
+node_modules/
+.vercel/
+dist/
+coverage/
+supabase/.temp/
+supabase/.branches/

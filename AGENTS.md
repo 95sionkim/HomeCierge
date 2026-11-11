@@ -11,3 +11,6 @@
 - 공유 프로필 변경과 분석별 조건 변경을 구분한다. 미응답·거절·취소를 승인으로 해석하지 않는다.
 - 제품 로직을 바꾸면 관련 R/D/A와 의미 있는 경계 검사를 함께 확인한다. 확정한 공급면적 ±5%·최근접 면적·직선거리 순서를 유지하며 기술 스택·동률 처리·대표 좌표 등 미정값을 조용히 확정하지 않는다.
 - 기본 검사: `python3 -m unittest discover -s scripts -p 'test_*.py' -v`, `python3 scripts/check_repository.py`.
+- DB·배포 기반은 Supabase와 Vercel을 사용한다. 화면 제작은 별도 팀이 담당하며 현재 연결 계약은 `docs/infrastructure.md`와 `docs/frontend-handoff.md`를 따른다.
+- 사용자 API는 publishable key와 사용자 JWT로 RLS를 유지한다. 관리 키로 사용자 요청의 권한 검사를 우회하지 않으며 Preview/Development에 운영 DB 연결을 복사하지 않는다.
+- Node·DB 기반 검사: `npm run build`, `npm test`, `npm run test:db`. PGlite 합성 Auth 검사를 실제 Supabase Auth·배포 통합 검사로 바꾸어 설명하지 않는다.

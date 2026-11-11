@@ -2,7 +2,7 @@
 
 희망 지역·예산으로 청약 공고를 찾고, 한 번에 한 공고·한 주택형의 분양 조건을 아파트 실거래와 비교하는 의사결정 지원 서비스입니다. **같은 동·읍·면을 우선 비교하고 정상 0개일 때 같은 구, 구가 없으면 같은 시·군으로 확대**합니다.
 
-**사용자 결정 36개를 반영한 PRD v1.0 기준본**을 정리했습니다. 2026-11-09까지 확인한 10서비스·14조회는 과거 데이터 접근 근거입니다. 제품 화면·지역 검색·공급면적 비교·계정·프로필·보고서·보조 기능은 구현·검증할 대상이며, 자동차 경로는 별도 소스 확보가 필요합니다.
+**사용자 결정 36개를 반영한 PRD v1.0 기준본**을 정리했습니다. 2026-11-11에는 서울의 Supabase 개발 DB를 생성해 스키마·RLS·프로필 승인 함수를 적용하고, 화면과 독립적인 Vercel Preview API를 배포했습니다. 로컬 46개 검사와 실제 DB의 권한 검사·배포 응답을 확인했습니다. 제품 화면은 별도 팀이 담당하며 실제 로그인·화면 통합은 후속 검수입니다. 2026-11-09의 10서비스·14조회는 과거 데이터 접근 근거이고 공고 검색·공급면적 비교·보고서·보조 기능의 구현 완료를 뜻하지 않습니다.
 
 ## 먼저 읽기
 
@@ -11,6 +11,8 @@
 | [PRD v1.0](docs/prd/01-product-prd.md) | 확정 요구 18개, 설계 제안 6개, 결정 영역 7개, 제품 수락 기준 59개 |
 | [PRD 결정 기록](docs/prd/02-decision-log.md) | 사용자 답변, 반영 위치, 아직 결정할 세부 동작 |
 | [리뷰 보완 추적표](docs/prd/03-review-resolution.md) | 원 리뷰 14건의 반영 상태와 미수정 도구 결함·남은 자료 검증 |
+| [DB·배포 준비](docs/infrastructure.md) | Supabase 스키마·권한, Vercel 환경 분리, 로컬 검사와 실제 연결 상태 |
+| [화면 팀 연결 계약](docs/frontend-handoff.md) | 사용자 인증, 데이터 접근, 프로필 승인과 구현 전 기능 |
 | [개발 시작 안내](docs/development.md) | 실행 환경, 코드 구조, 첫 개발 과제와 완료 조건 |
 | [API 인계 상태](docs/api/prd-readiness.md) | 실제 확인한 범위와 개발 전 결정할 항목 |
 | [데이터 대응표](docs/api/data-requirements.md) | 필드·단위·식별자·확보 여부와 남은 공백 |
@@ -21,6 +23,10 @@
 ## 바로 실행하기
 
 기본 테스트는 Python 표준 라이브러리만 사용합니다. API 키·네트워크·실제 응답 파일 없이 실행할 수 있습니다.
+
+새 DB·API 기반은 Node.js 26에서 `npm ci`, `npm run build`, `npm test`, `npm run test:db`로 검사합니다. 패키지 설치 후 검사는 실제 클라우드 계정·인증값 없이 실행합니다.
+
+화면 연동용 로컬 API는 `npm run dev`로 실행합니다. DB 연결값은 `.secrets/backend.env`에 저장하며 [화면 팀 연결 계약](docs/frontend-handoff.md)의 환경변수와 권한을 따릅니다.
 
 ```sh
 git clone https://github.com/95sionkim/HomeCierge.git
@@ -55,6 +61,13 @@ python3 scripts/collect_recent_trades.py --probe apt_trade --lawd-cd 11215 --sta
 docs/prd/               제품 요구·제안·결정·수락 기준
 docs/api/               API 설정, 데이터 대응표, 검증 요약·증거 색인
 docs/development.md     개발 순서와 실행 안내
+docs/infrastructure.md DB·환경·배포·검증 상태
+docs/frontend-handoff.md 화면 팀의 인증·데이터 연결 계약
+api/, src/server/       Vercel 진입점과 공통 인증 조회 API
+src/db/                 Supabase 생성 타입
+dev/                    같은 API의 로컬 실행기
+supabase/               DB 마이그레이션·로컬 설정·수동 원격 검사
+tests/backend/, tests/database/ API·DB의 합성 경계 검사
 scripts/                조회·수집·PDF·역사적 검증 도구와 경계 테스트
 tests/fixtures/         실제 응답을 포함하지 않는 합성 자료
 .github/workflows/      인증값 없이 실행하는 자동 검사
