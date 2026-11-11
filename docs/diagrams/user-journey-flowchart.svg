@@ -1,0 +1,659 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2290" height="6240" viewBox="0 0 2290 6240" role="img" aria-labelledby="chart-title chart-desc">
+<title id="chart-title">HomeCierge 사용자 단계별 통합 서비스 플로우차트</title>
+<desc id="chart-desc">공고 사전 준비, 로그인, 공고 탐색, 문서 보완, 실거래 비교, 보조 기능, 저장, 조건 변경과 삭제를 한 장으로 연결한 목표 동작 설계. API 호출 시점은 제안이며 공급면적 대응 경로와 자동차 제공자는 미정이다.</desc>
+<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8.5" refY="5" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9 Z" fill="#6f8297"/></marker></defs>
+<style>text{font-family:"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif} .edge{fill:none;stroke:#6f8297;stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round} .node-title{font-weight:650} </style>
+<rect width="2290" height="6240" fill="#ffffff"/>
+<text x="70" y="65" text-anchor="start" font-size="19" font-weight="700" fill="#5c7289" letter-spacing="2">HOMECIERGE  /  SERVICE FLOW</text>
+<text x="70" y="120" text-anchor="start" font-size="42" font-weight="700" fill="#152c44" >사용자 단계별 통합 플로우차트</text>
+<text x="70" y="159" text-anchor="start" font-size="23" font-weight="400" fill="#50667c" >입력 → DB 확인 → 필요한 API 조회 → 판정·계산 → 결과 저장·복원</text>
+<text x="2220" y="70" text-anchor="end" font-size="18" font-weight="400" fill="#5c7289" >2026.11.11 · PRD v1.0 기준</text>
+<text x="2220" y="103" text-anchor="end" font-size="18" font-weight="400" fill="#5c7289" >목표 동작 설계 · 구현 완료 표시 아님</text>
+<rect x="70" y="190" width="22" height="22" rx="5" fill="#eef4ff" stroke="#7197db" stroke-width="2"/>
+<text x="103" y="208" text-anchor="start" font-size="18" font-weight="400" fill="#50667c" >사용자 단계</text>
+<rect x="350" y="190" width="22" height="22" rx="5" fill="#ffffff" stroke="#c5d0dd" stroke-width="2"/>
+<text x="383" y="208" text-anchor="start" font-size="18" font-weight="400" fill="#50667c" >서비스 처리</text>
+<rect x="635" y="190" width="22" height="22" rx="5" fill="#fff8e8" stroke="#d3ae5f" stroke-width="2"/>
+<text x="668" y="208" text-anchor="start" font-size="18" font-weight="400" fill="#50667c" >조건 판단</text>
+<rect x="900" y="190" width="22" height="22" rx="5" fill="#eef8f5" stroke="#6fa898" stroke-width="2"/>
+<text x="933" y="208" text-anchor="start" font-size="18" font-weight="400" fill="#50667c" >외부 API·문서</text>
+<rect x="1260" y="190" width="22" height="22" rx="5" fill="#f0f1fc" stroke="#969bd2" stroke-width="2"/>
+<text x="1293" y="208" text-anchor="start" font-size="18" font-weight="400" fill="#50667c" >DB·인증·저장소</text>
+<rect x="1650" y="190" width="22" height="22" rx="5" fill="#fff4e9" stroke="#d5a36c" stroke-width="2"/>
+<text x="1683" y="208" text-anchor="start" font-size="18" font-weight="400" fill="#50667c" >보완·보류</text>
+<path d="M1915 201 H1965" stroke="#6f8297" stroke-width="2.5" stroke-dasharray="9 7"/>
+<text x="1978" y="208" text-anchor="start" font-size="18" font-weight="400" fill="#50667c" >제안·보완·저장 연결</text>
+<rect x="40" y="235" width="2135" height="205" rx="20" fill="none" stroke="#72a493" stroke-width="2" stroke-dasharray="8 7"/>
+<text x="70" y="475" text-anchor="start" font-size="20" font-weight="500" fill="#53786a" >0단계는 공통 데이터 준비 제안 · 수집 주기·최신성 기준·실행 런타임은 미정</text>
+<text x="70" y="514" text-anchor="start" font-size="18" font-weight="400" fill="#5c7289" >처리: Vercel 자체 API·작업 접수 / 수집 실행기 위치 미정     플랫폼: Supabase Auth·DB·Storage</text>
+<polyline class="edge" points="500,331 610,331" marker-end="url(#arrow)" data-from="prep-api" data-to="prep-pdf"/>
+<polyline class="edge" points="1040,331 1150,331" marker-end="url(#arrow)" data-from="prep-pdf" data-to="prep-check"/>
+<polyline class="edge" points="1580,331 1690,331" marker-end="url(#arrow)" data-from="prep-check" data-to="prep-db"/>
+<polyline class="edge" points="1120,632.5 1300,632.5" marker-end="url(#arrow)" marker-start="url(#arrow)" data-from="login" data-to="auth"/>
+<polyline class="edge" points="1730,632.5 1810,632.5" marker-end="url(#arrow)" data-from="auth" data-to="profile"/>
+<polyline class="edge" points="890,705 890,790" marker-end="url(#arrow)" data-from="login" data-to="input-ok"/>
+<polyline class="edge" points="710,868 605,868 605,866 500,866" marker-end="url(#arrow)" data-from="input-ok" data-to="need-input"/>
+<polyline class="edge" points="285,795 285,755 550,755 550,632.5 660,632.5" marker-end="url(#arrow)" data-from="need-input" data-to="login"/>
+<polyline class="edge" points="890,946 890,1050" marker-end="url(#arrow)" data-from="input-ok" data-to="search"/>
+<polyline class="edge" points="2120,331 2190,331 2190,1121 1730,1121" marker-end="url(#arrow)" data-from="prep-db" data-to="catalog"/>
+<polyline class="edge" points="1120,1121 1300,1121" marker-end="url(#arrow)" marker-start="url(#arrow)" data-from="search" data-to="catalog"/>
+<polyline class="edge" points="890,1192 890,1260" marker-end="url(#arrow)" data-from="search" data-to="catalog-ok"/>
+<polyline class="edge" points="1070,1338 1185,1338 1185,1334 1300,1334" marker-end="url(#arrow)" data-from="catalog-ok" data-to="catalog-fetch"/>
+<polyline class="edge" points="1515,1250 1515,1192" marker-end="url(#arrow)" stroke-dasharray="9 7" data-from="catalog-fetch" data-to="catalog"/>
+<polyline class="edge" points="890,1416 890,1500" marker-end="url(#arrow)" data-from="catalog-ok" data-to="filter"/>
+<polyline class="edge" points="1515,1418 1515,1571 1120,1571" marker-end="url(#arrow)" data-from="catalog-fetch" data-to="filter"/>
+<polyline class="edge" points="660,1571 580,1571 580,1574 500,1574" marker-end="url(#arrow)" data-from="filter" data-to="lists"/>
+<polyline class="edge" points="285,1658 285,1831 660,1831" marker-end="url(#arrow)" data-from="lists" data-to="detail"/>
+<polyline class="edge" points="1120,1831 1300,1831" marker-end="url(#arrow)" marker-start="url(#arrow)" data-from="detail" data-to="detail-db"/>
+<polyline class="edge" points="890,1902 890,1970" marker-end="url(#arrow)" data-from="detail" data-to="detail-ok"/>
+<polyline class="edge" points="1070,2048 1185,2048 1185,2031 1300,2031" marker-end="url(#arrow)" data-from="detail-ok" data-to="pdf-fetch"/>
+<polyline class="edge" points="1730,2031 1810,2031" marker-end="url(#arrow)" data-from="pdf-fetch" data-to="upload"/>
+<polyline class="edge" points="1515,2102 1515,2180" marker-end="url(#arrow)" data-from="pdf-fetch" data-to="pdf-check"/>
+<polyline class="edge" points="1975,2102 1975,2264 1730,2264" marker-end="url(#arrow)" data-from="upload" data-to="pdf-check"/>
+<polyline class="edge" points="890,2126 890,2380" marker-end="url(#arrow)" data-from="detail-ok" data-to="fixed-input"/>
+<polyline class="edge" points="1515,2348 1515,2451 1120,2451" marker-end="url(#arrow)" data-from="pdf-check" data-to="fixed-input"/>
+<polyline class="edge" points="660,2451 580,2451 580,2454 500,2454" marker-end="url(#arrow)" stroke-dasharray="9 7" data-from="fixed-input" data-to="detail-hold"/>
+<polyline class="edge" points="890,2522 890,2690" marker-end="url(#arrow)" data-from="fixed-input" data-to="analysis"/>
+<polyline class="edge" points="1120,2774 1210,2774 1210,2761 1300,2761" marker-end="url(#arrow)" marker-start="url(#arrow)" data-from="analysis" data-to="trade-db"/>
+<polyline class="edge" points="890,2858 890,2900" marker-end="url(#arrow)" data-from="analysis" data-to="reuse"/>
+<polyline class="edge" points="1070,2978 1185,2978 1185,2987 1300,2987" marker-end="url(#arrow)" data-from="reuse" data-to="trade-api"/>
+<polyline class="edge" points="1515,2890 1515,2832" marker-end="url(#arrow)" stroke-dasharray="9 7" data-from="trade-api" data-to="trade-db"/>
+<polyline class="edge" points="1810,2987 1730,2987" marker-end="url(#arrow)" stroke-dasharray="9 7" data-from="mapping-note" data-to="trade-api"/>
+<polyline class="edge" points="890,3056 890,3150" marker-end="url(#arrow)" data-from="reuse" data-to="eligibility"/>
+<polyline class="edge" points="1515,3084 1515,3234 1120,3234" marker-end="url(#arrow)" data-from="trade-api" data-to="eligibility"/>
+<polyline class="edge" points="890,3318 890,3410" marker-end="url(#arrow)" data-from="eligibility" data-to="local-state"/>
+<polyline class="edge" points="710,3498 605,3498 605,3499 500,3499" marker-end="url(#arrow)" data-from="local-state" data-to="local-hold"/>
+<polyline class="edge" points="1070,3498 1185,3498 1185,3492 1300,3492" marker-end="url(#arrow)" data-from="local-state" data-to="expand"/>
+<polyline class="edge" points="890,3586 890,3740" marker-end="url(#arrow)" data-from="local-state" data-to="stats"/>
+<polyline class="edge" points="1515,3589 1515,3680" marker-end="url(#arrow)" data-from="expand" data-to="expanded-state"/>
+<polyline class="edge" points="1335,3758 1225,3758 1225,3837 1120,3837" marker-end="url(#arrow)" data-from="expanded-state" data-to="stats"/>
+<polyline class="edge" points="1695,3758 1752.5,3758 1752.5,3764 1810,3764" marker-end="url(#arrow)" data-from="expanded-state" data-to="expanded-empty"/>
+<polyline class="edge" points="890,3934 890,4100" marker-end="url(#arrow)" data-from="stats" data-to="comparison-result"/>
+<polyline class="edge" points="285,3583 285,3630 550,3630 550,4171 660,4171" marker-end="url(#arrow)" data-from="local-hold" data-to="comparison-result"/>
+<polyline class="edge" points="1975,3848 1975,4171 1120,4171" marker-end="url(#arrow)" data-from="expanded-empty" data-to="comparison-result"/>
+<polyline class="edge" points="890,4242 890,4410" marker-end="url(#arrow)" data-from="comparison-result" data-to="extras"/>
+<polyline class="edge" points="500,4481 660,4481" marker-end="url(#arrow)" data-from="extra-input" data-to="extras"/>
+<polyline class="edge" points="890,2522 890,2595 2235,2595 2235,4481 1120,4481" marker-end="url(#arrow)" stroke-dasharray="9 7" data-from="fixed-input" data-to="extras"/>
+<polyline class="edge" points="890,4552 890,4598 300,4598 300,4650" marker-end="url(#arrow)" data-from="extras" data-to="news"/>
+<polyline class="edge" points="890,4552 890,4598 840,4598 840,4650" marker-end="url(#arrow)" data-from="extras" data-to="law"/>
+<polyline class="edge" points="890,4552 890,4598 1380,4598 1380,4650" marker-end="url(#arrow)" data-from="extras" data-to="routes"/>
+<polyline class="edge" points="890,4552 890,4598 1920,4598 1920,4650" marker-end="url(#arrow)" data-from="extras" data-to="funding"/>
+<polyline class="edge" points="300,4818 300,4900 890,4900 890,5000" marker-end="url(#arrow)" data-from="news" data-to="report"/>
+<polyline class="edge" points="840,4818 840,4900 890,4900 890,5000" marker-end="url(#arrow)" data-from="law" data-to="report"/>
+<polyline class="edge" points="1380,4818 1380,4900 890,4900 890,5000" marker-end="url(#arrow)" data-from="routes" data-to="report"/>
+<polyline class="edge" points="1920,4818 1920,4900 890,4900 890,5000" marker-end="url(#arrow)" data-from="funding" data-to="report"/>
+<polyline class="edge" points="1120,5071 1300,5071" marker-end="url(#arrow)" marker-start="url(#arrow)" data-from="report" data-to="report-db"/>
+<polyline class="edge" points="1730,5071 1810,5071" marker-end="url(#arrow)" marker-start="url(#arrow)" stroke-dasharray="9 7" data-from="report-db" data-to="llm"/>
+<polyline class="edge" points="660,5071 500,5071" marker-end="url(#arrow)" data-from="report" data-to="display"/>
+<polyline class="edge" points="890,5142 890,5260" marker-end="url(#arrow)" data-from="report" data-to="next"/>
+<polyline class="edge" points="710,5340 500,5340" marker-end="url(#arrow)" data-from="next" data-to="keep"/>
+<polyline class="edge" points="1070,5340 1185,5340 1185,5339 1300,5339" marker-end="url(#arrow)" data-from="next" data-to="change"/>
+<polyline class="edge" points="1515,5423 1515,5460 1485,5460 1485,5500" marker-end="url(#arrow)" data-from="change" data-to="profile-update"/>
+<polyline class="edge" points="1515,5423 1515,5460 1955,5460 1955,5500" marker-end="url(#arrow)" data-from="change" data-to="rerun"/>
+<polyline class="edge" points="890,5420 890,5520" marker-end="url(#arrow)" data-from="next" data-to="delete"/>
+<polyline class="edge" points="890,5662 890,5750" marker-end="url(#arrow)" data-from="delete" data-to="delete-work"/>
+<polyline class="edge" points="1120,5821 1300,5821" marker-end="url(#arrow)" marker-start="url(#arrow)" data-from="delete-work" data-to="delete-db"/>
+<polyline class="edge" points="890,5892 890,5985" marker-end="url(#arrow)" data-from="delete-work" data-to="deleted"/>
+<g id="prep-api" data-kind="api">
+<title>0  공고·주택형 수집</title>
+<rect x="70" y="260" width="430" height="142" rx="16" fill="#eef8f5" stroke="#6fa898" stroke-width="2"/>
+<text x="285" y="285" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">외부 조회 · 조건부 호출</text>
+<text x="285" y="319" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >0  공고·주택형 수집</text>
+<text x="285" y="351" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >청약홈 공고 API → 주택형 API</text>
+<text x="285" y="377" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >신규·변경·누락 자료의 필요한 범위</text>
+</g>
+<g id="prep-pdf" data-kind="api">
+<title>공식 문서 확보</title>
+<rect x="610" y="260" width="430" height="142" rx="16" fill="#eef8f5" stroke="#6fa898" stroke-width="2"/>
+<text x="825" y="285" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">외부 조회 · 조건부 호출</text>
+<text x="825" y="319" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >공식 문서 확보</text>
+<text x="825" y="351" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >공식 상세 페이지 → 첨부 PDF</text>
+<text x="825" y="377" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >개별 호실 가격·필수 옵션 근거</text>
+</g>
+<g id="prep-check" data-kind="process">
+<title>정규화·자동 점검</title>
+<rect x="1150" y="260" width="430" height="142" rx="16" fill="#ffffff" stroke="#c5d0dd" stroke-width="2"/>
+<text x="1365" y="285" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">서비스 처리</text>
+<text x="1365" y="319" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >정규화·자동 점검</text>
+<text x="1365" y="351" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >공고·회차·주택형 연결</text>
+<text x="1365" y="377" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >단위·원문 페이지·적용 대상 대조</text>
+</g>
+<g id="prep-db" data-kind="db">
+<title>공고 카탈로그</title>
+<path d="M1690 277 C1690 254 2120 254 2120 277 L2120 385 C2120 408 1690 408 1690 385 Z" fill="#f0f1fc" stroke="#969bd2" stroke-width="2"/>
+<path d="M1690 277 C1690 300 2120 300 2120 277" fill="none" stroke="#969bd2" stroke-width="1.5"/>
+<text x="1905" y="316" text-anchor="middle" font-size="23" font-weight="650" fill="#303c6c" >공고 카탈로그</text>
+<text x="1905" y="347" text-anchor="middle" font-size="18.5" font-weight="400" fill="#4c5875" >확인된 값 + 미확인 사유</text>
+<text x="1905" y="373" text-anchor="middle" font-size="18.5" font-weight="400" fill="#4c5875" >출처·문서 버전·수집 시점</text>
+</g>
+<g id="login" data-kind="stage">
+<title>1  로그인·조건 입력</title>
+<rect x="660" y="560" width="460" height="145" rx="16" fill="#eef4ff" stroke="#7197db" stroke-width="2"/>
+<text x="890" y="585" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">사용자 단계</text>
+<text x="890" y="619" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >1  로그인·조건 입력</text>
+<text x="890" y="651" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >필수: 희망 시·군·구 + 예산</text>
+<text x="890" y="677" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >선택: 공급면적 범위 + 입주 월 범위</text>
+</g>
+<g id="auth" data-kind="auth">
+<title>Supabase Auth</title>
+<rect x="1300" y="560" width="430" height="145" rx="16" fill="#f0f1fc" stroke="#969bd2" stroke-width="2"/>
+<text x="1515" y="585" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">인증 · 플랫폼 API</text>
+<text x="1515" y="619" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >Supabase Auth</text>
+<text x="1515" y="651" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >로그인·세션·사용자 권한 확인</text>
+<text x="1515" y="677" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >인증 전 탐색·분석은 실행하지 않음</text>
+</g>
+<g id="profile" data-kind="db">
+<title>자기 계정 복원</title>
+<path d="M1810 577 C1810 554 2140 554 2140 577 L2140 688 C2140 711 1810 711 1810 688 Z" fill="#f0f1fc" stroke="#969bd2" stroke-width="2"/>
+<path d="M1810 577 C1810 600 2140 600 2140 577" fill="none" stroke="#969bd2" stroke-width="1.5"/>
+<text x="1975" y="616" text-anchor="middle" font-size="23" font-weight="650" fill="#303c6c" >자기 계정 복원</text>
+<text x="1975" y="647" text-anchor="middle" font-size="18.5" font-weight="400" fill="#4c5875" >대화·확인한 프로필</text>
+<text x="1975" y="673" text-anchor="middle" font-size="18.5" font-weight="400" fill="#4c5875" >기존 분석·승인 상태</text>
+</g>
+<g id="input-ok" data-kind="decision">
+<title>로그인·필수 조건</title>
+<path d="M890 790 L1070 868 L890 946 L710 868 Z" fill="#fff8e8" stroke="#d3ae5f" stroke-width="2"/>
+<text x="890" y="861" text-anchor="middle" font-size="22" font-weight="650" fill="#5a482c" >로그인·필수 조건</text>
+<text x="890" y="891" text-anchor="middle" font-size="22" font-weight="650" fill="#5a482c" >충족?</text>
+</g>
+<g id="need-input" data-kind="hold">
+<title>입력·로그인 보완</title>
+<rect x="70" y="795" width="430" height="142" rx="16" fill="#fff4e9" stroke="#d5a36c" stroke-width="2"/>
+<text x="285" y="820" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">보완 · 보류</text>
+<text x="285" y="854" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >입력·로그인 보완</text>
+<text x="285" y="886" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >누락 조건을 사용자에게 안내</text>
+<text x="285" y="912" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >미승인 변경은 공유 프로필에 미반영</text>
+</g>
+<g id="search" data-kind="stage">
+<title>2  공고 탐색</title>
+<rect x="660" y="1050" width="460" height="142" rx="16" fill="#eef4ff" stroke="#7197db" stroke-width="2"/>
+<text x="890" y="1075" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">사용자 단계</text>
+<text x="890" y="1109" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >2  공고 탐색</text>
+<text x="890" y="1141" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >입력 조건으로 공고 카탈로그 조회</text>
+<text x="890" y="1167" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >요청 지역·유형의 수집 범위 확인</text>
+</g>
+<g id="catalog" data-kind="db">
+<title>공고·가격·문서 근거</title>
+<path d="M1300 1067 C1300 1044 1730 1044 1730 1067 L1730 1175 C1730 1198 1300 1198 1300 1175 Z" fill="#f0f1fc" stroke="#969bd2" stroke-width="2"/>
+<path d="M1300 1067 C1300 1090 1730 1090 1730 1067" fill="none" stroke="#969bd2" stroke-width="1.5"/>
+<text x="1515" y="1106" text-anchor="middle" font-size="23" font-weight="650" fill="#303c6c" >공고·가격·문서 근거</text>
+<text x="1515" y="1137" text-anchor="middle" font-size="18.5" font-weight="400" fill="#4c5875" >접수일·입주 시점·공급면적</text>
+<text x="1515" y="1163" text-anchor="middle" font-size="18.5" font-weight="400" fill="#4c5875" >호실별 분양가 + 필수 옵션</text>
+</g>
+<g id="catalog-ok" data-kind="decision">
+<title>필요 자료·근거가</title>
+<path d="M890 1260 L1070 1338 L890 1416 L710 1338 Z" fill="#fff8e8" stroke="#d3ae5f" stroke-width="2"/>
+<text x="890" y="1331" text-anchor="middle" font-size="22" font-weight="650" fill="#5a482c" >필요 자료·근거가</text>
+<text x="890" y="1361" text-anchor="middle" font-size="22" font-weight="650" fill="#5a482c" >충분한가?</text>
+</g>
+<g id="catalog-fetch" data-kind="api">
+<title>필요한 항목만 보완 조회</title>
+<rect x="1300" y="1250" width="430" height="168" rx="16" fill="#eef8f5" stroke="#6fa898" stroke-width="2"/>
+<text x="1515" y="1275" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">외부 조회 · 조건부 호출</text>
+<text x="1515" y="1309" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >필요한 항목만 보완 조회</text>
+<text x="1515" y="1341" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >청약홈 공고·주택형 API</text>
+<text x="1515" y="1367" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >공식 PDF 확보·추출·자동 점검</text>
+<text x="1515" y="1393" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >누락·갱신 필요 시에만 실행 [제안]</text>
+</g>
+<g id="filter" data-kind="process">
+<title>같은 주택형·호실에서 판정</title>
+<rect x="660" y="1500" width="460" height="142" rx="16" fill="#ffffff" stroke="#c5d0dd" stroke-width="2"/>
+<text x="890" y="1525" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">서비스 처리</text>
+<text x="890" y="1559" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >같은 주택형·호실에서 판정</text>
+<text x="890" y="1591" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >예산·면적·입주 등 적용 조건을 함께 검사</text>
+<text x="890" y="1617" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >필수 옵션 미확인을 0원으로 채우지 않음</text>
+</g>
+<g id="lists" data-kind="result">
+<title>공고 목록 제공</title>
+<rect x="70" y="1490" width="430" height="168" rx="24" fill="#f3f6fa" stroke="#a4b4c6" stroke-width="2"/>
+<text x="285" y="1515" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">사용자에게 제공</text>
+<text x="285" y="1549" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >공고 목록 제공</text>
+<text x="285" y="1581" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >충족 목록 / 확인 필요 목록 분리</text>
+<text x="285" y="1607" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >확인된 미충족은 충족 목록에서 제외</text>
+<text x="285" y="1633" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >접수 중 마감일순 → 예정 시작일순</text>
+</g>
+<g id="detail" data-kind="stage">
+<title>3  공고·주택형 선택</title>
+<rect x="660" y="1760" width="460" height="142" rx="16" fill="#eef4ff" stroke="#7197db" stroke-width="2"/>
+<text x="890" y="1785" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">사용자 단계</text>
+<text x="890" y="1819" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >3  공고·주택형 선택</text>
+<text x="890" y="1851" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >한 공고·한 주택형, 호실은 선택</text>
+<text x="890" y="1877" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >가격 범위·공급면적·원문 근거 확인</text>
+</g>
+<g id="detail-db" data-kind="db">
+<title>선택 공고의 상세 자료</title>
+<path d="M1300 1777 C1300 1754 1730 1754 1730 1777 L1730 1885 C1730 1908 1300 1908 1300 1885 Z" fill="#f0f1fc" stroke="#969bd2" stroke-width="2"/>
+<path d="M1300 1777 C1300 1800 1730 1800 1730 1777" fill="none" stroke="#969bd2" stroke-width="1.5"/>
+<text x="1515" y="1816" text-anchor="middle" font-size="23" font-weight="650" fill="#303c6c" >선택 공고의 상세 자료</text>
+<text x="1515" y="1847" text-anchor="middle" font-size="18.5" font-weight="400" fill="#4c5875" >공고·회차·주택형·호실·문서 버전</text>
+<text x="1515" y="1873" text-anchor="middle" font-size="18.5" font-weight="400" fill="#4c5875" >값별 점검 상태와 페이지 근거</text>
+</g>
+<g id="detail-ok" data-kind="decision">
+<title>핵심 값의 근거가</title>
+<path d="M890 1970 L1070 2048 L890 2126 L710 2048 Z" fill="#fff8e8" stroke="#d3ae5f" stroke-width="2"/>
+<text x="890" y="2041" text-anchor="middle" font-size="22" font-weight="650" fill="#5a482c" >핵심 값의 근거가</text>
+<text x="890" y="2071" text-anchor="middle" font-size="22" font-weight="650" fill="#5a482c" >확인됐나?</text>
+</g>
+<g id="pdf-fetch" data-kind="api">
+<title>공식 PDF 자동 확보</title>
+<rect x="1300" y="1960" width="430" height="142" rx="16" fill="#eef8f5" stroke="#6fa898" stroke-width="2"/>
+<text x="1515" y="1985" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">외부 조회 · 조건부 호출</text>
+<text x="1515" y="2019" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >공식 PDF 자동 확보</text>
+<text x="1515" y="2051" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >공식 상세 페이지·첨부 문서</text>
+<text x="1515" y="2077" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >PDF 전용 API가 있는 것으로 가정 안 함</text>
+</g>
+<g id="upload" data-kind="stage">
+<title>사용자 PDF 업로드</title>
+<rect x="1810" y="1960" width="330" height="142" rx="16" fill="#eef4ff" stroke="#7197db" stroke-width="2"/>
+<text x="1975" y="1985" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">사용자 단계</text>
+<text x="1975" y="2019" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >사용자 PDF 업로드</text>
+<text x="1975" y="2051" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >자동 확보 실패 시 보완</text>
+<text x="1975" y="2077" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >계정 소유 문서로 관리</text>
+</g>
+<g id="pdf-check" data-kind="process">
+<title>문서 확보·자동 점검 결과</title>
+<rect x="1300" y="2180" width="430" height="168" rx="16" fill="#ffffff" stroke="#c5d0dd" stroke-width="2"/>
+<text x="1515" y="2205" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">서비스 처리</text>
+<text x="1515" y="2239" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >문서 확보·자동 점검 결과</text>
+<text x="1515" y="2271" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >공고·회차·페이지·단위·옵션 대조</text>
+<text x="1515" y="2297" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >점검값·근거·상태를 소유 범위에 저장</text>
+<text x="1515" y="2323" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >미제공·회차·정정 충돌·불명확 값 보류</text>
+</g>
+<g id="fixed-input" data-kind="process">
+<title>분석 조건·확인된 입력 고정</title>
+<rect x="660" y="2380" width="460" height="142" rx="16" fill="#ffffff" stroke="#c5d0dd" stroke-width="2"/>
+<text x="890" y="2405" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">서비스 처리</text>
+<text x="890" y="2439" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >분석 조건·확인된 입력 고정</text>
+<text x="890" y="2471" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >확인된 호실 소계 범위 또는 선택 호실 가격</text>
+<text x="890" y="2497" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >독립적으로 확인한 값만 해당 계산에 사용</text>
+</g>
+<g id="detail-hold" data-kind="hold">
+<title>미확인 값·의존 계산 보류</title>
+<rect x="70" y="2370" width="430" height="168" rx="16" fill="#fff4e9" stroke="#d5a36c" stroke-width="2"/>
+<text x="285" y="2395" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">보완 · 보류</text>
+<text x="285" y="2429" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >미확인 값·의존 계산 보류</text>
+<text x="285" y="2461" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >다른 회차·정정 적용 미확인·값 충돌</text>
+<text x="285" y="2487" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >해당 항목의 사유와 보완 행동 표시</text>
+<text x="285" y="2513" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >독립적인 기본 정보·결과는 제공</text>
+</g>
+<g id="analysis" data-kind="stage">
+<title>4  실거래 비교 실행</title>
+<rect x="660" y="2690" width="460" height="168" rx="16" fill="#eef4ff" stroke="#7197db" stroke-width="2"/>
+<text x="890" y="2715" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">사용자 단계</text>
+<text x="890" y="2749" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >4  실거래 비교 실행</text>
+<text x="890" y="2781" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >기본: 조회일까지 최근 1년 (당월 포함)</text>
+<text x="890" y="2807" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >실행 ID·기간·종류·면적·기준 시점 고정</text>
+<text x="890" y="2833" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >진행·재시도·취소 상태를 별도로 관리</text>
+</g>
+<g id="trade-db" data-kind="db">
+<title>거래·단지·면적 근거</title>
+<path d="M1300 2707 C1300 2684 1730 2684 1730 2707 L1730 2815 C1730 2838 1300 2838 1300 2815 Z" fill="#f0f1fc" stroke="#969bd2" stroke-width="2"/>
+<path d="M1300 2707 C1300 2730 1730 2730 1730 2707" fill="none" stroke="#969bd2" stroke-width="1.5"/>
+<text x="1515" y="2746" text-anchor="middle" font-size="23" font-weight="650" fill="#303c6c" >거래·단지·면적 근거</text>
+<text x="1515" y="2777" text-anchor="middle" font-size="18.5" font-weight="400" fill="#4c5875" >필요한 지역·월·페이지의 수집 상태</text>
+<text x="1515" y="2803" text-anchor="middle" font-size="18.5" font-weight="400" fill="#4c5875" >출처 허용·자료 버전·최신성 조건</text>
+</g>
+<g id="reuse" data-kind="decision">
+<title>필요 자료를</title>
+<path d="M890 2900 L1070 2978 L890 3056 L710 2978 Z" fill="#fff8e8" stroke="#d3ae5f" stroke-width="2"/>
+<text x="890" y="2971" text-anchor="middle" font-size="22" font-weight="650" fill="#5a482c" >필요 자료를</text>
+<text x="890" y="3001" text-anchor="middle" font-size="22" font-weight="650" fill="#5a482c" >재사용할 수 있나?</text>
+</g>
+<g id="trade-api" data-kind="api">
+<title>부족한 범위만 조회·보완</title>
+<rect x="1300" y="2890" width="430" height="194" rx="16" fill="#eef8f5" stroke="#6fa898" stroke-width="2"/>
+<text x="1515" y="2915" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">외부 조회 · 조건부 호출</text>
+<text x="1515" y="2949" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >부족한 범위만 조회·보완</text>
+<text x="1515" y="2981" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >매매 API / 권리 API: 지역·월·페이지</text>
+<text x="1515" y="3007" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >카카오 주소 / K-apt 목록·기본정보</text>
+<text x="1515" y="3033" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >건축물대장: 식별·특성 근거</text>
+<text x="1515" y="3059" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >공급면적 대응은 별도 공식 근거 필요</text>
+</g>
+<g id="mapping-note" data-kind="pending">
+<title>자료 경로 미정</title>
+<rect x="1810" y="2890" width="330" height="194" rx="16" fill="#fafbfc" stroke="#aab5c2" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="1975" y="2915" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">제안 · 미정</text>
+<text x="1975" y="2949" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >자료 경로 미정</text>
+<text x="1975" y="2981" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >공식 공급면적 대응</text>
+<text x="1975" y="3007" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >미확인 거래는 보류</text>
+<text x="1975" y="3033" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >대장 표제부만으로</text>
+<text x="1975" y="3059" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >세대 공급면적을 확정 안 함</text>
+</g>
+<g id="eligibility" data-kind="process">
+<title>수집 완전성·비교 자격 판별</title>
+<rect x="660" y="3150" width="460" height="168" rx="16" fill="#ffffff" stroke="#c5d0dd" stroke-width="2"/>
+<text x="890" y="3175" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">서비스 처리</text>
+<text x="890" y="3209" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >수집 완전성·비교 자격 판별</text>
+<text x="890" y="3241" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >기간·해제·거래 종류·지역을 확인</text>
+<text x="890" y="3267" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >단지 식별·공급면적 대응을 검증</text>
+<text x="890" y="3293" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >확인된 제외와 미확인·실패를 구분</text>
+</g>
+<g id="local-state" data-kind="decision">
+<title>같은 동·읍·면의</title>
+<path d="M890 3410 L1070 3498 L890 3586 L710 3498 Z" fill="#fff8e8" stroke="#d3ae5f" stroke-width="2"/>
+<text x="890" y="3491" text-anchor="middle" font-size="22" font-weight="650" fill="#5a482c" >같은 동·읍·면의</text>
+<text x="890" y="3521" text-anchor="middle" font-size="22" font-weight="650" fill="#5a482c" >주변 후보 상태는?</text>
+</g>
+<g id="local-hold" data-kind="hold">
+<title>지역 확대 보류</title>
+<rect x="70" y="3415" width="430" height="168" rx="16" fill="#fff4e9" stroke="#d5a36c" stroke-width="2"/>
+<text x="285" y="3440" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">보완 · 보류</text>
+<text x="285" y="3474" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >지역 확대 보류</text>
+<text x="285" y="3506" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >확인 후보 0개 + 미확인·부분 수집·오류</text>
+<text x="285" y="3532" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >정상 0개로 처리하지 않음</text>
+<text x="285" y="3558" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >사유·재시도·공식 근거 확보 필요 표시</text>
+</g>
+<g id="expand" data-kind="api">
+<title>같은 구 또는 구 없는 시·군</title>
+<rect x="1300" y="3395" width="430" height="194" rx="16" fill="#eef8f5" stroke="#6fa898" stroke-width="2"/>
+<text x="1515" y="3420" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">외부 조회 · 조건부 호출</text>
+<text x="1515" y="3454" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >같은 구 또는 구 없는 시·군</text>
+<text x="1515" y="3486" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >우선 지역의 전체 정상 0개일 때만 확대</text>
+<text x="1515" y="3512" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >자료가 있으면 기존 스냅샷에서 재판정</text>
+<text x="1515" y="3538" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >자료가 부족하면 필요한 요청만 추가</text>
+<text x="1515" y="3564" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >공통 지역 범위는 거래 종류 전체에 적용</text>
+</g>
+<g id="expanded-state" data-kind="decision">
+<title>확대 지역에</title>
+<path d="M1515 3680 L1695 3758 L1515 3836 L1335 3758 Z" fill="#fff8e8" stroke="#d3ae5f" stroke-width="2"/>
+<text x="1515" y="3751" text-anchor="middle" font-size="22" font-weight="650" fill="#5a482c" >확대 지역에</text>
+<text x="1515" y="3781" text-anchor="middle" font-size="22" font-weight="650" fill="#5a482c" >확인 후보가 있나?</text>
+</g>
+<g id="expanded-empty" data-kind="hold">
+<title>없음·보류를 구분</title>
+<rect x="1810" y="3680" width="330" height="168" rx="16" fill="#fff4e9" stroke="#d5a36c" stroke-width="2"/>
+<text x="1975" y="3705" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">보완 · 보류</text>
+<text x="1975" y="3739" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >없음·보류를 구분</text>
+<text x="1975" y="3771" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >정상 0개: 비교 자료 부족</text>
+<text x="1975" y="3797" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >미확인·실패: 판정 보류</text>
+<text x="1975" y="3823" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >인접 지역으로 자동 확대 안 함</text>
+</g>
+<g id="stats" data-kind="process">
+<title>단지 선정·종류별 통계</title>
+<rect x="660" y="3740" width="460" height="194" rx="16" fill="#ffffff" stroke="#c5d0dd" stroke-width="2"/>
+<text x="890" y="3765" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">서비스 처리</text>
+<text x="890" y="3799" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >단지 선정·종류별 통계</text>
+<text x="890" y="3831" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >공급면적 ±5% 안의 단지별 최근접 면적</text>
+<text x="890" y="3857" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >면적 차이순 → 확인 좌표의 직선거리순</text>
+<text x="890" y="3883" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >전체 고유 주변 최대 5단지</text>
+<text x="890" y="3909" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >매매·분양권·입주권의 가격·건수 분리</text>
+</g>
+<g id="rules-note" data-kind="note">
+<title>유지할 비교 규칙</title>
+<rect x="70" y="3740" width="430" height="194" rx="16" fill="#fafbfc" stroke="#aab5c2" stroke-width="2"/>
+<text x="285" y="3765" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">확정 비교 규칙</text>
+<text x="285" y="3799" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >유지할 비교 규칙</text>
+<text x="285" y="3831" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >후보 1~4개이면 상위 지역에서 보충 안 함</text>
+<text x="285" y="3857" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >자체 거래는 주변 수·정상 0개에서 제외</text>
+<text x="285" y="3883" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >유효 거래 1건 이상 포함, 1~2건 안내</text>
+<text x="285" y="3909" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >미확인이 남으면 완전한 순위로 표시 안 함</text>
+</g>
+<g id="comparison-result" data-kind="result">
+<title>비교 결과·근거·보류 제공</title>
+<rect x="660" y="4100" width="460" height="142" rx="24" fill="#f3f6fa" stroke="#a4b4c6" stroke-width="2"/>
+<text x="890" y="4125" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">사용자에게 제공</text>
+<text x="890" y="4159" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >비교 결과·근거·보류 제공</text>
+<text x="890" y="4191" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >자체 단지 거래는 별도 참고</text>
+<text x="890" y="4217" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >작업 진행 상태와 자료 완전성을 구분</text>
+</g>
+<g id="extras" data-kind="stage">
+<title>5  보조 정보 확인</title>
+<rect x="660" y="4410" width="460" height="142" rx="16" fill="#eef4ff" stroke="#7197db" stroke-width="2"/>
+<text x="890" y="4435" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">사용자 단계</text>
+<text x="890" y="4469" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >5  보조 정보 확인</text>
+<text x="890" y="4501" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >공고 조건·지역·적용 시점 확인</text>
+<text x="890" y="4527" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >사용자가 입력한 목적지·자금 조건 연결</text>
+</g>
+<g id="extra-input" data-kind="stage">
+<title>필요한 입력을 보완</title>
+<rect x="70" y="4410" width="430" height="142" rx="16" fill="#eef4ff" stroke="#7197db" stroke-width="2"/>
+<text x="285" y="4435" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">사용자 단계</text>
+<text x="285" y="4469" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >필요한 입력을 보완</text>
+<text x="285" y="4501" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >목적지·수단·시간 조건 / 분석별 자금</text>
+<text x="285" y="4527" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >입력이 없어도 공고·비교 결과는 유지</text>
+</g>
+<g id="news" data-kind="api">
+<title>지역 뉴스</title>
+<rect x="70" y="4650" width="460" height="168" rx="16" fill="#eef8f5" stroke="#6fa898" stroke-width="2"/>
+<text x="300" y="4675" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">외부 조회 · 조건부 호출</text>
+<text x="300" y="4709" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >지역 뉴스</text>
+<text x="300" y="4741" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >NAVER API HUB 뉴스 검색</text>
+<text x="300" y="4767" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >지역·검색 조건 확보 후 병행 [제안]</text>
+<text x="300" y="4793" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >제목·발췌·링크·게시시각, 지역성 미확인 구분</text>
+</g>
+<g id="law" data-kind="api">
+<title>법령 근거</title>
+<rect x="610" y="4650" width="460" height="168" rx="16" fill="#eef8f5" stroke="#6fa898" stroke-width="2"/>
+<text x="840" y="4675" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">외부 조회 · 조건부 호출</text>
+<text x="840" y="4709" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >법령 근거</text>
+<text x="840" y="4741" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >국가법령정보 검색 → 시행 버전 본문</text>
+<text x="840" y="4767" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >공고 조건·적용 기준시점 확보 후 병행</text>
+<text x="840" y="4793" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >개인 청약 자격을 자동 확정하지 않음</text>
+</g>
+<g id="routes" data-kind="api">
+<title>출퇴근 경로</title>
+<rect x="1150" y="4650" width="460" height="168" rx="16" fill="#eef8f5" stroke="#6fa898" stroke-width="2"/>
+<text x="1380" y="4675" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">외부 조회 · 조건부 호출</text>
+<text x="1380" y="4709" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >출퇴근 경로</text>
+<text x="1380" y="4741" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >ODsay: 대중교통·연결 도보</text>
+<text x="1380" y="4767" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >자동차: 제공자 미선정</text>
+<text x="1380" y="4793" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >목적지·수단 등 확보 + 조회 요청 시 [제안]</text>
+</g>
+<g id="funding" data-kind="process">
+<title>기초 자금표</title>
+<rect x="1690" y="4650" width="460" height="168" rx="16" fill="#ffffff" stroke="#c5d0dd" stroke-width="2"/>
+<text x="1920" y="4675" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">서비스 처리</text>
+<text x="1920" y="4709" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >기초 자금표</text>
+<text x="1920" y="4741" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >확인된 납부 일정 + 분석별 자금</text>
+<text x="1920" y="4767" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >확정·예상 구분, 시점별 부족분 계산</text>
+<text x="1920" y="4793" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >외부 금융 API 호출 없음</text>
+</g>
+<g id="report" data-kind="stage">
+<title>6  저장·다시 열기·PDF</title>
+<rect x="660" y="5000" width="460" height="142" rx="16" fill="#eef4ff" stroke="#7197db" stroke-width="2"/>
+<text x="890" y="5025" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">사용자 단계</text>
+<text x="890" y="5059" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >6  저장·다시 열기·PDF</text>
+<text x="890" y="5091" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >조건·값·조회 시점·출처·미확인 고정</text>
+<text x="890" y="5117" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >기능별 성공·입력 필요·실패를 함께 보존</text>
+</g>
+<g id="report-db" data-kind="db">
+<title>계정별 보고서·비공개 파일</title>
+<path d="M1300 5017 C1300 4994 1730 4994 1730 5017 L1730 5125 C1730 5148 1300 5148 1300 5125 Z" fill="#f0f1fc" stroke="#969bd2" stroke-width="2"/>
+<path d="M1300 5017 C1300 5040 1730 5040 1730 5017" fill="none" stroke="#969bd2" stroke-width="1.5"/>
+<text x="1515" y="5056" text-anchor="middle" font-size="23" font-weight="650" fill="#303c6c" >계정별 보고서·비공개 파일</text>
+<text x="1515" y="5087" text-anchor="middle" font-size="18.5" font-weight="400" fill="#4c5875" >결과 스냅샷·동일 버전 PDF</text>
+<text x="1515" y="5113" text-anchor="middle" font-size="18.5" font-weight="400" fill="#4c5875" >출처별 보관·내보내기 조건 적용</text>
+</g>
+<g id="llm" data-kind="pending">
+<title>LLM 설명 보조 [제안]</title>
+<rect x="1810" y="5000" width="330" height="142" rx="16" fill="#fafbfc" stroke="#aab5c2" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="1975" y="5025" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">제안 · 미정</text>
+<text x="1975" y="5059" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >LLM 설명 보조 [제안]</text>
+<text x="1975" y="5091" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >허용된 구조화 결과만 사용</text>
+<text x="1975" y="5117" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >모델·호스팅 미정</text>
+</g>
+<g id="display" data-kind="result">
+<title>화면·대화·PDF 일치</title>
+<rect x="70" y="5000" width="430" height="142" rx="24" fill="#f3f6fa" stroke="#a4b4c6" stroke-width="2"/>
+<text x="285" y="5025" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">사용자에게 제공</text>
+<text x="285" y="5059" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >화면·대화·PDF 일치</text>
+<text x="285" y="5091" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >단순 저장·복원은 외부 자료 재조회 없음</text>
+<text x="285" y="5117" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >새 자료로 과거 보고서를 덮어쓰지 않음</text>
+</g>
+<g id="next" data-kind="decision">
+<title>다음 행동은?</title>
+<path d="M890 5260 L1070 5340 L890 5420 L710 5340 Z" fill="#fff8e8" stroke="#d3ae5f" stroke-width="2"/>
+<text x="890" y="5348" text-anchor="middle" font-size="22" font-weight="650" fill="#5a482c" >다음 행동은?</text>
+</g>
+<g id="keep" data-kind="result">
+<title>저장한 결과 유지</title>
+<rect x="70" y="5275" width="430" height="130" rx="24" fill="#f3f6fa" stroke="#a4b4c6" stroke-width="2"/>
+<text x="285" y="5300" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">사용자에게 제공</text>
+<text x="285" y="5334" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >저장한 결과 유지</text>
+<text x="285" y="5366" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >다시 열면 같은 보고서 버전 복원</text>
+<text x="285" y="5392" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >필요할 때 다른 공고의 새 분석 시작</text>
+</g>
+<g id="change" data-kind="stage">
+<title>7  조건 변경·재분석</title>
+<rect x="1300" y="5255" width="430" height="168" rx="16" fill="#eef4ff" stroke="#7197db" stroke-width="2"/>
+<text x="1515" y="5280" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">사용자 단계</text>
+<text x="1515" y="5314" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >7  조건 변경·재분석</text>
+<text x="1515" y="5346" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >변경 내용을 확인한 뒤 적용</text>
+<text x="1515" y="5372" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >프로필 변경과 이번 분석 변경을 구분</text>
+<text x="1515" y="5398" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >미응답·거절·취소이면 기존 값 유지</text>
+</g>
+<g id="profile-update" data-kind="db">
+<title>공유 프로필 변경 승인</title>
+<path d="M1300 5517 C1300 5494 1670 5494 1670 5517 L1670 5651 C1670 5674 1300 5674 1300 5651 Z" fill="#f0f1fc" stroke="#969bd2" stroke-width="2"/>
+<path d="M1300 5517 C1300 5540 1670 5540 1670 5517" fill="none" stroke="#969bd2" stroke-width="1.5"/>
+<text x="1485" y="5556" text-anchor="middle" font-size="23" font-weight="650" fill="#303c6c" >공유 프로필 변경 승인</text>
+<text x="1485" y="5587" text-anchor="middle" font-size="18.5" font-weight="400" fill="#4c5875" >승인 버전 확인 후 해당 값만 갱신</text>
+<text x="1485" y="5613" text-anchor="middle" font-size="18.5" font-weight="400" fill="#4c5875" >기존 분석·보고서는 유지</text>
+<text x="1485" y="5639" text-anchor="middle" font-size="18.5" font-weight="400" fill="#4c5875" >승인 자체로 부동산 API 조회 없음</text>
+</g>
+<g id="rerun" data-kind="process">
+<title>분석 변경·최신 자료 요청</title>
+<rect x="1770" y="5500" width="370" height="168" rx="16" fill="#ffffff" stroke="#c5d0dd" stroke-width="2"/>
+<text x="1955" y="5525" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">서비스 처리</text>
+<text x="1955" y="5559" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >분석 변경·최신 자료 요청</text>
+<text x="1955" y="5591" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >기존 자료가 충족하면 재계산</text>
+<text x="1955" y="5617" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >부족·갱신 필요 범위만 재조회</text>
+<text x="1955" y="5643" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >A 탐색 / B 비교 / C 보조 정보</text>
+</g>
+<g id="delete" data-kind="stage">
+<title>8  개별 자료·계정 삭제</title>
+<rect x="660" y="5520" width="460" height="142" rx="16" fill="#eef4ff" stroke="#7197db" stroke-width="2"/>
+<text x="890" y="5545" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">사용자 단계</text>
+<text x="890" y="5579" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >8  개별 자료·계정 삭제</text>
+<text x="890" y="5611" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >소유권·삭제 범위·연관 영향을 확인</text>
+<text x="890" y="5637" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >삭제 요청·처리 중·완료를 구분</text>
+</g>
+<g id="delete-work" data-kind="process">
+<title>관련 작업 차단 후 정리</title>
+<rect x="660" y="5750" width="460" height="142" rx="16" fill="#ffffff" stroke="#c5d0dd" stroke-width="2"/>
+<text x="890" y="5775" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">서비스 처리</text>
+<text x="890" y="5809" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >관련 작업 차단 후 정리</text>
+<text x="890" y="5841" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >진행 작업의 쓰기·재개를 먼저 차단</text>
+<text x="890" y="5867" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >DB·파일 정리, 계정 삭제 시 Auth 처리</text>
+</g>
+<g id="delete-db" data-kind="db">
+<title>DB·Storage·Auth 관리</title>
+<path d="M1300 5767 C1300 5744 1730 5744 1730 5767 L1730 5875 C1730 5898 1300 5898 1300 5875 Z" fill="#f0f1fc" stroke="#969bd2" stroke-width="2"/>
+<path d="M1300 5767 C1300 5790 1730 5790 1730 5767" fill="none" stroke="#969bd2" stroke-width="1.5"/>
+<text x="1515" y="5806" text-anchor="middle" font-size="23" font-weight="650" fill="#303c6c" >DB·Storage·Auth 관리</text>
+<text x="1515" y="5837" text-anchor="middle" font-size="18.5" font-weight="400" fill="#4c5875" >백업·파생 자료의 처리 범위는 D-06</text>
+<text x="1515" y="5863" text-anchor="middle" font-size="18.5" font-weight="400" fill="#4c5875" >삭제한 입력의 복원·재생성 방지</text>
+</g>
+<g id="deleted" data-kind="result">
+<title>삭제 처리 상태 안내</title>
+<rect x="660" y="5985" width="460" height="112" rx="24" fill="#f3f6fa" stroke="#a4b4c6" stroke-width="2"/>
+<text x="890" y="6010" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">사용자에게 제공</text>
+<text x="890" y="6044" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >삭제 처리 상태 안내</text>
+<text x="890" y="6076" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >삭제 완료 범위와 남은 처리 사항 표시</text>
+</g>
+<rect x="1183" y="592" width="54" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="1210" y="613" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >인증</text>
+<rect x="1731" y="592" width="78" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="1770" y="613" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >성공 시</text>
+<rect x="559" y="825" width="72" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="595" y="846" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >아니요</text>
+<rect x="513" y="712" width="78" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="552" y="733" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >입력 후</text>
+<rect x="905" y="979" width="40" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="925" y="1000" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >예</text>
+<rect x="1964" y="993" width="132" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="2030" y="1014" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >같은 카탈로그</text>
+<rect x="1170" y="1079" width="80" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="1210" y="1100" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >DB 조회</text>
+<rect x="1109" y="1297" width="142" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="1180" y="1318" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >부족·갱신 필요</text>
+<rect x="1585" y="1207" width="120" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="1645" y="1228" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >점검 후 저장</text>
+<rect x="901" y="1439" width="54" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="928" y="1460" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >충분</text>
+<rect x="1218" y="1512" width="184" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="1310" y="1533" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >점검·수집 상태 반영</text>
+<rect x="527" y="1528" width="96" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="575" y="1549" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >판정 결과</text>
+<rect x="432" y="1783" width="96" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="480" y="1804" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >공고 선택</text>
+<rect x="1170" y="1788" width="80" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="1210" y="1809" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >DB 조회</text>
+<rect x="1144" y="1999" width="72" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="1180" y="2020" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >미확인</text>
+<rect x="1743" y="1985" width="54" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="1770" y="2006" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >실패</text>
+<rect x="1522" y="2124" width="96" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="1570" y="2145" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >확보 성공</text>
+<rect x="1864" y="2201" width="148" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="1938" y="2222" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >업로드 / 미제공</text>
+<rect x="907" y="2254" width="72" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="943" y="2275" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >확인됨</text>
+<rect x="1266" y="2397" width="96" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="1314" y="2418" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >점검 결과</text>
+<rect x="518" y="2406" width="114" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="575" y="2427" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >해당 항목만</text>
+<rect x="1170" y="2719" width="80" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="1210" y="2740" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >DB 조회</text>
+<rect x="1144" y="2934" width="72" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="1180" y="2955" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >아니요</text>
+<rect x="1565" y="2851" width="160" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="1645" y="2872" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >정규화·상태 저장</text>
+<rect x="905" y="3094" width="40" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="925" y="3115" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >예</text>
+<rect x="1235" y="3179" width="160" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="1315" y="3200" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >정규화·상태 기록</text>
+<rect x="501" y="3451" width="170" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="586" y="3472" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >확인 0 + 미확인 등</text>
+<rect x="1115" y="3449" width="130" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="1180" y="3470" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >전체 정상 0개</text>
+<rect x="743" y="3633" width="308" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="897" y="3654" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >확인 후보 1개 이상: 현재 지역 유지</text>
+<rect x="1194" y="3707" width="72" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="1230" y="3728" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >확인됨</text>
+<rect x="1702" y="3705" width="100" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="1752" y="3726" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >없음·보류</text>
+<rect x="1530" y="4115" width="100" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="1580" y="4136" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >상태·사유</text>
+<rect x="1158" y="5027" width="100" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="1208" y="5048" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >저장·복원</text>
+<rect x="513" y="5293" width="142" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="584" y="5314" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >유지·다시 열기</text>
+<rect x="1132" y="5293" width="96" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="1180" y="5314" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >변경 요청</text>
+<rect x="1338" y="5444" width="114" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="1395" y="5465" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >공유 프로필</text>
+<rect x="1787" y="5409" width="96" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="1835" y="5430" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >해당 분석</text>
+<rect x="897" y="5459" width="96" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="945" y="5480" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >삭제 요청</text>
+<rect x="1141" y="5776" width="132" height="31" rx="5" fill="#ffffff" opacity="0.97"/>
+<text x="1207" y="5797" text-anchor="middle" font-size="18" font-weight="550" fill="#576e86" >서버에서 처리</text>
+<polyline class="edge" points="617,1121 660,1121" marker-end="url(#arrow)"/>
+<circle cx="595" cy="1121.0" r="22" fill="#ffffff" stroke="#7197db" stroke-width="2"/>
+<text x="595" y="1128" text-anchor="middle" font-size="20" font-weight="700" fill="#426cb6" >A</text>
+<polyline class="edge" points="617,2774 660,2774" marker-end="url(#arrow)"/>
+<circle cx="595" cy="2774.0" r="22" fill="#ffffff" stroke="#7197db" stroke-width="2"/>
+<text x="595" y="2781" text-anchor="middle" font-size="20" font-weight="700" fill="#426cb6" >B</text>
+<polyline class="edge" points="890,4370 890,4410" marker-end="url(#arrow)"/>
+<circle cx="890.0" cy="4348" r="22" fill="#ffffff" stroke="#7197db" stroke-width="2"/>
+<text x="890" y="4355" text-anchor="middle" font-size="20" font-weight="700" fill="#426cb6" >C</text>
+<a href="#search"><circle cx="1840" cy="5713" r="22" fill="#eef4ff" stroke="#7197db" stroke-width="2"/>
+<text x="1840" y="5720" text-anchor="middle" font-size="20" font-weight="700" fill="#426cb6" >A</text>
+</a>
+<path class="edge" d="M1840 5668 V5691" marker-end="url(#arrow)"/>
+<a href="#analysis"><circle cx="1955" cy="5713" r="22" fill="#eef4ff" stroke="#7197db" stroke-width="2"/>
+<text x="1955" y="5720" text-anchor="middle" font-size="20" font-weight="700" fill="#426cb6" >B</text>
+</a>
+<path class="edge" d="M1955 5668 V5691" marker-end="url(#arrow)"/>
+<a href="#extras"><circle cx="2070" cy="5713" r="22" fill="#eef4ff" stroke="#7197db" stroke-width="2"/>
+<text x="2070" y="5720" text-anchor="middle" font-size="20" font-weight="700" fill="#426cb6" >C</text>
+</a>
+<path class="edge" d="M2070 5668 V5691" marker-end="url(#arrow)"/>
+<text x="1955" y="5771" text-anchor="middle" font-size="17" font-weight="400" fill="#53739c" >확인한 변경의 해당 단계로 새 실행</text>
+<text x="2259" y="3480" text-anchor="middle" font-size="18" font-weight="500" fill="#6c8197" transform="rotate(90 2259 3480)">공고 근거 확보 후 보조 기능을 병행할 수 있음 [제안]</text>
+<text x="1340" y="4942" text-anchor="start" font-size="18" font-weight="400" fill="#5c7289" >기능별 확인된 결과와 입력 필요·실패 상태를 함께 병합</text>
+<line x1="70" y1="6140" x2="2220" y2="6140" stroke="#dce3eb" stroke-width="2"/>
+<text x="70" y="6178" text-anchor="start" font-size="18" font-weight="400" fill="#5c7289" >확정 요구는 PRD를 따릅니다. API 호출 시점·사전 처리·재사용은 제안이며, 미정 자료를 확인된 값으로 사용하지 않습니다.</text>
+<text x="70" y="6210" text-anchor="start" font-size="17" font-weight="400" fill="#6f8194" >근거: docs/service-flow.md · docs/prd/01-product-prd.md · docs/development-plan.md   |   A/B/C: 조건 변경 후 해당 단계로 연결</text>
+</svg>

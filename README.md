@@ -13,6 +13,7 @@
 | [리뷰 보완 추적표](docs/prd/03-review-resolution.md) | 원 리뷰 14건의 반영 상태와 미수정 도구 결함·남은 자료 검증 |
 | [DB·배포 준비](docs/infrastructure.md) | Supabase 스키마·권한, Vercel 환경 분리, 로컬 검사와 실제 연결 상태 |
 | [화면 팀 연결 계약](docs/frontend-handoff.md) | 사용자 인증, 데이터 접근, 프로필 승인과 구현 전 기능 |
+| [전체 개발 계획](docs/development-plan.md) | API·정규화·DB·작업 실행부터 시작하는 단계, 첫 작업 5개와 전체 수락 기준 배치 |
 | [개발 시작 안내](docs/development.md) | 실행 환경, 코드 구조, 첫 개발 과제와 완료 조건 |
 | [API 인계 상태](docs/api/prd-readiness.md) | 실제 확인한 범위와 개발 전 결정할 항목 |
 | [데이터 대응표](docs/api/data-requirements.md) | 필드·단위·식별자·확보 여부와 남은 공백 |
@@ -61,6 +62,7 @@ python3 scripts/collect_recent_trades.py --probe apt_trade --lawd-cd 11215 --sta
 docs/prd/               제품 요구·제안·결정·수락 기준
 docs/api/               API 설정, 데이터 대응표, 검증 요약·증거 색인
 docs/development.md     개발 순서와 실행 안내
+docs/development-plan.md 기초 개발 우선 전체 계획과 검수 이정표
 docs/infrastructure.md DB·환경·배포·검증 상태
 docs/frontend-handoff.md 화면 팀의 인증·데이터 연결 계약
 api/, src/server/       Vercel 진입점과 공통 인증 조회 API
@@ -76,4 +78,4 @@ tests/fixtures/         실제 응답을 포함하지 않는 합성 자료
 
 API 키, 개인 계정 기록, API 응답 원문, PDF/HWP 원본, 뉴스 본문·발췌와 교통 경로 데이터, 과거 발표 자료는 업로드하지 않습니다. 공개한 검증 수치와 원 프로젝트의 로컬 증거 위치는 [증거 색인](docs/api/evidence-index.json)으로 추적합니다. 데이터 배포 범위와 제3자 이용 조건은 [데이터 관리 안내](docs/data-handling.md)를 확인합니다.
 
-**개발 시작점:** 조회 도구의 알려진 결함을 수정한 뒤 공급면적·권리·지역의 근거 표와 대표 공고의 기준 결과를 준비합니다. 현행 제품 정책을 유지하면서 데이터 계약·상세 화면·사용자 가치 검토와 §12의 출시 전 검증을 진행합니다.
+**개발 시작점:** [전체 개발 계획](docs/development-plan.md)에 따라 API 계약·응답 정제·공고/거래 정규화부터 시작하고 DB 저장·영속 작업·비교 결과 조회를 연결합니다. 공급면적·권리·지역·PDF의 실자료 검증을 병행하며, 화면 팀에는 동작 계약과 합성 응답을 먼저 제공합니다. 첫 종단 흐름의 검증과 전체 제품의 출시 수락은 구분합니다.
