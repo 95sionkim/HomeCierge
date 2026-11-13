@@ -19,6 +19,14 @@
 
 ## 2. 전체 구성도
 
+### 프로세스 중심 구성도 — 2026-11-13 보완
+
+![Understand → Find → Verify → Explain → Alert 기반 Agent 구성도](diagrams/process-agent-architecture.svg)
+
+[프로세스별 역할·API·지속 탐색/알림 설계](process-agent-architecture.md)에서 각 단계의 판단과 실행을 확인한다. 주기 탐색·알림은 사용자 제시 목표 흐름의 확장 설계이며 기존 PRD 초기 범위 변경 또는 자동화 활성화를 뜻하지 않는다.
+
+### 기반 구성과 API 호출 지도
+
 ![HomeCierge 에이전트 전체 구성도 — Vercel·Colab 실행 경로와 기술 요소](diagrams/agent-architecture.svg)
 
 [SVG 원본 보기·다운로드](diagrams/agent-architecture.svg) — LLM·API의 위치와 RAG·멀티에이전트·MCP의 선택적 확장을 한 장에 표시한다. 2026-11-13 작성, 설계 제안이며 구현 완료를 뜻하지 않는다.
