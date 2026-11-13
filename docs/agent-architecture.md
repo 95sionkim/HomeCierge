@@ -19,6 +19,10 @@
 
 ## 2. 전체 구성도
 
+![HomeCierge 에이전트 전체 구성도 — Vercel·Colab 실행 경로와 기술 요소](diagrams/agent-architecture.svg)
+
+[SVG 원본 보기·다운로드](diagrams/agent-architecture.svg) — LLM·API의 위치와 RAG·멀티에이전트·MCP의 선택적 확장을 한 장에 표시한다. 2026-11-13 작성, 설계 제안이며 구현 완료를 뜻하지 않는다.
+
 실선은 주요 호출·결과 흐름, 점선은 참조·보조 관계다. 스킬은 총괄이 호출하는 기능 단위이며 각자 별도 LLM을 실행한다는 의미가 아니다.
 
 ```mermaid
