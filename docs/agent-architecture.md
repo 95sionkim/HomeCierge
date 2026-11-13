@@ -19,6 +19,16 @@
 
 ## 2. 전체 구성도
 
+### 전체 시스템 연결도 — 프로세스·API 통합
+
+![HomeCierge 전체 에이전트 시스템 구성도](diagrams/overall-agent-architecture.svg)
+
+[전체 구성도 SVG](diagrams/overall-agent-architecture.svg)는 사용자·Vercel/Colab·총괄 에이전트·기능 스킬·외부 API·검증·저장·결과와 확장 알림 루프를 한 장으로 연결한다. Understand는 조건·승인과 총괄에, Find/Verify/Explain은 도구 역할에, Alert는 별도 확장 실행 경로에 대응한다. 스킬은 총괄과 구조화된 요청·결과를 주고받으며 최종 출력은 공통 검증을 거친다. 조회·도구 결과는 유형별로 검증하며 그림의 집계선이 모든 보조 조회의 완료를 기다리는 전역 장벽을 뜻하지 않는다. 독립 부분 결과를 먼저 제공할 수 있다.
+
+서비스의 장시간 작업은 별도 실행기가 담당하며 Vercel 함수 안에서 모두 수행한다고 가정하지 않는다. Supabase 기반 서비스와 Colab 재현은 같은 코어·도구 계약을 사용하되 저장·자료·실행 어댑터를 구분한다. 도식의 사용자 입력은 서비스에서는 인증된 요청, Colab에서는 명시적인 평가 입력을 뜻한다. Colab 대역은 서비스 Auth·RLS 검증을 대신하지 않는다.
+
+주기 탐색·알림은 점선의 확장 설계다. Scheduler가 새로운 실행을 시작하고 총괄이 필요한 탐색·검증·설명을 수행한 뒤 알림 구성요소가 수신 동의·중복·삭제 상태를 확인한다. 실발송 API·주기·배치는 미정이며 자동화를 활성화한 상태가 아니다. 사용자에게 결과를 전달한 뒤 조건 변경은 확인 후 새 실행으로 이어진다.
+
 ### 프로세스 중심 구성도 — 2026-11-13 보완
 
 ![Understand → Find → Verify → Explain → Alert 기반 Agent 구성도](diagrams/process-agent-architecture.svg)
