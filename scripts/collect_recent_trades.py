@@ -8,7 +8,8 @@ import re
 from datetime import date, datetime, timezone, timedelta
 from decimal import Decimal
 
-from probe_apis import ROOT, at, read_keys, records_for, run_probe, sanitize
+from credential_redaction import redact_structure
+from probe_apis import ROOT, at, read_keys, records_for, run_probe
 
 
 def months_between(start, end):
@@ -136,7 +137,8 @@ def normalize(row, month, lawd_cd, probe):
 
 
 def write_json(path, value, keys):
-    path.write_text(sanitize(json.dumps(value, ensure_ascii=False, indent=2), keys) + '\n')
+    # 직렬화 문자열 전체를 치환하지 않고 구조의 문자열 값만 정제한다. 키·숫자·원문 행 구조는 그대로다.
+    path.write_text(json.dumps(redact_structure(value, keys), ensure_ascii=False, indent=2) + '\n')
 
 
 def main():
@@ -180,7 +182,7 @@ def main():
             result['collection_scope'] = 'monthly_snapshot_page'
             write_json(directory / f'page_{page:04d}_result.json', result, keys)
             if raw is not None:
-                (directory / f'page_{page:04d}_response.{result.get("format", "txt")}').write_text(raw)
+                (directory / f'page_{page:04d}_response.{result.get("format", "txt")}').write_bytes(raw.encode('utf-8'))
             pages.append((result, payload))
             state, records = assess_month(pages)
             fatal = set(state['problems']) - {'missing_or_unexpected_pages', 'total_record_count_mismatch'}

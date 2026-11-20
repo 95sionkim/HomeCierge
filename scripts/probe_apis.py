@@ -2,9 +2,9 @@
 """공식 API 실제 응답과 필드 충족도를 기록한다. 인증키는 출력하지 않는다."""
 import argparse
 import hashlib
+import http.client
 import json
 import os
-import re
 import sys
 import urllib.error
 import urllib.parse
@@ -12,6 +12,9 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
+
+from credential_redaction import (RedactionError, error_diagnostic, new_stats, redact_structure,
+                                  redact_text, redactor_for, same_structure)
 
 ROOT = Path(__file__).resolve().parents[1]
 KEY_FILE = ROOT / '.secrets' / 'api.env'
@@ -35,6 +38,9 @@ COUNT_PATHS = ['currentCount', 'totalCount', 'matchCount', 'page', 'perPage',
                'LawSearch.totalCnt', 'meta.total_count', 'meta.pageable_count', 'meta.is_end']
 AUTH_PARAMS = {'servicekey', 'apikey', 'api_key', 'oc', 'authorization',
                'client_secret', 'client_id', 'x-ncp-apigw-api-key', 'x-ncp-apigw-api-key-id'}
+ERROR_CODE_PATHS = ['response.header.resultCode', 'header.resultCode',
+                    'OpenAPI_ServiceResponse.cmmMsgHeader.returnReasonCode']
+ERROR_NAMES = ['error', 'errorType', 'errorCode']
 
 
 def read_keys():
@@ -58,14 +64,44 @@ def read_keys():
 
 
 def sanitize(value, keys):
-    """에러와 원문 응답에 인증정보가 되돌아와도 저장 전에 제거한다."""
-    text = str(value)
-    for secret in sorted((x for x in keys.values() if x), key=len, reverse=True):
-        variants = {secret, urllib.parse.unquote(secret), urllib.parse.quote(secret, safe=''), urllib.parse.quote_plus(secret)}
-        for variant in sorted(variants, key=len, reverse=True):
-            if variant:
-                text = text.replace(variant, '[REDACTED]')
-    return re.sub(r'(?i)((?:servicekey|apikey|api_key|oc|authorization|client_secret)\s*[=:]\s*)[^&\s<>"\']+', r'\1[REDACTED]', text)
+    """로그·저장용 문자열 사본에서 인증값 반향을 가린다.
+
+    JSON/XML로 해석되는 문자열은 키·태그·숫자를 보존하고 문자열 값만 바꾼다. 해석에는 쓰지 않는다.
+    규칙은 credential_redaction 모듈 설명을 따른다.
+    """
+    return redact_text(value, keys)
+
+
+def known_fields(spec):
+    """정상 업무값 근거가 있는 항목 이름: 서비스 명세(probes.json) 필드와 건수·상태 코드 공통 메타데이터."""
+    paths = list(spec.get('fields', {}).values()) + COUNT_PATHS + ERROR_CODE_PATHS + ERROR_NAMES + ['code']
+    return frozenset(path.split('.')[-1] for path in paths)
+
+
+def storage_copy(text, fmt, payload, keys, known=frozenset()):
+    """원문 해석 결과(payload)에 대응하는 저장용 원문 텍스트·parsed 구조·정제 진단을 만든다.
+
+    known(known_fields(spec))에 없는 일반 항목에서 짧은 인증값이 값 전체·독립 토큰으로 나타나면 저장을 보류한다.
+
+    가릴 값이 없으면 원문과 payload를 그대로 돌려준다. 있으면 정제 구조의 직렬화를 다시 해석해 parsed로 쓰므로
+    저장 원문 해시·재해석 무결성 검사가 그대로 성립한다. 해석되지 않은 본문, 구조가 달라지는 사본, 구조 위치에
+    남은 반향은 RedactionError(값 없는 사유 코드)로 저장을 막는다.
+    """
+    if payload is None:
+        raise RedactionError('unparsed_body')
+    stats = new_stats()
+    try:
+        safe_text = redactor_for(keys).redact_document(text, fmt, stats, known)
+        if safe_text == text:
+            return text, payload, stats
+        safe_fmt, safe_payload = parse_payload(safe_text.encode('utf-8'))
+        if safe_fmt != fmt or not same_structure(payload, safe_payload):
+            raise RedactionError('structure_changed')
+    except RedactionError:
+        raise
+    except (ValueError, ET.ParseError, RecursionError):
+        raise RedactionError('redacted_copy_unparseable') from None
+    return safe_text, safe_payload, stats
 
 
 def xml_value(node):
@@ -88,7 +124,11 @@ def xml_value(node):
 def parse_payload(raw):
     text = raw.decode('utf-8-sig')
     if text.lstrip().startswith(('{', '[')):
-        return 'json', json.loads(text)
+        payload = json.loads(text)
+        if '\\ud' in text or '\\uD' in text:
+            # JSON 문자열의 단독 서로게이트는 해석돼도 UTF-8 파일로 보관할 수 없다.
+            json.dumps(payload, ensure_ascii=False).encode('utf-8')
+        return 'json', payload
     if text.lstrip().startswith('<'):
         root = ET.fromstring(text)
         return 'xml', {root.tag.split('}')[-1]: xml_value(root)}
@@ -123,12 +163,11 @@ def records_for(data, paths):
 def api_error(data):
     if not isinstance(data, dict):
         return None
-    for path in ['response.header.resultCode', 'header.resultCode',
-                 'OpenAPI_ServiceResponse.cmmMsgHeader.returnReasonCode']:
+    for path in ERROR_CODE_PATHS:
         value = at(data, path)
         if value is not MISSING and str(value) not in {'0', '00', '000'}:
             return {'code': value, 'reason': 'API 응답의 오류 코드'}
-    for name in ['error', 'errorType', 'errorCode']:
+    for name in ERROR_NAMES:
         if data.get(name):
             return {'code': name, 'reason': data[name]}
     if 'code' in data and str(data['code']) not in {'0', '00', '200'}:
@@ -200,9 +239,9 @@ def run_probe(name, spec, keys, overrides):
     elif auth == 'naver':
         headers['X-NCP-APIGW-API-KEY-ID'] = keys['NAVER_API_CLIENT_ID']
         headers['X-NCP-APIGW-API-KEY'] = keys['NAVER_API_CLIENT_SECRET']
-    request = urllib.request.Request(spec['url'] + '?' + urllib.parse.urlencode(params), headers=headers)
     opener = urllib.request.build_opener(NoRedirect)
     try:
+        request = urllib.request.Request(spec['url'] + '?' + urllib.parse.urlencode(params), headers=headers)
         with opener.open(request, timeout=25) as response:
             raw = response.read(10 * 1024 * 1024 + 1)
             result.update(http_status=response.status, content_type=response.headers.get('Content-Type'))
@@ -211,15 +250,15 @@ def run_probe(name, spec, keys, overrides):
     except urllib.error.HTTPError as exc:
         raw = exc.read(1024 * 1024)
         result.update(http_status=exc.code, status='http_error')
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        result.update(status='network_error', error=sanitize(str(exc), keys))
+    except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException, ValueError) as exc:
+        # 예외 문장은 요청 URL·헤더를 담을 수 있으므로 형식 이름만 기록한다.
+        result.update(status='network_error', error=error_diagnostic(exc))
         return result, None, None
     result['response_sha256'] = hashlib.sha256(raw).hexdigest()
-    safe_raw = sanitize(raw.decode('utf-8-sig', errors='replace'), keys)
-    # 법령 상세 링크처럼 인증값이 응답에 포함되면 정제 전후 해시가 달라진다.
-    result['sanitized_response_sha256'] = hashlib.sha256(safe_raw.encode('utf-8')).hexdigest()
     try:
-        fmt, payload = parse_payload(safe_raw.encode('utf-8'))
+        # 해석은 원문 바이트를 엄격한 UTF-8(BOM 허용)로 한다. 손상된 바이트를 대체 문자로 바꿔 수집하지 않는다.
+        fmt, payload = parse_payload(raw)
+        text = raw.decode('utf-8-sig')  # 저장 사본의 기준 텍스트. 정제는 아래 저장 사본에만 적용한다.
         result['format'] = fmt
         error = api_error(payload)
         if error:
@@ -231,10 +270,26 @@ def run_probe(name, spec, keys, overrides):
                 value = at(payload, path)
                 if value is not MISSING:
                     result.setdefault('reported_counts', {})[path] = value
-        return result, safe_raw, payload
-    except (ValueError, ET.ParseError, UnicodeError) as exc:
-        result.update(status=result.get('status', 'parse_error'), parse_error=type(exc).__name__)
-        return result, safe_raw, None
+    except (ValueError, ET.ParseError, RecursionError) as exc:
+        # 판별되지 않은 본문은 반향 여부를 확인할 수 없으므로 저장하지 않고 원 해시와 값 없는 진단만 남긴다.
+        result.update(status=result.get('status', 'parse_error'), parse_error=type(exc).__name__,
+                      response_bytes=len(raw), response_withheld='unparsed_body')
+        return redact_structure(result, keys), None, None
+    try:
+        safe_raw, safe_payload, stats = storage_copy(text, fmt, payload, keys, known_fields(spec))
+    except RedactionError as exc:
+        # 해석 상태는 interpreted_status로 남기되 안전한 저장 사본이 없으므로 수집 완료로 쓰지 않는다.
+        # 보류한 본문에서 추출한 오류 객체와 건수 필드도 그대로 보관할 수 없다.
+        result.pop('api_error', None)
+        result.pop('reported_counts', None)
+        result.update(interpreted_status=result.get('status'), status='redaction_failed',
+                      response_bytes=len(raw), response_withheld=str(exc))
+        if exc.stats:
+            result['response_redaction'] = exc.stats  # 값 없는 건수만
+        return redact_structure(result, keys), None, None
+    # 법령 상세 링크처럼 반향을 가린 사본은 원 해시와 정제 해시가 달라진다.
+    result.update(sanitized_response_sha256=hashlib.sha256(safe_raw.encode('utf-8')).hexdigest(), response_redaction=stats)
+    return redact_structure(result, keys), safe_raw, safe_payload
 
 
 def main():
@@ -259,14 +314,15 @@ def main():
             parser.error('인증값은 --param 대신 비밀파일에 저장하세요.')
         overrides[key] = value
     result, raw, payload = run_probe(args.probe, probes[args.probe], keys, overrides)
-    # 비밀값을 최종 산출 직전에 한 번 더 제거한다.
-    result = json.loads(sanitize(json.dumps(result, ensure_ascii=False), keys))
+    # 비밀값을 최종 산출 직전에 한 번 더 제거한다. 키·숫자를 보존하는 구조 단위 정제다.
+    result = redact_structure(result, keys)
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
     directory = ROOT / 'api-evidence' / (stamp + '_' + args.probe)
     directory.mkdir(parents=True, exist_ok=False)
     (directory / 'result.json').write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n')
     if raw is not None:
-        (directory / ('response.' + result.get('format', 'txt'))).write_text(raw)
+        # sanitized_response_sha256과 같은 바이트를 그대로 쓴다(로캘·줄바꿈 변환 없음).
+        (directory / ('response.' + result.get('format', 'txt'))).write_bytes(raw.encode('utf-8'))
     if payload is not None:
         (directory / 'parsed.json').write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n')
     print(json.dumps({'status': result['status'], 'probe': args.probe, 'record_count': result.get('record_count'), 'evidence_directory': str(directory)}, ensure_ascii=False))

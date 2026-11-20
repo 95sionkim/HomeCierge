@@ -3,12 +3,14 @@
 import argparse
 import hashlib
 import json
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 
+from credential_redaction import RedactionError, redact_structure
 from probe_apis import (ROOT, MISSING, AUTH_PARAMS, COUNT_PATHS, api_error, at,
                         field_coverage, parse_payload, read_keys, records_for,
-                        response_status, sanitize)
+                        known_fields, response_status, storage_copy)
 
 
 def main():
@@ -36,8 +38,20 @@ def main():
         params[key] = value
     keys = read_keys()
     source = args.input.read_bytes()
-    raw = sanitize(source.decode('utf-8-sig'), keys)
-    fmt, data = parse_payload(raw.encode('utf-8'))
+    try:
+        # 해석은 원문 바이트를 엄격한 UTF-8(BOM 허용)로 하고, 저장할 원문·구조 사본만 정제한다.
+        fmt, data = parse_payload(source)
+    except (ValueError, ET.ParseError, RecursionError) as exc:
+        # 예외 문장에는 원문 바이트·위치가 섞일 수 있으므로 형식 이름만 출력하고 아무것도 저장하지 않는다.
+        print(json.dumps({'label': args.label, 'status': 'parse_error', 'parse_error': type(exc).__name__}, ensure_ascii=False))
+        return 1
+    text = source.decode('utf-8-sig')
+    try:
+        raw, safe_data, redaction = storage_copy(text, fmt, data, keys, known_fields(spec))
+    except RedactionError as exc:
+        print(json.dumps({'label': args.label, 'status': 'redaction_failed', 'reason': str(exc),
+                          'response_redaction': exc.stats}, ensure_ascii=False))
+        return 1
     error = api_error(data)
     rows = records_for(data, spec['records'])
     result = {
@@ -54,6 +68,7 @@ def main():
         'field_coverage': field_coverage(rows, spec['fields']),
         'collection_scope': 'single_page_diagnostic',
         'source_file_name': args.input.name,
+        'response_redaction': redaction,
     }
     if error:
         result['api_error'] = error
@@ -72,9 +87,9 @@ def main():
     if destination.exists():
         parser.error('기존 증거를 덮어쓸 수 없습니다. 새 label을 지정하세요.')
     destination.mkdir(parents=True, exist_ok=False)
-    (destination / ('response.' + fmt)).write_text(raw)
-    (destination / 'parsed.json').write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
-    (destination / 'result.json').write_text(sanitize(json.dumps(result, ensure_ascii=False, indent=2), keys) + '\n')
+    (destination / ('response.' + fmt)).write_bytes(raw.encode('utf-8'))  # 정제 해시와 같은 바이트
+    (destination / 'parsed.json').write_text(json.dumps(safe_data, ensure_ascii=False, indent=2) + '\n')
+    (destination / 'result.json').write_text(json.dumps(redact_structure(result, keys), ensure_ascii=False, indent=2) + '\n')
     print(json.dumps({'label': args.label, 'status': result['status'], 'records': len(rows)}, ensure_ascii=False))
     return 0 if result['status'] in {'success', 'success_empty'} else 1
 

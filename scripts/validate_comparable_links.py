@@ -16,7 +16,8 @@ from pathlib import Path
 from statistics import median
 
 from collect_recent_trades import assess_month, normalize
-from probe_apis import ROOT, at, parse_payload, read_keys, records_for, run_probe, sanitize
+from credential_redaction import redact_structure
+from probe_apis import ROOT, at, parse_payload, read_keys, records_for, run_probe
 
 
 def read(path):
@@ -112,12 +113,13 @@ class Captures:
         if not (directory / 'result.json').exists():
             if not self.collect:
                 raise ValueError('missing_capture: ' + key)
+            # run_probe는 원문으로 해석하고 구조를 보존한 정제 사본(raw, payload)만 반환한다.
             result, raw, payload = run_probe(name, spec, self.keys, params)
             directory.mkdir(parents=True, exist_ok=True)
             if raw is not None:
                 result['sanitized_response_sha256'] = digest(raw.encode())
-                (directory / ('response.' + result['format'])).write_text(raw)
-            dump(directory / 'result.json', json.loads(sanitize(json.dumps(result), self.keys)))
+                (directory / ('response.' + result.get('format', 'txt'))).write_bytes(raw.encode('utf-8'))
+            dump(directory / 'result.json', redact_structure(result, self.keys))
             if payload is not None:
                 dump(directory / 'parsed.json', payload)
         result = read(directory / 'result.json')
@@ -140,10 +142,17 @@ def load_collection(directory):
     summary = read(directory / 'summary.json')
     checks, all_rows = [], []
     for month in summary['requested_months']:
+        if month in summary.get('unattempted_months', []):
+            checks.append({'check': month + ':complete', 'passed': False})
+            continue
         pages = []
         for file in sorted((directory / month).glob('page_*_result.json')):
             result = read(file)
             rawfile = file.with_name(file.name.replace('_result.json', '_response.' + result.get('format', 'txt')))
+            if not rawfile.exists() and result['status'] not in {'success', 'success_empty'}:
+                # 전송 실패·보관 보류 페이지는 결과 진단만으로 미완료 상태를 재현한다.
+                pages.append((result, None))
+                continue
             raw = rawfile.read_bytes()
             _, payload = parse_payload(raw)
             # 기존 수집기는 정제 전 해시를 기록한다. 인증값이 없는 거래 응답은 같은 해시다.
@@ -295,7 +304,8 @@ def main():
         'checks_passed': sum(c['passed'] for c in checks), 'checks_total': len(checks), 'checks': checks,
         'limitations': ['공급면적 대응표는 미확보이며 전용면적 시험 결과로 대체하지 않음', '인접 시군구를 포함한 5km 전체 탐색 완전성은 미검증', '사례 공고는 접수 종료된 검증용 공고', '최종 가격 비교·개인 자금 판단·수익 추정은 수행하지 않음'],
     }
-    dump(output / 'validation.json', report)
+    # 파생 보고서도 저장 직전에 구조 단위로 정제한다. 시험 정책(5km 등)과 판정 값은 바꾸지 않는다.
+    dump(output / 'validation.json', redact_structure(report, cap.keys))
     print(json.dumps({k: report[k] for k in ['sale', 'rights', 'six_month_resnapshot', 'candidate_counts', 'checks_passed', 'checks_total']}, ensure_ascii=False))
     return 0 if all(c['passed'] for c in checks) else 1
 

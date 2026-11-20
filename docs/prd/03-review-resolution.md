@@ -4,6 +4,8 @@
 
 원 리뷰는 로컬 `reports/reviews/2026-11-09-claude-opus55-max.md`, 교차검토와 합성 경계 재현은 `2026-11-09-coordinator-synthesis.md`·`2026-11-09-coordinator-validation.json`에 보존돼 있다. 해당 기록은 Git 추적 대상이 아니다. v1.0 작성은 외부 API 재호출·사용자 조사·새 제품 수락 검사 통과를 뜻하지 않는다.
 
+후속 개발 BE-01에서 F-11의 응답 해석과 저장용 사본 생성을 분리했다. [현재 조회 도구의 동작](../api/README.md)과 [합성 회귀 검사](../../scripts/test_credential_sanitization.py)에서 수정 범위를 확인할 수 있다. F-01·F-02·F-04·F-05에 대해 확인한 공식 명세와 실자료 검증이 필요한 항목은 [자료 조사 기록](../api/be-01-evidence.md)에 이어서 정리했다.
+
 ## 1. 발견별 처리 상태를 추적한다
 
 | 원 발견을 연결한다 | v1.0에 반영한 내용을 확인한다 | 완료와 남은 작업을 구분한다 |
