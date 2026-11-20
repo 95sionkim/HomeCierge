@@ -139,7 +139,7 @@ for key in ['news','law','routes','funding']:
 # 6. 동일한 결과 버전을 저장·복원한다.
 node('report',660,5000,460,142,'stage','6  저장·다시 열기·PDF','조건·값·조회 시점·출처·미확인 고정','기능별 성공·입력 필요·실패를 함께 보존')
 node('report-db',1300,5000,430,142,'db','계정별 보고서·비공개 파일','결과 스냅샷·동일 버전 PDF','출처별 보관·내보내기 조건 적용')
-node('llm',1810,5000,330,142,'pending','LLM 설명 보조 [제안]','허용된 구조화 결과만 사용','모델·호스팅 미정')
+node('llm',1810,5000,330,142,'pending','LLM 설명 보조 [제안]','허용된 구조화 결과만 사용','gpt-6.1-sol 평가 제안 · 운영 모델 미정')
 node('display',70,5000,430,142,'result','화면·대화·PDF 일치','단순 저장·복원은 외부 자료 재조회 없음','새 자료로 과거 보고서를 덮어쓰지 않음')
 for key in ['news','law','routes','funding']:
     p=port(key,'S');edge(key,'report',via=[(p[0],4900),(890,4900)])
@@ -193,7 +193,7 @@ add(f'<rect width="{W}" height="{H}" fill="#ffffff"/>')
 tx(70,65,'HOMECIERGE  /  SERVICE FLOW',19,'#5c7289','start',700, 'letter-spacing="2"')
 tx(70,120,'사용자 단계별 통합 플로우차트',42,'#152c44','start',700)
 tx(70,159,'입력 → DB 확인 → 필요한 API 조회 → 판정·계산 → 결과 저장·복원',23,'#50667c','start')
-tx(W-70,70,'2026.11.11 · PRD v1.0 기준',18,'#5c7289','end')
+tx(W-70,70,'기준 문서 PRD v1.1',18,'#5c7289','end')
 tx(W-70,103,'목표 동작 설계 · 구현 완료 표시 아님',18,'#5c7289','end')
 for x,k,label in [(70,'stage','사용자 단계'),(350,'process','서비스 처리'),(635,'decision','조건 판단'),(900,'api','외부 API·문서'),(1260,'db','DB·인증·저장소'),(1650,'hold','보완·보류')]:
     f,s,_=palette[k];add(f'<rect x="{x}" y="190" width="22" height="22" rx="5" fill="{f}" stroke="{s}" stroke-width="2"/>');tx(x+33,208,label,18,'#50667c','start')

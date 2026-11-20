@@ -1,6 +1,6 @@
 # HomeCierge PRD v1.0 리뷰 보완 추적표
 
-2026-11-10 작성. [제품 PRD v1.0](01-product-prd.md)은 [사용자 결정 36개](02-decision-log.md)를 반영한 요구 기준본이다. 이 표는 2026-11-09의 독립 리뷰 14건과 코디네이터 재검토를 현행 요구·수락 기준·남은 작업에 연결한다. 정책 확정, 명세 보완, 실제 구현·자료 검증을 구분한다.
+2026-11-10 작성. 11월 9일 독립 리뷰의 발견 14건, 코디네이터 재검토와 [사용자 결정 36개](02-decision-log.md)가 당시 요구·수락 기준에 어떻게 반영됐는지 기록한다. 본문의 절 번호는 [당시 PRD v1.0](https://github.com/95sionkim/HomeCierge/blob/072e6f4dd6f3355727ba863a6d2fd8377b9e3af3/docs/prd/01-product-prd.md) 기준이며, 현재 개발에 적용할 요구는 [PRD v1.1](01-product-prd.md)에서 확인한다.
 
 원 리뷰는 로컬 `reports/reviews/2026-11-09-claude-opus55-max.md`, 교차검토와 합성 경계 재현은 `2026-11-09-coordinator-synthesis.md`·`2026-11-09-coordinator-validation.json`에 보존돼 있다. 해당 기록은 Git 추적 대상이 아니다. v1.0 작성은 외부 API 재호출·사용자 조사·새 제품 수락 검사 통과를 뜻하지 않는다.
 
