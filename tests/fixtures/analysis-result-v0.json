@@ -1,0 +1,589 @@
+{
+  "normalZero": {
+    "contractVersion": "analysis-result/v0",
+    "dataOrigin": "synthetic",
+    "run": {
+      "runId": "syn-run-normal-zero",
+      "analysisId": "00000000-0000-4000-8000-00000000a001",
+      "status": "finished",
+      "requestedAt": "2026-11-10T10:00:00+09:00",
+      "finishedAt": "2026-11-10T10:00:20+09:00",
+      "error": null
+    },
+    "input": {
+      "rulesVersion": "prd-1.1",
+      "basisDate": "2026-11-10",
+      "notice": {
+        "noticeId": "00000000-0000-4000-8000-00000000b001",
+        "label": "합성 공고 A(실제 공고 아님)"
+      },
+      "housingType": {
+        "housingTypeId": "00000000-0000-4000-8000-00000000c001",
+        "label": "084A(합성)",
+        "supplyArea": {
+          "status": "confirmed",
+          "area": {
+            "basis": "supply",
+            "m2": "112.40"
+          },
+          "evidenceRefs": [
+            {
+              "type": "notice_document_page",
+              "id": "syn-doc-0001",
+              "page": 12
+            }
+          ]
+        },
+        "exclusiveArea": {
+          "basis": "exclusive",
+          "m2": "84.97"
+        }
+      },
+      "tradeKinds": [
+        "sale"
+      ],
+      "contractDateRange": {
+        "source": "user_confirmed",
+        "start": "2026-10-01",
+        "end": "2026-10-31"
+      },
+      "supplyAreaRange": {
+        "source": "default",
+        "lowerRatio": "0.95",
+        "upperRatio": "1.05",
+        "min": {
+          "basis": "supply",
+          "m2": "106.78"
+        },
+        "max": {
+          "basis": "supply",
+          "m2": "118.02"
+        }
+      },
+      "regions": {
+        "priority": {
+          "status": "confirmed",
+          "id": "syn-region-0001",
+          "level": "legal_dong",
+          "name": "합성1동",
+          "evidenceRefs": [
+            {
+              "type": "region_reference",
+              "id": "syn-region-ref-0001"
+            }
+          ]
+        },
+        "expansion": {
+          "status": "confirmed",
+          "id": "syn-region-0002",
+          "level": "gu",
+          "name": "합성구",
+          "evidenceRefs": [
+            {
+              "type": "region_reference",
+              "id": "syn-region-ref-0002"
+            }
+          ]
+        }
+      }
+    },
+    "result": {
+      "completeness": "complete",
+      "regionScopes": {
+        "priority": {
+          "conclusion": "normal_zero",
+          "confirmedCandidateCount": 0,
+          "unresolvedCandidateCount": 0,
+          "collection": {
+            "status": "complete",
+            "recordIds": [
+              "col-apt-trade-99999-202610"
+            ]
+          },
+          "screening": {
+            "status": "complete",
+            "rowsInScope": 3,
+            "unresolvedRows": 0,
+            "exclusions": [
+              {
+                "reason": "cancelled_trade",
+                "rows": 1
+              },
+              {
+                "reason": "supply_area_out_of_range",
+                "rows": 2
+              }
+            ]
+          },
+          "blockingItemIds": []
+        },
+        "expansion": {
+          "conclusion": "candidates_found",
+          "confirmedCandidateCount": 1,
+          "unresolvedCandidateCount": 0,
+          "collection": {
+            "status": "complete",
+            "recordIds": [
+              "col-apt-trade-99999-202610"
+            ]
+          },
+          "screening": {
+            "status": "complete",
+            "rowsInScope": 14,
+            "unresolvedRows": 0,
+            "exclusions": [
+              {
+                "reason": "cancelled_trade",
+                "rows": 2
+              },
+              {
+                "reason": "supply_area_out_of_range",
+                "rows": 11
+              }
+            ]
+          },
+          "blockingItemIds": []
+        }
+      },
+      "items": [
+        {
+          "itemId": "item-sale-priority",
+          "subject": "trade_kind_scope",
+          "scope": {
+            "regionRole": "priority",
+            "tradeKind": "sale",
+            "candidateId": null
+          },
+          "judgment": "normal_zero",
+          "retryable": null,
+          "reasons": [],
+          "nextActions": [],
+          "evidenceRefs": [
+            {
+              "type": "collection_record",
+              "id": "col-apt-trade-99999-202610"
+            },
+            {
+              "type": "screening",
+              "id": "priority"
+            }
+          ]
+        },
+        {
+          "itemId": "item-sale-expansion",
+          "subject": "trade_kind_scope",
+          "scope": {
+            "regionRole": "expansion",
+            "tradeKind": "sale",
+            "candidateId": null
+          },
+          "judgment": "confirmed",
+          "retryable": null,
+          "reasons": [],
+          "nextActions": [],
+          "evidenceRefs": [
+            {
+              "type": "collection_record",
+              "id": "col-apt-trade-99999-202610"
+            },
+            {
+              "type": "screening",
+              "id": "expansion"
+            }
+          ]
+        },
+        {
+          "itemId": "item-candidate-syn-cand-0002",
+          "subject": "candidate",
+          "scope": {
+            "regionRole": "expansion",
+            "tradeKind": null,
+            "candidateId": "syn-cand-0002"
+          },
+          "judgment": "confirmed",
+          "retryable": null,
+          "reasons": [],
+          "nextActions": [],
+          "evidenceRefs": [
+            {
+              "type": "complex_link",
+              "id": "syn-link-0002"
+            },
+            {
+              "type": "supply_area_correspondence",
+              "id": "syn-sac-0002"
+            }
+          ]
+        }
+      ],
+      "collections": [
+        {
+          "recordId": "col-apt-trade-99999-202610",
+          "source": "apt_trade",
+          "tradeKinds": [
+            "sale"
+          ],
+          "requestRegionCode": "99999",
+          "month": "2026-10",
+          "status": "complete",
+          "pagesExpected": 2,
+          "missingPages": [],
+          "reportedTotalCount": 14,
+          "rowsReceived": 14,
+          "totalCountChanged": false,
+          "collectedAt": "2026-11-10T10:00:06+09:00",
+          "error": null
+        }
+      ]
+    }
+  },
+  "partialCollection": {
+    "contractVersion": "analysis-result/v0",
+    "dataOrigin": "synthetic",
+    "run": {
+      "runId": "syn-run-partial-collection",
+      "analysisId": "00000000-0000-4000-8000-00000000a001",
+      "status": "finished",
+      "requestedAt": "2026-11-10T10:00:00+09:00",
+      "finishedAt": "2026-11-10T10:00:22+09:00",
+      "error": null
+    },
+    "input": {
+      "rulesVersion": "prd-1.1",
+      "basisDate": "2026-11-10",
+      "notice": {
+        "noticeId": "00000000-0000-4000-8000-00000000b001",
+        "label": "합성 공고 A(실제 공고 아님)"
+      },
+      "housingType": {
+        "housingTypeId": "00000000-0000-4000-8000-00000000c001",
+        "label": "084A(합성)",
+        "supplyArea": {
+          "status": "confirmed",
+          "area": {
+            "basis": "supply",
+            "m2": "112.40"
+          },
+          "evidenceRefs": [
+            {
+              "type": "notice_document_page",
+              "id": "syn-doc-0001",
+              "page": 12
+            }
+          ]
+        },
+        "exclusiveArea": {
+          "basis": "exclusive",
+          "m2": "84.97"
+        }
+      },
+      "tradeKinds": [
+        "sale"
+      ],
+      "contractDateRange": {
+        "source": "user_confirmed",
+        "start": "2026-10-01",
+        "end": "2026-10-31"
+      },
+      "supplyAreaRange": {
+        "source": "default",
+        "lowerRatio": "0.95",
+        "upperRatio": "1.05",
+        "min": {
+          "basis": "supply",
+          "m2": "106.78"
+        },
+        "max": {
+          "basis": "supply",
+          "m2": "118.02"
+        }
+      },
+      "regions": {
+        "priority": {
+          "status": "confirmed",
+          "id": "syn-region-0001",
+          "level": "legal_dong",
+          "name": "합성1동",
+          "evidenceRefs": [
+            {
+              "type": "region_reference",
+              "id": "syn-region-ref-0001"
+            }
+          ]
+        },
+        "expansion": {
+          "status": "confirmed",
+          "id": "syn-region-0002",
+          "level": "gu",
+          "name": "합성구",
+          "evidenceRefs": [
+            {
+              "type": "region_reference",
+              "id": "syn-region-ref-0002"
+            }
+          ]
+        }
+      }
+    },
+    "result": {
+      "completeness": "partial",
+      "regionScopes": {
+        "priority": {
+          "conclusion": "held",
+          "confirmedCandidateCount": 0,
+          "unresolvedCandidateCount": 0,
+          "collection": {
+            "status": "partial",
+            "recordIds": [
+              "col-apt-trade-99999-202610"
+            ]
+          },
+          "screening": {
+            "status": "incomplete",
+            "rowsInScope": 3,
+            "unresolvedRows": 0,
+            "exclusions": [
+              {
+                "reason": "cancelled_trade",
+                "rows": 1
+              },
+              {
+                "reason": "supply_area_out_of_range",
+                "rows": 2
+              }
+            ]
+          },
+          "blockingItemIds": [
+            "item-sale-priority"
+          ]
+        },
+        "expansion": null
+      },
+      "items": [
+        {
+          "itemId": "item-sale-priority",
+          "subject": "trade_kind_scope",
+          "scope": {
+            "regionRole": "priority",
+            "tradeKind": "sale",
+            "candidateId": null
+          },
+          "judgment": "partially_collected",
+          "retryable": true,
+          "reasons": [
+            {
+              "code": "collection_page_missing"
+            }
+          ],
+          "nextActions": [
+            {
+              "action": "rerun_analysis",
+              "actor": "user"
+            }
+          ],
+          "evidenceRefs": [
+            {
+              "type": "collection_record",
+              "id": "col-apt-trade-99999-202610"
+            },
+            {
+              "type": "screening",
+              "id": "priority"
+            }
+          ]
+        }
+      ],
+      "collections": [
+        {
+          "recordId": "col-apt-trade-99999-202610",
+          "source": "apt_trade",
+          "tradeKinds": [
+            "sale"
+          ],
+          "requestRegionCode": "99999",
+          "month": "2026-10",
+          "status": "partial",
+          "pagesExpected": 2,
+          "missingPages": [
+            2
+          ],
+          "reportedTotalCount": 14,
+          "rowsReceived": 10,
+          "totalCountChanged": false,
+          "collectedAt": "2026-11-10T10:00:06+09:00",
+          "error": {
+            "code": "upstream_timeout",
+            "layer": "network"
+          }
+        }
+      ]
+    }
+  },
+  "upstreamFailure": {
+    "contractVersion": "analysis-result/v0",
+    "dataOrigin": "synthetic",
+    "run": {
+      "runId": "syn-run-upstream-failure",
+      "analysisId": "00000000-0000-4000-8000-00000000a001",
+      "status": "finished",
+      "requestedAt": "2026-11-10T10:00:00+09:00",
+      "finishedAt": "2026-11-10T10:00:30+09:00",
+      "error": null
+    },
+    "input": {
+      "rulesVersion": "prd-1.1",
+      "basisDate": "2026-11-10",
+      "notice": {
+        "noticeId": "00000000-0000-4000-8000-00000000b001",
+        "label": "합성 공고 A(실제 공고 아님)"
+      },
+      "housingType": {
+        "housingTypeId": "00000000-0000-4000-8000-00000000c001",
+        "label": "084A(합성)",
+        "supplyArea": {
+          "status": "confirmed",
+          "area": {
+            "basis": "supply",
+            "m2": "112.40"
+          },
+          "evidenceRefs": [
+            {
+              "type": "notice_document_page",
+              "id": "syn-doc-0001",
+              "page": 12
+            }
+          ]
+        },
+        "exclusiveArea": {
+          "basis": "exclusive",
+          "m2": "84.97"
+        }
+      },
+      "tradeKinds": [
+        "sale"
+      ],
+      "contractDateRange": {
+        "source": "user_confirmed",
+        "start": "2026-10-01",
+        "end": "2026-10-31"
+      },
+      "supplyAreaRange": {
+        "source": "default",
+        "lowerRatio": "0.95",
+        "upperRatio": "1.05",
+        "min": {
+          "basis": "supply",
+          "m2": "106.78"
+        },
+        "max": {
+          "basis": "supply",
+          "m2": "118.02"
+        }
+      },
+      "regions": {
+        "priority": {
+          "status": "confirmed",
+          "id": "syn-region-0001",
+          "level": "legal_dong",
+          "name": "합성1동",
+          "evidenceRefs": [
+            {
+              "type": "region_reference",
+              "id": "syn-region-ref-0001"
+            }
+          ]
+        },
+        "expansion": {
+          "status": "confirmed",
+          "id": "syn-region-0002",
+          "level": "gu",
+          "name": "합성구",
+          "evidenceRefs": [
+            {
+              "type": "region_reference",
+              "id": "syn-region-ref-0002"
+            }
+          ]
+        }
+      }
+    },
+    "result": {
+      "completeness": "unavailable",
+      "regionScopes": {
+        "priority": {
+          "conclusion": "held",
+          "confirmedCandidateCount": 0,
+          "unresolvedCandidateCount": 0,
+          "collection": {
+            "status": "failed",
+            "recordIds": [
+              "col-apt-trade-99999-202610"
+            ]
+          },
+          "screening": {
+            "status": "not_started",
+            "rowsInScope": null,
+            "unresolvedRows": null,
+            "exclusions": []
+          },
+          "blockingItemIds": [
+            "item-sale-priority"
+          ]
+        },
+        "expansion": null
+      },
+      "items": [
+        {
+          "itemId": "item-sale-priority",
+          "subject": "trade_kind_scope",
+          "scope": {
+            "regionRole": "priority",
+            "tradeKind": "sale",
+            "candidateId": null
+          },
+          "judgment": "lookup_failed",
+          "retryable": true,
+          "reasons": [
+            {
+              "code": "collection_request_failed"
+            }
+          ],
+          "nextActions": [
+            {
+              "action": "rerun_analysis",
+              "actor": "user"
+            }
+          ],
+          "evidenceRefs": [
+            {
+              "type": "collection_record",
+              "id": "col-apt-trade-99999-202610"
+            }
+          ]
+        }
+      ],
+      "collections": [
+        {
+          "recordId": "col-apt-trade-99999-202610",
+          "source": "apt_trade",
+          "tradeKinds": [
+            "sale"
+          ],
+          "requestRegionCode": "99999",
+          "month": "2026-10",
+          "status": "failed",
+          "pagesExpected": null,
+          "missingPages": [],
+          "reportedTotalCount": null,
+          "rowsReceived": 0,
+          "totalCountChanged": false,
+          "collectedAt": null,
+          "error": {
+            "code": "upstream_unavailable",
+            "layer": "http"
+          }
+        }
+      ]
+    }
+  }
+}

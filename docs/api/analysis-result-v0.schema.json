@@ -1,0 +1,980 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HomeCierge 분석 결과 계약 v0",
+  "description": "계획 단계 GET /api/v1/runs/{runId}의 200 응답 본문(BE-01 기술 계약 v0, 설계 제안). 해당 경로는 아직 개설하지 않았다. 의미와 스키마로 검사하지 못하는 불변 조건은 docs/api/analysis-result-v0.md를 따른다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contractVersion", "dataOrigin", "run", "input", "result"],
+  "properties": {
+    "contractVersion": { "const": "analysis-result/v0" },
+    "dataOrigin": { "description": "synthetic: 합성·모의 응답. collected: 실제 수집 자료로 산출한 응답.", "enum": ["synthetic", "collected"] },
+    "run": { "$ref": "#/definitions/run" },
+    "input": { "$ref": "#/definitions/input" },
+    "result": { "$ref": "#/definitions/result" }
+  },
+  "allOf": [
+    {
+      "description": "끝나지 않았거나 실패·취소된 실행은 결과를 산출하지 않는다. finished는 결과가 있다는 뜻일 뿐 성공·완전을 뜻하지 않는다.",
+      "if": {
+        "type": "object",
+        "required": ["run"],
+        "properties": { "run": { "type": "object", "required": ["status"], "properties": { "status": { "enum": ["queued", "running", "retry_wait", "failed", "cancelled"] } } } }
+      },
+      "then": { "type": "object", "properties": { "result": { "type": "object", "properties": { "completeness": { "const": "not_produced" } } } } },
+      "else": { "type": "object", "properties": { "result": { "type": "object", "properties": { "completeness": { "enum": ["complete", "partial", "unavailable"] } } } } }
+    },
+    {
+      "description": "선택 주택형의 공급면적이 확인되지 않으면 비교 결과를 제공하지 않고 보류 항목을 둔다(A-11).",
+      "if": {
+        "type": "object",
+        "required": ["input"],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": ["housingType"],
+            "properties": {
+              "housingType": {
+                "type": "object",
+                "required": ["supplyArea"],
+                "properties": { "supplyArea": { "type": "object", "required": ["status"], "properties": { "status": { "enum": ["unverified", "conflict"] } } } }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "object",
+            "properties": {
+              "completeness": { "enum": ["unavailable", "not_produced"] },
+              "items": {
+                "anyOf": [
+                  { "type": "null" },
+                  { "type": "array", "contains": { "type": "object", "required": ["subject"], "properties": { "subject": { "const": "target_supply_area" } } } }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "우선 지역(동·읍·면)을 확인하지 못하면 이름·좌표로 추측하지 않고 결과를 보류한다.",
+      "if": {
+        "type": "object",
+        "required": ["input"],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": ["regions"],
+            "properties": {
+              "regions": {
+                "type": "object",
+                "required": ["priority"],
+                "properties": { "priority": { "type": "object", "required": ["status"], "properties": { "status": { "enum": ["unverified", "conflict"] } } } }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "object",
+            "properties": {
+              "completeness": { "enum": ["unavailable", "not_produced"] },
+              "items": {
+                "anyOf": [
+                  { "type": "null" },
+                  {
+                    "type": "array",
+                    "contains": {
+                      "type": "object",
+                      "required": ["subject", "scope"],
+                      "properties": {
+                        "subject": { "const": "region_membership" },
+                        "scope": { "type": "object", "required": ["regionRole"], "properties": { "regionRole": { "const": "priority" } } }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "확대 지역(구 또는 시·군)을 확인하지 못한 채 확대 범위에 들어가면 그 범위 판정은 보류다.",
+      "if": {
+        "type": "object",
+        "required": ["input", "result"],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": ["regions"],
+            "properties": {
+              "regions": {
+                "type": "object",
+                "required": ["expansion"],
+                "properties": { "expansion": { "type": "object", "required": ["status"], "properties": { "status": { "enum": ["unverified", "conflict"] } } } }
+              }
+            }
+          },
+          "result": {
+            "type": "object",
+            "required": ["regionScopes"],
+            "properties": { "regionScopes": { "type": "object", "required": ["expansion"], "properties": { "expansion": { "type": "object" } } } }
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "object",
+            "properties": {
+              "regionScopes": { "type": "object", "properties": { "expansion": { "type": "object", "properties": { "conclusion": { "const": "held" } } } } }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$" },
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "label": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "won": {
+      "description": "공용 값 형식. 원 단위 0 이상 정수의 십진 문자열이며 쉼표·단위·소수점·앞자리 0을 쓰지 않는다. v0 결과 본문에는 금액 필드가 아직 없다.",
+      "type": "string",
+      "maxLength": 20,
+      "pattern": "^(0|[1-9][0-9]*)$"
+    },
+    "positiveDecimal": {
+      "description": "0보다 큰 십진 문자열. 판정은 정밀 십진수로 하고 표시 반올림과 분리한다.",
+      "type": "string",
+      "maxLength": 24,
+      "pattern": "^([1-9][0-9]*(\\.[0-9]+)?|0\\.[0-9]*[1-9][0-9]*)$"
+    },
+    "supplyArea": {
+      "description": "공급면적(㎡). 전용면적을 대입하지 않는다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["basis", "m2"],
+      "properties": { "basis": { "const": "supply" }, "m2": { "$ref": "#/definitions/positiveDecimal" } }
+    },
+    "exclusiveArea": {
+      "description": "전용면적(㎡). 표시용이며 비교 범위·판정에 사용하지 않는다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["basis", "m2"],
+      "properties": { "basis": { "const": "exclusive" }, "m2": { "$ref": "#/definitions/positiveDecimal" } }
+    },
+    "date": {
+      "description": "달력 날짜 YYYY-MM-DD(시간대 없음). 실제 달력 검사는 format(date) 검증기(Ajv + ajv-formats)로 한다.",
+      "type": "string",
+      "format": "date",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$"
+    },
+    "yearMonth": { "type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$" },
+    "timestamp": {
+      "description": "RFC 3339 시각. 시간대 오프셋(Z 또는 ±hh:mm) 필수.",
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,6})?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$"
+    },
+    "nullableTimestamp": { "anyOf": [{ "type": "null" }, { "$ref": "#/definitions/timestamp" }] },
+    "tradeKind": { "enum": ["sale", "presale_right", "occupancy_right"] },
+    "regionRole": { "enum": ["priority", "expansion"] },
+    "factStatus": { "description": "입력 사실의 검증 상태.", "enum": ["confirmed", "unverified", "conflict"] },
+    "unresolvedItem": {
+      "type": "object",
+      "required": ["judgment"],
+      "properties": { "judgment": { "enum": ["unverified", "partially_collected", "lookup_failed", "conflict", "decision_required"] } }
+    },
+
+    "run": {
+      "description": "실행 상태 축. 결과 완전성과 별개다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runId", "analysisId", "status", "requestedAt", "finishedAt", "error"],
+      "properties": {
+        "runId": { "$ref": "#/definitions/id" },
+        "analysisId": { "$ref": "#/definitions/uuid" },
+        "status": { "enum": ["queued", "running", "retry_wait", "finished", "failed", "cancelled"] },
+        "requestedAt": { "$ref": "#/definitions/timestamp" },
+        "finishedAt": { "$ref": "#/definitions/nullableTimestamp" },
+        "error": { "anyOf": [{ "type": "null" }, { "$ref": "#/definitions/runError" }] }
+      },
+      "allOf": [
+        {
+          "if": { "type": "object", "required": ["status"], "properties": { "status": { "enum": ["queued", "running", "retry_wait"] } } },
+          "then": { "type": "object", "properties": { "finishedAt": { "type": "null" } } },
+          "else": { "type": "object", "properties": { "finishedAt": { "type": "string" } } }
+        },
+        {
+          "if": { "type": "object", "required": ["status"], "properties": { "status": { "const": "failed" } } },
+          "then": { "type": "object", "properties": { "error": { "type": "object" } } },
+          "else": { "type": "object", "properties": { "error": { "type": "null" } } }
+        }
+      ]
+    },
+    "runError": {
+      "description": "실행 자체의 실패. 외부 조회 실패는 collections[].error에 기록한다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code"],
+      "properties": { "code": { "enum": ["run_internal_error", "run_deadline_exceeded"] } }
+    },
+
+    "input": {
+      "description": "실행 시작 시 고정한 분석 범위(PRD §7.2.1 판정 1). 입력 사실은 자체 검증 상태를 갖는다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rulesVersion", "basisDate", "notice", "housingType", "tradeKinds", "contractDateRange", "supplyAreaRange", "regions"],
+      "properties": {
+        "rulesVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "basisDate": { "$ref": "#/definitions/date" },
+        "notice": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["noticeId", "label"],
+          "properties": { "noticeId": { "$ref": "#/definitions/uuid" }, "label": { "$ref": "#/definitions/label" } }
+        },
+        "housingType": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["housingTypeId", "label", "supplyArea", "exclusiveArea"],
+          "properties": {
+            "housingTypeId": { "$ref": "#/definitions/uuid" },
+            "label": { "$ref": "#/definitions/label" },
+            "supplyArea": { "$ref": "#/definitions/supplyAreaFact" },
+            "exclusiveArea": { "anyOf": [{ "type": "null" }, { "$ref": "#/definitions/exclusiveArea" }] }
+          }
+        },
+        "tradeKinds": { "type": "array", "minItems": 1, "maxItems": 3, "uniqueItems": true, "items": { "$ref": "#/definitions/tradeKind" } },
+        "contractDateRange": {
+          "description": "계약일 범위. start·end 모두 포함. 기본은 조회일까지 최근 1년이며 다른 기간은 사용자가 확인한 경우만 쓴다.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source", "start", "end"],
+          "properties": {
+            "source": { "enum": ["default_recent_year", "user_confirmed"] },
+            "start": { "$ref": "#/definitions/date" },
+            "end": { "$ref": "#/definitions/date" }
+          }
+        },
+        "supplyAreaRange": { "anyOf": [{ "type": "null" }, { "$ref": "#/definitions/supplyAreaRange" }] },
+        "regions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["priority", "expansion"],
+          "properties": { "priority": { "$ref": "#/definitions/priorityRegion" }, "expansion": { "$ref": "#/definitions/expansionRegion" } }
+        }
+      },
+      "if": {
+        "type": "object",
+        "required": ["housingType"],
+        "properties": {
+          "housingType": {
+            "type": "object",
+            "required": ["supplyArea"],
+            "properties": { "supplyArea": { "type": "object", "required": ["status"], "properties": { "status": { "const": "confirmed" } } } }
+          }
+        }
+      },
+      "then": { "type": "object", "properties": { "supplyAreaRange": { "type": "object" } } },
+      "else": { "type": "object", "properties": { "supplyAreaRange": { "type": "null" } } }
+    },
+    "supplyAreaFact": {
+      "description": "선택 주택형의 공급면적과 근거. 확인되지 않으면 값을 비운다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "area", "evidenceRefs"],
+      "properties": {
+        "status": { "$ref": "#/definitions/factStatus" },
+        "area": { "anyOf": [{ "type": "null" }, { "$ref": "#/definitions/supplyArea" }] },
+        "evidenceRefs": { "type": "array", "items": { "$ref": "#/definitions/evidenceRef" } }
+      },
+      "allOf": [
+        {
+          "if": { "type": "object", "required": ["status"], "properties": { "status": { "const": "confirmed" } } },
+          "then": { "type": "object", "properties": { "area": { "type": "object" }, "evidenceRefs": { "type": "array", "minItems": 1 } } },
+          "else": { "type": "object", "properties": { "area": { "type": "null" } } }
+        },
+        {
+          "if": { "type": "object", "required": ["status"], "properties": { "status": { "const": "conflict" } } },
+          "then": { "type": "object", "properties": { "evidenceRefs": { "type": "array", "minItems": 2 } } }
+        }
+      ]
+    },
+    "supplyAreaRange": {
+      "description": "공급면적 비교 범위. min·max 포함. default는 0.95×S ≤ C ≤ 1.05×S.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "lowerRatio", "upperRatio", "min", "max"],
+      "properties": {
+        "source": { "enum": ["default", "user_confirmed"] },
+        "lowerRatio": { "$ref": "#/definitions/positiveDecimal" },
+        "upperRatio": { "$ref": "#/definitions/positiveDecimal" },
+        "min": { "$ref": "#/definitions/supplyArea" },
+        "max": { "$ref": "#/definitions/supplyArea" }
+      },
+      "if": { "type": "object", "required": ["source"], "properties": { "source": { "const": "default" } } },
+      "then": { "type": "object", "properties": { "lowerRatio": { "const": "0.95" }, "upperRatio": { "const": "1.05" } } }
+    },
+    "region": {
+      "description": "제품 지역. 식별자와 출처 근거·검증 상태로 표현하며 코드 길이·체계는 D-02에서 정한다. API 요청 지역(collections[].requestRegionCode)과 별개다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "id", "level", "name", "evidenceRefs"],
+      "properties": {
+        "status": { "$ref": "#/definitions/factStatus" },
+        "id": { "anyOf": [{ "type": "null" }, { "$ref": "#/definitions/id" }] },
+        "level": { "anyOf": [{ "type": "null" }, { "enum": ["legal_dong", "eup", "myeon", "gu", "si_gun"] }] },
+        "name": { "anyOf": [{ "type": "null" }, { "$ref": "#/definitions/label" }] },
+        "evidenceRefs": { "type": "array", "items": { "$ref": "#/definitions/evidenceRef" } }
+      },
+      "allOf": [
+        {
+          "if": { "type": "object", "required": ["status"], "properties": { "status": { "const": "confirmed" } } },
+          "then": {
+            "type": "object",
+            "properties": { "id": { "type": "string" }, "level": { "type": "string" }, "name": { "type": "string" }, "evidenceRefs": { "type": "array", "minItems": 1 } }
+          }
+        },
+        {
+          "if": { "type": "object", "required": ["status"], "properties": { "status": { "const": "conflict" } } },
+          "then": { "type": "object", "properties": { "evidenceRefs": { "type": "array", "minItems": 2 } } }
+        }
+      ]
+    },
+    "priorityRegion": {
+      "description": "우선 지역: 같은 법정동·읍·면.",
+      "allOf": [
+        { "$ref": "#/definitions/region" },
+        { "type": "object", "properties": { "level": { "anyOf": [{ "type": "null" }, { "enum": ["legal_dong", "eup", "myeon"] }] } } }
+      ]
+    },
+    "expansionRegion": {
+      "description": "확대 지역: 구가 있으면 같은 구, 없으면 같은 시·군.",
+      "allOf": [
+        { "$ref": "#/definitions/region" },
+        { "type": "object", "properties": { "level": { "anyOf": [{ "type": "null" }, { "enum": ["gu", "si_gun"] }] } } }
+      ]
+    },
+
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["completeness", "regionScopes", "items", "collections"],
+      "properties": {
+        "completeness": { "enum": ["complete", "partial", "unavailable", "not_produced"] },
+        "regionScopes": { "anyOf": [{ "type": "null" }, { "$ref": "#/definitions/regionScopes" }] },
+        "items": { "anyOf": [{ "type": "null" }, { "type": "array", "items": { "$ref": "#/definitions/item" } }] },
+        "collections": { "anyOf": [{ "type": "null" }, { "type": "array", "items": { "$ref": "#/definitions/collectionRecord" } }] }
+      },
+      "allOf": [
+        {
+          "description": "산출 전에는 빈 배열 대신 null을 사용해 정상 0개와 섞이지 않게 한다.",
+          "if": { "type": "object", "required": ["completeness"], "properties": { "completeness": { "const": "not_produced" } } },
+          "then": { "type": "object", "properties": { "regionScopes": { "type": "null" }, "items": { "type": "null" }, "collections": { "type": "null" } } },
+          "else": {
+            "type": "object",
+            "properties": { "regionScopes": { "type": "object" }, "items": { "type": "array", "minItems": 1 }, "collections": { "type": "array" } }
+          }
+        },
+        {
+          "description": "complete: 결론을 바꿀 보류가 없다.",
+          "if": { "type": "object", "required": ["completeness"], "properties": { "completeness": { "const": "complete" } } },
+          "then": {
+            "type": "object",
+            "properties": {
+              "items": { "type": "array", "items": { "type": "object", "properties": { "judgment": { "enum": ["confirmed", "normal_zero"] } } } },
+              "collections": { "type": "array", "items": { "type": "object", "properties": { "status": { "enum": ["complete", "empty"] } } } },
+              "regionScopes": {
+                "type": "object",
+                "properties": {
+                  "priority": { "type": "object", "properties": { "conclusion": { "enum": ["candidates_found", "normal_zero"] }, "unresolvedCandidateCount": { "const": 0 } } },
+                  "expansion": {
+                    "anyOf": [
+                      { "type": "null" },
+                      { "type": "object", "properties": { "conclusion": { "enum": ["candidates_found", "normal_zero"] }, "unresolvedCandidateCount": { "const": 0 } } }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "description": "partial: 보류가 남았지만 우선 지역의 판별이 시작돼 독립적으로 확인된 내용이 있다.",
+          "if": { "type": "object", "required": ["completeness"], "properties": { "completeness": { "const": "partial" } } },
+          "then": {
+            "type": "object",
+            "properties": {
+              "items": { "type": "array", "contains": { "$ref": "#/definitions/unresolvedItem" } },
+              "regionScopes": {
+                "type": "object",
+                "properties": {
+                  "priority": { "type": "object", "properties": { "screening": { "type": "object", "properties": { "status": { "enum": ["complete", "incomplete"] } } } } }
+                }
+              }
+            }
+          }
+        },
+        {
+          "description": "unavailable: 확인된 판별 내용이 없고 우선 지역 판정을 보류한다.",
+          "if": { "type": "object", "required": ["completeness"], "properties": { "completeness": { "const": "unavailable" } } },
+          "then": {
+            "type": "object",
+            "properties": {
+              "items": { "type": "array", "items": { "$ref": "#/definitions/unresolvedItem" } },
+              "regionScopes": {
+                "type": "object",
+                "properties": {
+                  "priority": {
+                    "type": "object",
+                    "properties": { "conclusion": { "const": "held" }, "screening": { "type": "object", "properties": { "status": { "const": "not_started" } } } }
+                  },
+                  "expansion": { "type": "null" }
+                }
+              }
+            }
+          }
+        },
+        {
+          "description": "우선 지역에 미해결 항목이 하나라도 있으면 정상 0개(따라서 확대)를 표시할 수 없다.",
+          "if": {
+            "type": "object",
+            "required": ["items"],
+            "properties": {
+              "items": {
+                "type": "array",
+                "contains": {
+                  "type": "object",
+                  "required": ["judgment", "scope"],
+                  "properties": {
+                    "judgment": { "enum": ["unverified", "partially_collected", "lookup_failed", "conflict", "decision_required"] },
+                    "scope": { "type": "object", "required": ["regionRole"], "properties": { "regionRole": { "const": "priority" } } }
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "regionScopes": { "type": "object", "properties": { "priority": { "type": "object", "properties": { "conclusion": { "enum": ["candidates_found", "held"] } } } } }
+            }
+          }
+        },
+        {
+          "description": "확대 범위 항목은 확대 범위 판정이 있을 때만 존재한다.",
+          "if": {
+            "type": "object",
+            "required": ["items"],
+            "properties": {
+              "items": {
+                "type": "array",
+                "contains": {
+                  "type": "object",
+                  "required": ["scope"],
+                  "properties": { "scope": { "type": "object", "required": ["regionRole"], "properties": { "regionRole": { "const": "expansion" } } } }
+                }
+              }
+            }
+          },
+          "then": { "type": "object", "properties": { "regionScopes": { "type": "object", "properties": { "expansion": { "type": "object" } } } } }
+        },
+        {
+          "description": "확대 범위에 미해결 항목이 있으면 그 범위의 정상 0개를 표시할 수 없다.",
+          "if": {
+            "type": "object",
+            "required": ["items"],
+            "properties": {
+              "items": {
+                "type": "array",
+                "contains": {
+                  "type": "object",
+                  "required": ["judgment", "scope"],
+                  "properties": {
+                    "judgment": { "enum": ["unverified", "partially_collected", "lookup_failed", "conflict", "decision_required"] },
+                    "scope": { "type": "object", "required": ["regionRole"], "properties": { "regionRole": { "const": "expansion" } } }
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "regionScopes": { "type": "object", "properties": { "expansion": { "type": "object", "properties": { "conclusion": { "enum": ["candidates_found", "held"] } } } } }
+            }
+          }
+        }
+      ]
+    },
+    "regionScopes": {
+      "description": "우선 지역이 정상 0개일 때만, 그리고 그때는 항상 확대 범위 판정을 둔다(A-05·A-06).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["priority", "expansion"],
+      "properties": {
+        "priority": { "$ref": "#/definitions/regionScope" },
+        "expansion": { "anyOf": [{ "type": "null" }, { "$ref": "#/definitions/regionScope" }] }
+      },
+      "if": {
+        "type": "object",
+        "required": ["priority"],
+        "properties": { "priority": { "type": "object", "required": ["conclusion"], "properties": { "conclusion": { "const": "normal_zero" } } } }
+      },
+      "then": { "type": "object", "properties": { "expansion": { "type": "object" } } },
+      "else": { "type": "object", "properties": { "expansion": { "type": "null" } } }
+    },
+    "regionScope": {
+      "description": "한 지역 범위의 판정. 거래 종류를 합친 고유 주변 단지 기준이다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["conclusion", "confirmedCandidateCount", "unresolvedCandidateCount", "collection", "screening", "blockingItemIds"],
+      "properties": {
+        "conclusion": { "enum": ["candidates_found", "normal_zero", "held"] },
+        "confirmedCandidateCount": { "type": "integer", "minimum": 0 },
+        "unresolvedCandidateCount": { "type": "integer", "minimum": 0 },
+        "collection": { "$ref": "#/definitions/scopeCollection" },
+        "screening": { "$ref": "#/definitions/screening" },
+        "blockingItemIds": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/definitions/id" } }
+      },
+      "allOf": [
+        {
+          "description": "정상 0개는 필요한 수집 완료·판별 완료·미해결 0건을 함께 요구한다. 응답 0행만으로 증명하지 않는다.",
+          "if": { "type": "object", "required": ["conclusion"], "properties": { "conclusion": { "const": "normal_zero" } } },
+          "then": {
+            "type": "object",
+            "properties": {
+              "confirmedCandidateCount": { "const": 0 },
+              "unresolvedCandidateCount": { "const": 0 },
+              "collection": { "type": "object", "properties": { "status": { "const": "complete" } } },
+              "screening": { "type": "object", "properties": { "status": { "const": "complete" }, "unresolvedRows": { "const": 0 } } },
+              "blockingItemIds": { "type": "array", "maxItems": 0 }
+            }
+          }
+        },
+        {
+          "if": { "type": "object", "required": ["conclusion"], "properties": { "conclusion": { "const": "candidates_found" } } },
+          "then": { "type": "object", "properties": { "confirmedCandidateCount": { "type": "integer", "minimum": 1 } } }
+        },
+        {
+          "if": { "type": "object", "required": ["conclusion"], "properties": { "conclusion": { "const": "held" } } },
+          "then": { "type": "object", "properties": { "confirmedCandidateCount": { "const": 0 }, "blockingItemIds": { "type": "array", "minItems": 1 } } }
+        },
+        {
+          "description": "필요한 수집이 끝나지 않았으면(페이지 누락·조회 실패 포함) 정상 0개를 표시할 수 없고 판별도 완료일 수 없다.",
+          "if": {
+            "type": "object",
+            "required": ["collection"],
+            "properties": { "collection": { "type": "object", "required": ["status"], "properties": { "status": { "enum": ["partial", "failed", "not_started"] } } } }
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "conclusion": { "enum": ["candidates_found", "held"] },
+              "screening": { "type": "object", "properties": { "status": { "enum": ["incomplete", "not_started"] } } }
+            }
+          }
+        }
+      ]
+    },
+    "scopeCollection": {
+      "description": "이 지역 범위의 판정에 필요한 수집 기록과 그 집계 상태.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "recordIds"],
+      "properties": {
+        "status": { "enum": ["complete", "partial", "failed", "not_started"] },
+        "recordIds": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/definitions/id" } }
+      },
+      "if": { "type": "object", "required": ["status"], "properties": { "status": { "const": "not_started" } } },
+      "then": { "type": "object", "properties": { "recordIds": { "type": "array", "maxItems": 0 } } },
+      "else": { "type": "object", "properties": { "recordIds": { "type": "array", "minItems": 1 } } }
+    },
+    "screening": {
+      "description": "받은 거래 행의 판별. incomplete이면 개수는 받은 행 기준이다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "rowsInScope", "unresolvedRows", "exclusions"],
+      "properties": {
+        "status": { "enum": ["complete", "incomplete", "not_started"] },
+        "rowsInScope": { "anyOf": [{ "type": "null" }, { "type": "integer", "minimum": 0 }] },
+        "unresolvedRows": { "anyOf": [{ "type": "null" }, { "type": "integer", "minimum": 0 }] },
+        "exclusions": { "type": "array", "items": { "$ref": "#/definitions/exclusion" } }
+      },
+      "if": { "type": "object", "required": ["status"], "properties": { "status": { "const": "not_started" } } },
+      "then": {
+        "type": "object",
+        "properties": { "rowsInScope": { "type": "null" }, "unresolvedRows": { "type": "null" }, "exclusions": { "type": "array", "maxItems": 0 } }
+      },
+      "else": { "type": "object", "properties": { "rowsInScope": { "type": "integer" }, "unresolvedRows": { "type": "integer" } } }
+    },
+    "exclusion": {
+      "description": "확인된 규칙과 근거로 제외한 행 수. 단순 결측·연결 실패는 제외가 아니라 unresolvedRows다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason", "rows"],
+      "properties": {
+        "reason": {
+          "enum": ["outside_contract_period", "cancelled_trade", "supply_area_out_of_range", "trade_kind_not_included", "outside_region_scope", "target_complex_trade"]
+        },
+        "rows": { "type": "integer", "minimum": 1 }
+      }
+    },
+
+    "item": {
+      "description": "구성요소별 판정: 확인·정상 0·미확인·일부 수집·조회 실패·충돌·결정 필요.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["itemId", "subject", "scope", "judgment", "retryable", "reasons", "nextActions", "evidenceRefs"],
+      "properties": {
+        "itemId": { "$ref": "#/definitions/id" },
+        "subject": { "enum": ["target_supply_area", "region_membership", "trade_kind_scope", "candidate"] },
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["regionRole", "tradeKind", "candidateId"],
+          "properties": {
+            "regionRole": { "anyOf": [{ "type": "null" }, { "$ref": "#/definitions/regionRole" }] },
+            "tradeKind": { "anyOf": [{ "type": "null" }, { "$ref": "#/definitions/tradeKind" }] },
+            "candidateId": { "anyOf": [{ "type": "null" }, { "$ref": "#/definitions/id" }] }
+          }
+        },
+        "judgment": { "enum": ["confirmed", "normal_zero", "unverified", "partially_collected", "lookup_failed", "conflict", "decision_required"] },
+        "retryable": { "anyOf": [{ "type": "null" }, { "type": "boolean" }] },
+        "reasons": { "type": "array", "items": { "$ref": "#/definitions/reason" } },
+        "nextActions": { "type": "array", "items": { "$ref": "#/definitions/nextAction" } },
+        "evidenceRefs": { "type": "array", "items": { "$ref": "#/definitions/evidenceRef" } }
+      },
+      "allOf": [
+        {
+          "description": "확인·정상 0은 근거가 필요하고 다음 행동이 없다. 미해결 판정은 사유·다음 행동·재시도 가능 여부가 필요하다.",
+          "if": { "type": "object", "required": ["judgment"], "properties": { "judgment": { "enum": ["confirmed", "normal_zero"] } } },
+          "then": {
+            "type": "object",
+            "properties": { "retryable": { "type": "null" }, "nextActions": { "type": "array", "maxItems": 0 }, "evidenceRefs": { "type": "array", "minItems": 1 } }
+          },
+          "else": {
+            "type": "object",
+            "properties": { "retryable": { "type": "boolean" }, "reasons": { "type": "array", "minItems": 1 }, "nextActions": { "type": "array", "minItems": 1 } }
+          }
+        },
+        {
+          "description": "정상 0은 거래 종류×지역 범위에만 쓰며 수집 기록과 판별 근거를 함께 요구한다.",
+          "if": { "type": "object", "required": ["judgment"], "properties": { "judgment": { "const": "normal_zero" } } },
+          "then": {
+            "type": "object",
+            "properties": {
+              "subject": { "const": "trade_kind_scope" },
+              "evidenceRefs": {
+                "type": "array",
+                "allOf": [
+                  { "type": "array", "contains": { "type": "object", "required": ["type"], "properties": { "type": { "const": "collection_record" } } } },
+                  { "type": "array", "contains": { "type": "object", "required": ["type"], "properties": { "type": { "const": "screening" } } } }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": { "type": "object", "required": ["judgment"], "properties": { "judgment": { "const": "partially_collected" } } },
+          "then": {
+            "type": "object",
+            "properties": {
+              "subject": { "const": "trade_kind_scope" },
+              "evidenceRefs": { "type": "array", "contains": { "type": "object", "required": ["type"], "properties": { "type": { "const": "collection_record" } } } }
+            }
+          }
+        },
+        {
+          "if": { "type": "object", "required": ["judgment"], "properties": { "judgment": { "const": "lookup_failed" } } },
+          "then": { "type": "object", "properties": { "evidenceRefs": { "type": "array", "minItems": 1 } } }
+        },
+        {
+          "description": "충돌은 양쪽 근거를 보존한다.",
+          "if": { "type": "object", "required": ["judgment"], "properties": { "judgment": { "const": "conflict" } } },
+          "then": { "type": "object", "properties": { "evidenceRefs": { "type": "array", "minItems": 2 } } }
+        },
+        {
+          "if": { "type": "object", "required": ["judgment"], "properties": { "judgment": { "const": "decision_required" } } },
+          "then": {
+            "type": "object",
+            "properties": {
+              "reasons": {
+                "type": "array",
+                "contains": { "type": "object", "required": ["code"], "properties": { "code": { "enum": ["product_decision_pending", "user_confirmation_required"] } } }
+              }
+            }
+          }
+        },
+        {
+          "description": "확인된 입력 사실은 input에만 둔다. 이 두 주제의 항목은 미해결일 때만 생긴다.",
+          "if": { "type": "object", "required": ["subject"], "properties": { "subject": { "const": "target_supply_area" } } },
+          "then": {
+            "type": "object",
+            "properties": {
+              "scope": { "type": "object", "properties": { "regionRole": { "type": "null" }, "tradeKind": { "type": "null" }, "candidateId": { "type": "null" } } },
+              "judgment": { "enum": ["unverified", "conflict", "decision_required", "lookup_failed"] }
+            }
+          }
+        },
+        {
+          "if": { "type": "object", "required": ["subject"], "properties": { "subject": { "const": "region_membership" } } },
+          "then": {
+            "type": "object",
+            "properties": {
+              "scope": { "type": "object", "properties": { "regionRole": { "type": "string" }, "tradeKind": { "type": "null" }, "candidateId": { "type": "null" } } },
+              "judgment": { "enum": ["unverified", "conflict", "lookup_failed"] }
+            }
+          }
+        },
+        {
+          "if": { "type": "object", "required": ["subject"], "properties": { "subject": { "const": "trade_kind_scope" } } },
+          "then": {
+            "type": "object",
+            "properties": { "scope": { "type": "object", "properties": { "regionRole": { "type": "string" }, "tradeKind": { "type": "string" }, "candidateId": { "type": "null" } } } }
+          }
+        },
+        {
+          "if": { "type": "object", "required": ["subject"], "properties": { "subject": { "const": "candidate" } } },
+          "then": {
+            "type": "object",
+            "properties": {
+              "scope": { "type": "object", "properties": { "regionRole": { "type": "string" }, "candidateId": { "type": "string" } } },
+              "judgment": { "enum": ["confirmed", "unverified", "conflict", "decision_required", "lookup_failed"] }
+            }
+          }
+        }
+      ]
+    },
+    "reason": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code"],
+      "properties": {
+        "code": {
+          "enum": [
+            "collection_page_missing",
+            "collection_total_count_changed",
+            "collection_row_count_mismatch",
+            "collection_page_inconsistent",
+            "collection_request_failed",
+            "supply_area_correspondence_missing",
+            "area_basis_mixed",
+            "complex_link_pending",
+            "address_conflict",
+            "source_value_conflict",
+            "region_membership_unverified",
+            "region_unassigned_rows",
+            "cancellation_status_unknown",
+            "different_notice_round",
+            "product_decision_pending",
+            "user_confirmation_required"
+          ]
+        },
+        "decisionId": { "type": "string", "pattern": "^D-[0-9]{2}$" }
+      },
+      "if": { "type": "object", "required": ["code"], "properties": { "code": { "const": "product_decision_pending" } } },
+      "then": { "type": "object", "required": ["decisionId"], "properties": { "decisionId": { "type": "string" } } },
+      "else": { "type": "object", "properties": { "decisionId": false } }
+    },
+    "nextAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "actor"],
+      "properties": {
+        "action": {
+          "enum": [
+            "rerun_analysis",
+            "obtain_supply_area_evidence",
+            "resolve_complex_link",
+            "verify_region_membership",
+            "upload_notice_document",
+            "confirm_condition_change",
+            "await_product_decision",
+            "check_upstream_access"
+          ]
+        },
+        "actor": { "enum": ["user", "operator", "system"] }
+      }
+    },
+    "evidenceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id"],
+      "properties": {
+        "type": { "enum": ["collection_record", "screening", "notice_document_page", "region_reference", "complex_link", "supply_area_correspondence"] },
+        "id": { "$ref": "#/definitions/id" },
+        "page": { "type": "integer", "minimum": 1 }
+      },
+      "allOf": [
+        {
+          "if": { "type": "object", "required": ["type"], "properties": { "type": { "const": "notice_document_page" } } },
+          "then": { "type": "object", "required": ["page"], "properties": { "page": { "type": "integer" } } },
+          "else": { "type": "object", "properties": { "page": false } }
+        },
+        {
+          "if": { "type": "object", "required": ["type"], "properties": { "type": { "const": "screening" } } },
+          "then": { "type": "object", "properties": { "id": { "enum": ["priority", "expansion"] } } }
+        }
+      ]
+    },
+    "upstreamError": {
+      "description": "외부 출처 조회 오류의 요약. 원문 메시지·인증값·요청 URL은 담지 않는다. layer는 HTTP 200 안의 업무 오류(business)를 HTTP 오류와 구분한다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "layer"],
+      "properties": {
+        "code": {
+          "enum": [
+            "upstream_timeout",
+            "upstream_unavailable",
+            "upstream_rate_limited",
+            "upstream_auth_rejected",
+            "upstream_business_error",
+            "upstream_malformed_response",
+            "upstream_response_too_large"
+          ]
+        },
+        "layer": { "enum": ["network", "http", "business", "parse"] }
+      },
+      "allOf": [
+        {
+          "if": { "type": "object", "required": ["code"], "properties": { "code": { "const": "upstream_business_error" } } },
+          "then": { "type": "object", "properties": { "layer": { "const": "business" } } }
+        },
+        {
+          "if": { "type": "object", "required": ["code"], "properties": { "code": { "const": "upstream_timeout" } } },
+          "then": { "type": "object", "properties": { "layer": { "const": "network" } } }
+        },
+        {
+          "if": { "type": "object", "required": ["code"], "properties": { "code": { "enum": ["upstream_malformed_response", "upstream_response_too_large"] } } },
+          "then": { "type": "object", "properties": { "layer": { "const": "parse" } } }
+        }
+      ]
+    },
+    "collectionRecord": {
+      "description": "출처·API 요청 지역·월 단위의 수집 기록. requestRegionCode는 apt_trade의 5자리 LAWD_CD 요청 범위이며 제품 지역이 아니다. 한 기록의 0건은 지역 후보의 정상 0개를 뜻하지 않는다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recordId",
+        "source",
+        "tradeKinds",
+        "requestRegionCode",
+        "month",
+        "status",
+        "pagesExpected",
+        "missingPages",
+        "reportedTotalCount",
+        "rowsReceived",
+        "totalCountChanged",
+        "collectedAt",
+        "error"
+      ],
+      "properties": {
+        "recordId": { "$ref": "#/definitions/id" },
+        "source": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,63}$" },
+        "tradeKinds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/definitions/tradeKind" } },
+        "requestRegionCode": { "type": "string", "pattern": "^[0-9]{5}$" },
+        "month": { "$ref": "#/definitions/yearMonth" },
+        "status": { "enum": ["complete", "empty", "partial", "failed"] },
+        "pagesExpected": { "anyOf": [{ "type": "null" }, { "type": "integer", "minimum": 1 }] },
+        "missingPages": { "type": "array", "uniqueItems": true, "items": { "type": "integer", "minimum": 1 } },
+        "reportedTotalCount": { "anyOf": [{ "type": "null" }, { "type": "integer", "minimum": 0 }] },
+        "rowsReceived": { "type": "integer", "minimum": 0 },
+        "totalCountChanged": { "type": "boolean" },
+        "collectedAt": { "$ref": "#/definitions/nullableTimestamp" },
+        "error": { "anyOf": [{ "type": "null" }, { "$ref": "#/definitions/upstreamError" }] }
+      },
+      "allOf": [
+        {
+          "if": { "type": "object", "required": ["status"], "properties": { "status": { "const": "complete" } } },
+          "then": {
+            "type": "object",
+            "properties": {
+              "pagesExpected": { "type": "integer" },
+              "missingPages": { "type": "array", "maxItems": 0 },
+              "reportedTotalCount": { "type": "integer", "minimum": 1 },
+              "rowsReceived": { "type": "integer", "minimum": 1 },
+              "totalCountChanged": { "const": false },
+              "collectedAt": { "type": "string" },
+              "error": { "type": "null" }
+            }
+          }
+        },
+        {
+          "description": "업무 응답이 정상이고 전체 건수 0을 받은 빈 응답.",
+          "if": { "type": "object", "required": ["status"], "properties": { "status": { "const": "empty" } } },
+          "then": {
+            "type": "object",
+            "properties": {
+              "pagesExpected": { "const": 1 },
+              "missingPages": { "type": "array", "maxItems": 0 },
+              "reportedTotalCount": { "const": 0 },
+              "rowsReceived": { "const": 0 },
+              "totalCountChanged": { "const": false },
+              "collectedAt": { "type": "string" },
+              "error": { "type": "null" }
+            }
+          }
+        },
+        {
+          "description": "필요한 페이지를 모두 검증하지 못한 상태다. 누락, 전체 건수 변동, 수신·보고 건수 불일치, 반복 페이지나 페이지 정보 불일치를 생산자가 확인한다.",
+          "if": { "type": "object", "required": ["status"], "properties": { "status": { "const": "partial" } } },
+          "then": {
+            "type": "object",
+            "properties": { "pagesExpected": { "type": "integer" }, "reportedTotalCount": { "type": "integer" }, "collectedAt": { "type": "string" } }
+          }
+        },
+        {
+          "if": { "type": "object", "required": ["status"], "properties": { "status": { "const": "failed" } } },
+          "then": {
+            "type": "object",
+            "properties": {
+              "pagesExpected": { "type": "null" },
+              "missingPages": { "type": "array", "maxItems": 0 },
+              "reportedTotalCount": { "type": "null" },
+              "rowsReceived": { "const": 0 },
+              "totalCountChanged": { "const": false },
+              "collectedAt": { "type": "null" },
+              "error": { "type": "object" }
+            }
+          }
+        }
+      ]
+    },
+
+    "httpErrorResponse": {
+      "description": "참조용 정의(루트 아님). 기존 handler와 같은 HTTP 오류 본문 {error, requestId}. run_not_found만 계획 단계의 신규 코드다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["error", "requestId"],
+      "properties": {
+        "error": {
+          "enum": [
+            "origin_not_allowed",
+            "method_not_allowed",
+            "not_found",
+            "authentication_required",
+            "configuration_unavailable",
+            "backend_unavailable",
+            "run_not_found"
+          ]
+        },
+        "requestId": { "$ref": "#/definitions/uuid" }
+      }
+    }
+  }
+}

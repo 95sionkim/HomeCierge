@@ -10,9 +10,10 @@
 | --- | --- |
 | [PRD v1.1](docs/prd/01-product-prd.md) | 확정 요구 18개와 수락 기준 59개의 연결표, 설계 제안·미정 결정, 모델 선정과 평가 계획 |
 | [PRD 결정 기록](docs/prd/02-decision-log.md) | 사용자 답변, 반영 위치, 아직 결정할 세부 동작 |
-| [리뷰 보완 추적표](docs/prd/03-review-resolution.md) | 원 리뷰 14건의 반영 상태와 미수정 도구 결함·남은 자료 검증 |
+| [리뷰 보완 추적표](docs/prd/03-review-resolution.md) | 원 리뷰 14건의 발견과 당시 처리 상태 |
 | [DB·배포 준비](docs/infrastructure.md) | Supabase 스키마·권한, Vercel 환경 분리, 로컬 검사와 실제 연결 상태 |
 | [화면 팀 연결 계약](docs/frontend-handoff.md) | 사용자 인증, 데이터 접근, 프로필 승인과 구현 전 기능 |
+| [분석 결과 계약 v0](docs/api/analysis-result-v0.md) | 화면팀이 같은 요청의 정상 0개·부분 수집·출처 오류를 구별하는 스키마와 합성 응답 |
 | [전체 개발 계획](docs/development-plan.md) | API·정규화·DB·작업 실행부터 시작하는 단계, 첫 작업 5개와 전체 수락 기준 배치 |
 | [개발 시작 안내](docs/development.md) | 실행 환경, 코드 구조, 첫 개발 과제와 완료 조건 |
 | [API 인계 상태](docs/api/prd-readiness.md) | 실제 확인한 범위와 개발 전 결정할 항목 |
@@ -37,7 +38,7 @@ python3 scripts/check_repository.py
 python3 scripts/collect_recent_trades.py --probe apt_trade --lawd-cd 11215 --start 202511 --end 202610 --dry-run
 ```
 
-합성 자료의 **수집 경계 18개·주소 경계 8개 테스트**와 저장소 구성을 검사합니다. 이는 실제 API 재호출·현행 지역 검색·공급면적 비교의 검증을 뜻하지 않습니다. 기존 조회 도구의 정제 결함은 별도 수정·회귀검사가 필요하며, 추가 실호출 전에는 [API 안내](docs/api/README.md)의 조건을 확인합니다.
+Python 검사는 합성 자료로 수집·주소 판정과 인증값 정제를 확인합니다. 인증값이 정상 필드명이나 거래 금액의 일부와 겹치는 경우도 포함합니다. 실제 자료를 호출하고 보관할 때 적용할 출처별 조건은 [API 안내](docs/api/README.md)에서 확인합니다.
 
 ## 유지할 제품 규칙
 
@@ -78,4 +79,4 @@ tests/fixtures/         실제 응답을 포함하지 않는 합성 자료
 
 API 키, 개인 계정 기록, API 응답 원문, PDF/HWP 원본, 뉴스 본문·발췌와 교통 경로 데이터, 과거 발표 자료는 업로드하지 않습니다. 공개한 검증 수치와 원 프로젝트의 로컬 증거 위치는 [증거 색인](docs/api/evidence-index.json)으로 추적합니다. 데이터 배포 범위와 제3자 이용 조건은 [데이터 관리 안내](docs/data-handling.md)를 확인합니다.
 
-**개발 시작점:** [전체 개발 계획](docs/development-plan.md)에 따라 API 계약·응답 정제·공고/거래 정규화부터 시작하고 DB 저장·영속 작업·비교 결과 조회를 연결합니다. 공급면적·권리·지역·PDF의 실자료 검증을 병행하며, 화면 팀에는 동작 계약과 합성 응답을 먼저 제공합니다. 첫 종단 흐름의 검증과 전체 제품의 출시 수락은 구분합니다.
+개발 브랜치의 첫 묶음(BE-01)은 분석 결과 계약과 외부 응답 해석을 다룹니다. 다음 묶음(BE-02)은 공고·거래 커넥터와 정규화입니다. 실거래에 대응하는 공급면적, 권리 거래의 식별자, 공고 PDF와 출처별 이용 조건은 별도로 추적합니다. [전체 개발 계획](docs/development-plan.md) · [공식 자료 조사 기록](docs/api/be-01-evidence.md)

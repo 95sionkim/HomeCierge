@@ -25,6 +25,16 @@ Preview에는 Vercel 배포 보호가 켜져 있다. Vercel 로그인과 Supabas
 
 허용하지 않은 origin은 403이며 정확한 화면 origin을 `ALLOWED_ORIGINS`에 등록해야 한다. 응답은 캐시하지 않는다. 실패 응답의 `requestId`로 문제를 추적하며 인증값·외부 오류 원문을 화면에 노출하지 않는다. 현재 API는 조회용이며 분석 생성·삭제·공고 탐색 엔진을 구현한 API가 아니다.
 
+### 분석 화면을 합성 응답으로 연결한다
+
+화면팀은 분석 실행 API가 연결되기 전까지 같은 요청에 대한 세 가지 합성 응답을 사용할 수 있다. 세 예시 모두 실행 상태(`run.status`)는 `finished`다. 결과를 어디까지 보여줄지는 `result.completeness`로 정하고, 지역 확대 여부는 `result.regionScopes`에서 읽는다. [분석 결과 계약 v0](api/analysis-result-v0.md) · [JSON 스키마](api/analysis-result-v0.schema.json) · [화면용 합성 응답](../tests/fixtures/analysis-result-v0.json)
+
+| 예시를 선택한다 | 화면에서 전달할 내용 |
+| --- | --- |
+| `normalZero` (`complete`) | 필요한 조회와 판별을 마친 같은 동에서 비교 단지가 0개다. 이 예시에서는 같은 구로 확대해 확인한 1단지와, 우선 지역의 거래가 제외된 이유를 함께 표시한다. |
+| `partialCollection` (`partial`) | 거래 14건 중 10건을 받았고 2페이지가 누락됐다. 확인한 내용과 누락 사유를 표시하고, 현재 지역의 단지 수 확정과 자동 확대는 보류한다. |
+| `upstreamFailure` (`unavailable`) | 출처 조회에 실패해 비교 결과를 제공할 수 없다. 실패한 항목과 응답에 명시된 재조회 행동을 표시한다. |
+
 ## 2. Supabase Data API로 사용자 자료를 다룬다
 
 SDK에 publishable key와 로그인 세션을 사용한다. 테이블·열별 허용 작업은 [인프라 권한표](infrastructure.md)의 제한을 따른다. 직접 SQL 관리 권한이나 service-role key를 화면에 전달하지 않는다.
