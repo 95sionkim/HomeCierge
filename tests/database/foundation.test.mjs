@@ -1,10 +1,9 @@
-// PGlite 안의 합성 Auth 스키마로 SQL 제약/RLS를 검사한다. 네트워크·실계정 없음.
-import { PGlite } from '@electric-sql/pglite';
-import { readFile, readdir } from 'node:fs/promises';
+// 합성 Auth·Storage 스키마로 제품 테이블의 SQL 제약과 RLS를 검사한다.
 import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createBe03Db } from './helpers/be03-db.mjs';
 
-const db = new PGlite();
+let db;
 const a='11111111-1111-4111-8111-111111111111';
 const b='22222222-2222-4222-8222-222222222222';
 let chatA, chatB, analysisA, analysisB;
@@ -19,19 +18,7 @@ async function proposal(changes,revision=0,user=a) {
   return (await one('insert into public.profile_change_requests(user_id,base_revision,proposed_changes) values ($1,$2,$3) returning id',[user,revision,JSON.stringify(changes)])).id;
 }
 before(async()=>{
-  await db.exec(`
-    create role anon; create role authenticated; create role service_role bypassrls;
-    create schema auth;
-    create table auth.users(id uuid primary key);
-    create function auth.uid() returns uuid language sql stable as
-      $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
-    create function auth.jwt() returns jsonb language sql stable as
-      $$ select coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb $$;
-    grant usage on schema auth, public to anon, authenticated, service_role;
-  `);
-  for(const file of (await readdir('supabase/migrations')).filter(f=>f.endsWith('.sql')).sort()) {
-    await db.exec(await readFile(`supabase/migrations/${file}`,'utf8'));
-  }
+  db = await createBe03Db();
   await db.query('insert into auth.users(id) values ($1),($2)',[a,b]);
   for(const id of [a,b]) {
     await asUser(id);
@@ -41,14 +28,30 @@ before(async()=>{
     if(id===a){chatA=chat.id;analysisA=analysis.id;}else{chatB=chat.id;analysisB=analysis.id;}
   }
 });
-after(async()=>{await db.close();});
+after(async()=>{await db?.close();});
 
 test('every product table enables RLS; private ingestion has no client grant',async()=>{
   await root();
   const tables=await db.query("select n.nspname,c.relname,c.relrowsecurity from pg_class c join pg_namespace n on n.oid=c.relnamespace where c.relkind='r' and n.nspname in ('public','private')");
-  assert.equal(tables.rows.length,12);
-  assert.ok(tables.rows.every(r=>r.relrowsecurity));
+  const expected = [
+    'public.user_profiles', 'public.chats', 'public.chat_messages', 'public.profile_change_requests',
+    'public.source_registry', 'public.notices', 'public.notice_documents', 'public.housing_types',
+    'public.analyses', 'public.funding_entries', 'public.reports', 'private.ingestion_runs',
+    'public.analysis_input_snapshots', 'public.analysis_uploads',
+  ];
+  const tableRls = new Map(tables.rows.map(row => [`${row.nspname}.${row.relname}`, row.relrowsecurity]));
+  for (const name of expected) assert.ok(tableRls.has(name), `${name} must exist`);
+  for (const [name, enabled] of tableRls) assert.equal(enabled, true, `${name} must enable RLS`);
   assert.equal((await one("select has_table_privilege('authenticated','private.ingestion_runs','SELECT') as allowed")).allowed,false);
+});
+test('ingestion views use the caller role and the underlying table RLS',async()=>{
+  await root();
+  const names = ['ingestion_collections', 'ingestion_collection_pages', 'ingestion_trade_observations', 'ingestion_document_versions'];
+  const views = await db.query(`select c.relname, c.reloptions
+    from pg_class c join pg_namespace n on n.oid=c.relnamespace
+    where c.relkind='v' and n.nspname='public' and c.relname=any($1::text[])`, [names]);
+  const options = new Map(views.rows.map(row => [row.relname, row.reloptions]));
+  for (const name of names) assert.ok(options.get(name)?.includes('security_invoker=true'), `${name} must use security_invoker`);
 });
 test('anonymous role cannot read data; anonymous sign-ins also cannot read owned rows',async()=>{
   await root();await db.exec('set role anon');

@@ -1,6 +1,6 @@
 # 화면 팀의 데이터·API 연결 계약
 
-2026-11-11. 화면 프레임워크는 고정하지 않는다. [인프라 준비 상태](infrastructure.md)와 [PRD](prd/01-product-prd.md)를 함께 읽는다. 개발 DB와 보호된 Preview API가 생성됐다. 키·인증값은 문서에 기록하지 않고 실행 환경으로 전달한다.
+2026-11-21. 화면 프레임워크는 고정하지 않는다. [인프라 준비 상태](infrastructure.md)와 [PRD](prd/01-product-prd.md)를 함께 읽는다. 개발 DB와 보호된 Preview API가 생성됐다. 키·인증값은 실행 환경으로 전달한다.
 
 | 연결 대상을 정한다 | 주소·계약을 확인한다 |
 | --- | --- |
@@ -13,6 +13,8 @@
 
 Preview에는 Vercel 배포 보호가 켜져 있다. Vercel 로그인과 Supabase의 서비스 사용자 로그인은 별개이며, 별도 화면의 자동 API 호출에 배포 보호가 추가로 적용될 수 있다. 로컬 API로 먼저 연동하고 화면 배포 때 접근 방식을 함께 검수한다. 보호 우회 값을 화면 코드에 넣지 않는다.
 
+위 Preview 주소는 11월 11일 버전이다. BE-03에서 추가한 PDF 다운로드 API는 이 브랜치에서 `npm run dev`로 실행한다.
+
 ## 1. 인증과 API를 연결한다
 
 사용자는 Supabase Auth로 로그인하고 사용자 access token을 `Authorization: Bearer <access_token>` 헤더로 전달한다. API는 쿠키 기반 인증을 가정하지 않는다. 프레임워크별 로그인·세션 갱신·리다이렉트 화면과 로그인 수단은 화면 통합 단계에서 연결한다. 토큰·비밀번호는 채팅 내용이나 로그에 기록하지 않는다.
@@ -22,6 +24,7 @@ Preview에는 Vercel 배포 보호가 켜져 있다. Vercel 로그인과 Supabas
 | `GET /api/health` | API 프로세스의 생존 확인 | 200. DB·로그인·분석 기능 완료를 보장하지 않음 |
 | `GET /api/ready` | 인증 후 사용자 권한으로 프로필 테이블 조회 | 200은 해당 DB 조회 성공. 미로그인 401, 설정·백엔드 실패 503 |
 | `GET /api/v1/me` | 인증한 사용자의 ID·프로필 조회 | `{ user: { id }, profile }`. 최초에는 `profile: null` 가능 |
+| `GET /api/v1/analyses/{analysisId}/uploads/{uploadId}/content` | 본인 분석의 등록된 PDF 다운로드 | 200은 PDF 본문, 미로그인 401, 타인·미등록·삭제 중 또는 완료 404, 서비스 오류 503 |
 
 허용하지 않은 origin은 403이며 정확한 화면 origin을 `ALLOWED_ORIGINS`에 등록해야 한다. 응답은 캐시하지 않는다. 실패 응답의 `requestId`로 문제를 추적하며 인증값·외부 오류 원문을 화면에 노출하지 않는다. 현재 API는 조회용이며 분석 생성·삭제·공고 탐색 엔진을 구현한 API가 아니다.
 
@@ -48,6 +51,7 @@ TypeScript 화면에서는 `createClient<Database>(url, publishableKey)`로 생�
 3. 분석은 `analyses`에 자기 `chat_id`를 연결해 `draft`로 만든다. 조건 스냅샷이 비어 있는 초안을 완성된 분석처럼 표시하지 않는다.
 4. 자금은 해당 `analysis_id`의 `funding_entries`에 저장한다. `current`는 분석당 하나이며 추가 자금은 `additional`, 상태는 `confirmed` 또는 `expected`다. 현재는 계산 결과를 생성하지 않는다.
 5. `reports`는 서버가 기록한 스냅샷만 조회한다. 프로필 변경으로 이전 보고서를 조용히 덮어쓰지 않는다.
+6. 이전에 저장한 분석의 조회 조건과 수집 근거는 `analysis_input_snapshots`를 분석 ID로 조회해 표시한다. 비공개 PDF는 등록 시 받은 경로로 업로드하고, 사용자 API의 `/content` 경로로 다운로드한다. 삭제는 요청·객체 제거·완료 확인 순서로 진행한다. [스냅샷 조회와 파일 호출 예시](api/ingestion-storage.md)
 
 ## 3. 공유 프로필 변경을 승인한다
 
@@ -75,6 +79,6 @@ const { data, error } = await supabase.rpc('decide_profile_change', {
 ## 4. 구현 전인 기능을 구분한다
 
 - 공고 검색·PDF 자동 확보·공급면적 매칭·실거래 통계·법령·뉴스·경로·자금 계산은 이 인프라 API에서 아직 실행하지 않는다.
-- 가격·필수 옵션·거래 상세 테이블은 자료 계약과 수집기 검증 후 후속 마이그레이션으로 추가한다. 빈 테이블을 정상 0개 결과로 표시하지 않는다.
-- 개별·계정 삭제와 PDF Storage는 후속 작업이다. 직접 DELETE는 차단돼 있으며 삭제·다운로드 완료 화면을 미리 연결하지 않는다.
+- 호실별 분양가·필수 옵션과 보류 사유는 저장된 `result_snapshot.catalog`에서 읽는다. 빈 거래 목록을 정상 0개 결과로 표시하지 않는다.
+- 비공개 업로드 한 건은 삭제할 수 있다. 계정 전체, 파생 보고서와 백업 정리를 포함한 삭제 완료 화면은 후속 작업이다.
 - 실제 로그인 제공자, 화면 도메인, Production DB, 사용자 가치 검증과 59개 제품 수락 기준은 아직 별도 완료 조건이다.

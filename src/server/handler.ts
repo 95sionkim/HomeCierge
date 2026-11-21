@@ -4,8 +4,17 @@ export type Environment = Record<string, string | undefined>;
 export type Backend = {
   getUser: () => Promise<{ id: string; isAnonymous: boolean } | null>;
   getProfile: (id: string) => Promise<unknown>;
+  getUploadContent: (target: {
+    userId: string;
+    analysisId: string;
+    uploadId: string;
+    signal: AbortSignal;
+  }) => Promise<ReadableStream<Uint8Array> | null>;
 };
 export type BackendConfig = { url: string; key: string; token: string };
+
+const uuid = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
+const uploadContentPath = new RegExp(`^/api/v1/analyses/(${uuid})/uploads/(${uuid})/content$`);
 
 function readConfig(env: Environment, token: string): BackendConfig {
   const url = env.SUPABASE_URL;
@@ -30,12 +39,19 @@ export function createHandler(deps: {
 }) {
   return async (request: Request): Promise<Response> => {
     const requestId = randomUUID();
+    const path = new URL(request.url).pathname;
+    const upload = path.match(uploadContentPath);
     const headers = new Headers({
       'Cache-Control': 'no-store',
       'Vary': 'Origin',
       'X-Content-Type-Options': 'nosniff',
       'X-Request-Id': requestId,
     });
+    if (upload) {
+      headers.set('Cache-Control', 'private, no-store');
+      headers.set('Vary', 'Authorization, Origin');
+      headers.set('Vercel-CDN-Cache-Control', 'no-store');
+    }
     const respond = (body: unknown, status: number) => Response.json(body, { status, headers });
     const origin = request.headers.get('origin');
     const allowed = (deps.env.ALLOWED_ORIGINS ?? '').split(',').map(x => x.trim()).filter(Boolean);
@@ -50,9 +66,8 @@ export function createHandler(deps: {
       headers.set('Allow', 'GET, OPTIONS');
       return respond({ error: 'method_not_allowed', requestId }, 405);
     }
-    const path = new URL(request.url).pathname;
     if (path === '/api/health') return respond({ status: 'ok', service: 'homecierge-api', version: '0.1.0' }, 200);
-    if (!['/api/v1/me','/api/ready'].includes(path)) return respond({ error: 'not_found', requestId }, 404);
+    if (!upload && !['/api/v1/me','/api/ready'].includes(path)) return respond({ error: 'not_found', requestId }, 404);
 
     const authorization = request.headers.get('authorization');
     const match = authorization?.match(/^Bearer ([^\s]+)$/i);
@@ -66,6 +81,15 @@ export function createHandler(deps: {
     try {
       const user = await backend.getUser();
       if (!user || user.isAnonymous) return respond({ error: 'authentication_required', requestId }, 401);
+      if (upload) {
+        const content = await backend.getUploadContent({
+          userId: user.id, analysisId: upload[1]!, uploadId: upload[2]!, signal: request.signal,
+        });
+        if (!content) return respond({ error: 'not_found', requestId }, 404);
+        headers.set('Content-Type', 'application/pdf');
+        headers.set('Content-Disposition', 'attachment; filename="analysis-upload.pdf"');
+        return new Response(content, { headers });
+      }
       const profile = await backend.getProfile(user.id);
       if (path === '/api/ready') return respond({ status: 'ready', database: 'reachable' }, 200);
       return respond({ user: { id: user.id }, profile }, 200);

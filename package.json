@@ -12,6 +12,7 @@
     "test": "tsx --test tests/backend/*.test.ts",
     "test:ingestion": "node --test tests/ingestion/*.test.mjs",
     "test:db": "node --test tests/database/*.test.mjs",
+    "test:auth": "node --import tsx scripts/smoke_be03_auth.mjs",
     "build": "npm run check",
     "db:cli": "supabase"
   },

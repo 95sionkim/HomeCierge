@@ -79,6 +79,121 @@ export type Database = {
           },
         ]
       }
+      analysis_input_snapshots: {
+        Row: {
+          analysis_id: string
+          as_of: string
+          capture_key: string
+          conditions_snapshot: Json
+          contract_version: string
+          created_at: string
+          data_origin: string
+          edition: string
+          house_manage_no: string
+          housing_type_id: string | null
+          id: string
+          input_snapshot: Json
+          notice_id: string | null
+          notice_no: string
+          notice_source: string
+          page_size: number
+          period_end: string | null
+          period_start: string | null
+          result_snapshot: Json
+          rules_version: string
+          target_binding_status: string
+          user_id: string
+        }
+        Insert: {
+          analysis_id: string
+          as_of: string
+          capture_key: string
+          conditions_snapshot: Json
+          contract_version: string
+          created_at?: string
+          data_origin: string
+          edition: string
+          house_manage_no: string
+          housing_type_id?: string | null
+          id?: string
+          input_snapshot: Json
+          notice_id?: string | null
+          notice_no: string
+          notice_source: string
+          page_size: number
+          period_end?: string | null
+          period_start?: string | null
+          result_snapshot: Json
+          rules_version: string
+          target_binding_status: string
+          user_id: string
+        }
+        Update: {
+          analysis_id?: string
+          as_of?: string
+          capture_key?: string
+          conditions_snapshot?: Json
+          contract_version?: string
+          created_at?: string
+          data_origin?: string
+          edition?: string
+          house_manage_no?: string
+          housing_type_id?: string | null
+          id?: string
+          input_snapshot?: Json
+          notice_id?: string | null
+          notice_no?: string
+          notice_source?: string
+          page_size?: number
+          period_end?: string | null
+          period_start?: string | null
+          result_snapshot?: Json
+          rules_version?: string
+          target_binding_status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analysis_input_snapshots_analysis_id_user_id_fkey"
+            columns: ["analysis_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "analyses"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
+      analysis_uploads: {
+        Row: {
+          analysis_id: string
+          id: string
+          object_path: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          analysis_id: string
+          id: string
+          object_path?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          analysis_id?: string
+          id?: string
+          object_path?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analysis_uploads_analysis_id_user_id_fkey"
+            columns: ["analysis_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "analyses"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
       chat_messages: {
         Row: {
           chat_id: string
@@ -474,7 +589,123 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      ingestion_collection_pages: {
+        Row: {
+          analysis_id: string | null
+          collection_kind: string | null
+          contract_month: string | null
+          data_origin: string | null
+          page: number | null
+          page_size: number | null
+          page_status: string | null
+          record_id: string | null
+          request_region_code: string | null
+          request_scope: Json | null
+          snapshot_id: string | null
+          source_id: string | null
+          user_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analysis_input_snapshots_analysis_id_user_id_fkey"
+            columns: ["analysis_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "analyses"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
+      ingestion_collections: {
+        Row: {
+          analysis_id: string | null
+          collected_at: string | null
+          collection_kind: string | null
+          contract_month: string | null
+          data_origin: string | null
+          error: Json | null
+          missing_pages: number[] | null
+          page_size: number | null
+          pages_expected: number | null
+          reasons: Json | null
+          record_id: string | null
+          reported_total_count: number | null
+          request_region_code: string | null
+          request_scope: Json | null
+          rows_received: number | null
+          snapshot_id: string | null
+          source_id: string | null
+          status: string | null
+          total_count_changed: boolean | null
+          trade_kinds: Json | null
+          user_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analysis_input_snapshots_analysis_id_user_id_fkey"
+            columns: ["analysis_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "analyses"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
+      ingestion_document_versions: {
+        Row: {
+          acquisition_source: string | null
+          analysis_id: string | null
+          data_origin: string | null
+          document: Json | null
+          document_id: string | null
+          edition: string | null
+          house_manage_no: string | null
+          notice_no: string | null
+          origin_check: string | null
+          snapshot_id: string | null
+          status: string | null
+          user_id: string | null
+          version: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analysis_input_snapshots_analysis_id_user_id_fkey"
+            columns: ["analysis_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "analyses"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
+      ingestion_trade_observations: {
+        Row: {
+          amount_won: string | null
+          analysis_id: string | null
+          cancellation_status: string | null
+          contract_date: string | null
+          contract_month: string | null
+          data_origin: string | null
+          disposition: string | null
+          exclusive_area_m2: string | null
+          observation: Json | null
+          page: number | null
+          record_id: string | null
+          request_region_code: string | null
+          row_position: number | null
+          snapshot_id: string | null
+          source_id: string | null
+          supply_area_m2: string | null
+          trade_kind: string | null
+          user_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analysis_input_snapshots_analysis_id_user_id_fkey"
+            columns: ["analysis_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "analyses"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
     }
     Functions: {
       decide_profile_change: {
@@ -495,6 +726,64 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      finalize_analysis_upload_deletion: {
+        Args: { analysis_id: string; upload_id: string }
+        Returns: {
+          analysis_id: string
+          id: string
+          object_path: string | null
+          status: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "analysis_uploads"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      register_analysis_upload: {
+        Args: { analysis_id: string; upload_id: string }
+        Returns: {
+          analysis_id: string
+          id: string
+          object_path: string | null
+          status: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "analysis_uploads"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      request_analysis_upload_deletion: {
+        Args: { analysis_id: string; upload_id: string }
+        Returns: {
+          analysis_id: string
+          id: string
+          object_path: string | null
+          status: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "analysis_uploads"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      save_ingestion_snapshot: {
+        Args: {
+          p_analysis_id: string
+          p_capture_key: string
+          p_input: Json
+          p_result: Json
+          p_user_id: string
+        }
+        Returns: string
       }
     }
     Enums: {

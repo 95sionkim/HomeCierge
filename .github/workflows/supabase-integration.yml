@@ -1,0 +1,60 @@
+name: Supabase integration
+
+on:
+  push:
+    paths: &integration_paths
+      - '.github/workflows/supabase-integration.yml'
+      - 'supabase/**'
+      - 'src/**'
+      - 'scripts/**'
+      - 'tests/fixtures/ingestion-v0.json'
+      - 'package*.json'
+      - '.nvmrc'
+  pull_request:
+    paths: *integration_paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  auth-storage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - run: npm ci
+      - name: Start an isolated Supabase stack and apply migrations
+        run: |
+          umask 077
+          if ! node_modules/.bin/supabase start \
+            -x realtime,imgproxy,mailpit,postgres-meta,studio,edge-runtime,logflare,vector,supavisor \
+            > "$RUNNER_TEMP/homecierge-start.log" 2>&1; then
+            docker ps -a --format 'table {{.Names}}\t{{.Status}}'
+            exit 1
+          fi
+      - name: Sign in two users and check snapshots and private files
+        run: |
+          umask 077
+          local_status="$RUNNER_TEMP/homecierge-status.json"
+          trap 'rm -f "$local_status"' EXIT
+          node_modules/.bin/supabase status -o json > "$local_status"
+          SUPABASE_URL=$(jq -er '.API_URL' "$local_status")
+          SUPABASE_PUBLISHABLE_KEY=$(jq -er '.PUBLISHABLE_KEY' "$local_status")
+          SUPABASE_WORKER_KEY=$(jq -er '.SECRET_KEY // .SERVICE_ROLE_KEY' "$local_status")
+          export SUPABASE_URL SUPABASE_PUBLISHABLE_KEY SUPABASE_WORKER_KEY
+          npm run test:auth
+      - name: Remove the test stack
+        if: always()
+        run: |
+          node_modules/.bin/supabase stop --no-backup >/dev/null
+          rm -f "$RUNNER_TEMP/homecierge-start.log"
