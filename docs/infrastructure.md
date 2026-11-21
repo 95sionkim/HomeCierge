@@ -104,7 +104,9 @@ Node.js 버전은 [.nvmrc](../.nvmrc), 라이브러리와 CLI는 [package.json](
 
 원격 스키마에서 생성한 [Database 타입](../src/db/database.types.ts)을 API 클라이언트에 적용했다. 이후 마이그레이션을 적용하면 Supabase의 타입 생성 도구로 다시 생성하고 빌드·권한 검사를 실행한다. `supabase/config.toml`은 로컬 개발 설정이며 호스팅 Auth 설정을 변경한 증거로 사용하지 않는다.
 
-Vercel Preview는 `READY`와 오류 없는 최종 빌드 로그를 확인했다. 실제 HTTP 응답은 생존 확인 200, 미로그인·잘못된 토큰 401, 없는 경로 404였다. 배포 보호를 유지한 브라우저에서 본문까지 확인했다. 로그인한 실제 사용자의 `/api/ready` 200과 전체 Auth·화면 통합은 후속 검수다. 첫 호출의 기본 target이 Production으로 잡힌 배포는 삭제했으며 이후 REST 요청은 `target: staging`을 명시해 대시보드의 Preview 환경임을 확인했다.
+11월 11일 Vercel Preview는 `READY`와 오류 없는 최종 빌드 로그를 확인했다. 실제 HTTP 응답은 생존 확인 200, 미로그인·잘못된 토큰 401, 없는 경로 404였다. 배포 보호를 유지한 브라우저에서 본문까지 확인했다. 첫 호출의 기본 target이 Production으로 잡힌 배포는 삭제했으며 이후 REST 요청은 `target: staging`을 명시해 대시보드의 Preview 환경임을 확인했다.
+
+11월 21일 `codex/backend-foundation`의 `8843026`으로 보호된 Preview를 배포해 `READY`를 확인했다. `/api/health`는 200, 서비스 로그인 없이 실행을 조회한 요청은 401 `authentication_required`, 접수 주소에 보낸 GET은 405와 `Allow: POST, OPTIONS`를 반환했다. 두 계정의 로그인부터 작업자 완료까지는 서울 개발 DB와 GitHub Actions의 격리 Supabase에서 각각 검수했다. 화면 도메인·로그인까지 이어지는 검수는 화면 인계 후 진행한다. [Preview 주소](frontend-handoff.md) · [Supabase 통합 검사](https://github.com/95sionkim/HomeCierge/actions/runs/44854748617) · [기본 검사](https://github.com/95sionkim/HomeCierge/actions/runs/44854748670)
 
 ## 6. 연결할 환경변수를 구분한다
 
