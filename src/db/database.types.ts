@@ -22,6 +22,7 @@ export type Database = {
           created_at: string
           housing_type_id: string | null
           id: string
+          latest_run_id: string | null
           notice_id: string | null
           rules_version: string
           status: string
@@ -35,6 +36,7 @@ export type Database = {
           created_at?: string
           housing_type_id?: string | null
           id?: string
+          latest_run_id?: string | null
           notice_id?: string | null
           rules_version?: string
           status?: string
@@ -48,6 +50,7 @@ export type Database = {
           created_at?: string
           housing_type_id?: string | null
           id?: string
+          latest_run_id?: string | null
           notice_id?: string | null
           rules_version?: string
           status?: string
@@ -708,6 +711,14 @@ export type Database = {
       }
     }
     Functions: {
+      cancel_analysis_run: {
+        Args: { p_analysis_id: string; p_run_id: string }
+        Returns: Json
+      }
+      claim_analysis_run: {
+        Args: { p_lease_seconds: number; p_run_id?: string }
+        Returns: Json
+      }
       decide_profile_change: {
         Args: { decision: string; request_id: string }
         Returns: {
@@ -727,6 +738,23 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      enqueue_analysis_run: {
+        Args: {
+          p_analysis_id: string
+          p_idempotency_key: string
+          p_input: Json
+        }
+        Returns: Json
+      }
+      fail_analysis_run: {
+        Args: {
+          p_generation: number
+          p_lease_token: string
+          p_retryable: boolean
+          p_run_id: string
+        }
+        Returns: Json
+      }
       finalize_analysis_upload_deletion: {
         Args: { analysis_id: string; upload_id: string }
         Returns: {
@@ -743,6 +771,20 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      finish_analysis_run: {
+        Args: {
+          p_generation: number
+          p_input: Json
+          p_lease_token: string
+          p_result: Json
+          p_run_id: string
+        }
+        Returns: Json
+      }
+      get_analysis_run: {
+        Args: { p_analysis_id: string; p_run_id: string }
+        Returns: Json
+      }
       register_analysis_upload: {
         Args: { analysis_id: string; upload_id: string }
         Returns: {
@@ -758,6 +800,15 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      renew_analysis_run: {
+        Args: {
+          p_generation: number
+          p_lease_seconds: number
+          p_lease_token: string
+          p_run_id: string
+        }
+        Returns: Json
       }
       request_analysis_upload_deletion: {
         Args: { analysis_id: string; upload_id: string }

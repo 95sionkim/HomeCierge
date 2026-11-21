@@ -24,13 +24,16 @@ Preview에는 Vercel 배포 보호가 켜져 있다. Vercel 로그인과 Supabas
 | `GET /api/health` | API 프로세스의 생존 확인 | 200. DB·로그인·분석 기능 완료를 보장하지 않음 |
 | `GET /api/ready` | 인증 후 사용자 권한으로 프로필 테이블 조회 | 200은 해당 DB 조회 성공. 미로그인 401, 설정·백엔드 실패 503 |
 | `GET /api/v1/me` | 인증한 사용자의 ID·프로필 조회 | `{ user: { id }, profile }`. 최초에는 `profile: null` 가능 |
+| `POST /api/v1/analyses/{analysisId}/runs` | 자기 분석에서 수집 자료 준비를 접수 | 202와 조회 주소. 같은 키로 다른 입력을 보내면 409 |
+| `GET /api/v1/analyses/{analysisId}/runs/{runId}` | 실행 상태를 다시 읽음 | 200. 자료가 준비되면 `snapshotId` 제공 |
+| `POST /api/v1/analyses/{analysisId}/runs/{runId}/cancel` | 해당 실행을 취소 | 200. 이미 준비 또는 실패로 끝났으면 409 |
 | `GET /api/v1/analyses/{analysisId}/uploads/{uploadId}/content` | 본인 분석의 등록된 PDF 다운로드 | 200은 PDF 본문, 미로그인 401, 타인·미등록·삭제 중 또는 완료 404, 서비스 오류 503 |
 
-허용하지 않은 origin은 403이며 정확한 화면 origin을 `ALLOWED_ORIGINS`에 등록해야 한다. 응답은 캐시하지 않는다. 실패 응답의 `requestId`로 문제를 추적하며 인증값·외부 오류 원문을 화면에 노출하지 않는다. 현재 API는 조회용이며 분석 생성·삭제·공고 탐색 엔진을 구현한 API가 아니다.
+분석의 `runs` 경로는 접수와 취소 시 POST, 상태 조회 시 GET을 사용한다. 재전송할 때는 같은 멱등 키를 보낸다. 응답의 `Location`이 해당 실행의 조회 주소다. 허용한 화면 origin만 `ALLOWED_ORIGINS`에 등록한다. 오류 문의에는 응답의 `requestId`를 사용한다. [요청 본문·상태별 표시·재시도 방법](api/analysis-runs.md)
 
-### 분석 화면을 합성 응답으로 연결한다
+### 수집 진행과 실거래 비교를 표시한다
 
-화면팀은 분석 실행 API가 연결되기 전까지 같은 요청에 대한 세 가지 합성 응답을 사용할 수 있다. 세 예시 모두 실행 상태(`run.status`)는 `finished`다. 결과를 어디까지 보여줄지는 `result.completeness`로 정하고, 지역 확대 여부는 `result.regionScopes`에서 읽는다. [분석 결과 계약 v0](api/analysis-result-v0.md) · [JSON 스키마](api/analysis-result-v0.schema.json) · [화면용 합성 응답](../tests/fixtures/analysis-result-v0.json)
+실행 API의 `finished`는 수집 자료를 열 수 있다는 뜻이다. BE-05의 비교 결과 화면을 제작할 때는 같은 요청에 대한 세 가지 합성 응답을 사용할 수 있다. 세 예시 모두 실행 상태(`run.status`)는 `finished`다. 결과를 어디까지 보여줄지는 `result.completeness`로 정하고, 지역 확대 여부는 `result.regionScopes`에서 읽는다. [분석 결과 계약 v0](api/analysis-result-v0.md) · [JSON 스키마](api/analysis-result-v0.schema.json) · [화면용 합성 응답](../tests/fixtures/analysis-result-v0.json)
 
 | 예시를 선택한다 | 화면에서 전달할 내용 |
 | --- | --- |
@@ -48,7 +51,7 @@ TypeScript 화면에서는 `createClient<Database>(url, publishableKey)`로 생�
 
 1. `user_profiles`에 로그인 사용자의 `user_id`만 넣어 빈 프로필을 최초 생성한다. 이미 있으면 기존 프로필을 조회한다.
 2. `chats` 생성 뒤 해당 ID로 사용자 메시지를 저장한다. `role: 'user'`만 클라이언트에서 생성 가능하다.
-3. 분석은 `analyses`에 자기 `chat_id`를 연결해 `draft`로 만든다. 조건 스냅샷이 비어 있는 초안을 완성된 분석처럼 표시하지 않는다.
+3. 분석은 `analyses`에 자기 `chat_id`를 연결해 `draft`로 만든다. 다른 기기에서 로그인하면 본인의 분석을 읽고 `latest_run_id`가 있는 항목에 실행 조회 주소를 연결한다. `null`이면 실행 접수를 안내한다.
 4. 자금은 해당 `analysis_id`의 `funding_entries`에 저장한다. `current`는 분석당 하나이며 추가 자금은 `additional`, 상태는 `confirmed` 또는 `expected`다. 현재는 계산 결과를 생성하지 않는다.
 5. `reports`는 서버가 기록한 스냅샷만 조회한다. 프로필 변경으로 이전 보고서를 조용히 덮어쓰지 않는다.
 6. 이전에 저장한 분석의 조회 조건과 수집 근거는 `analysis_input_snapshots`를 분석 ID로 조회해 표시한다. 비공개 PDF는 등록 시 받은 경로로 업로드하고, 사용자 API의 `/content` 경로로 다운로드한다. 삭제는 요청·객체 제거·완료 확인 순서로 진행한다. [스냅샷 조회와 파일 호출 예시](api/ingestion-storage.md)

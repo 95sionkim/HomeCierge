@@ -2,7 +2,7 @@
 
 ## 현재 개발 자산을 확인한다
 
-서울 Supabase 개발 DB와 보호된 Vercel Preview API를 사용한다. 공고·주택형·실거래를 정규화하고, 조회 조건과 결과를 분석별로 저장해 다시 읽을 수 있다. 비공개 PDF의 등록·삭제와 사용자별 접근은 두 시험 계정으로 검수한다. 제품 화면은 별도 팀이 제작하며 다음 백엔드 작업은 분석 접수·재시도·취소다. [수집 결과와 파일 저장 계약](api/ingestion-storage.md)
+서울 Supabase 개발 DB와 보호된 Vercel Preview API를 사용한다. 공고·주택형·실거래를 정규화하고, 조회 조건과 결과를 분석별로 저장해 다시 읽을 수 있다. 비공개 PDF의 등록·삭제와 사용자별 접근은 두 시험 계정으로 검수한다. 분석을 접수하면 DB에 기록한 실행을 작업자가 이어받고, 사용자는 진행 상태를 조회하거나 취소할 수 있다. 다음 단계는 수집본에서 비교 단지를 선정하고 통계를 산출하는 BE-05다. [수집 결과와 파일 저장 계약](api/ingestion-storage.md)
 
 DB·배포 작업은 [인프라 준비](infrastructure.md), 화면 팀의 연결은 [인계 계약](frontend-handoff.md)을 따른다. Node.js 26에서 `npm ci`, `npm run build`, `npm test`, `npm run test:db`로 새 기반을 검사한다. 기본 검사는 실제 클라우드 계정·인증값 없이 실행한다.
 
@@ -36,6 +36,7 @@ Python 검사에서는 합성 자료로 수집·주소 판정과 조회·가져�
 | `scripts/probe_apis.py` | 공식 호스트 제한, 인증값 제거, JSON/XML 해석, 오류·정상 0건 구분 | 실호출에는 서비스 인증값 필요 |
 | [공고·실거래 재생](api/ingestion-v0.md) · `scripts/replay_ingestion.py` | 공고·주택형·문서 근거와 지역·계약월별 거래를 조회해 정규화한다 | 기본 실행은 합성 자료와 Python 표준 라이브러리 사용 |
 | `scripts/collect_recent_trades.py` | 월·페이지 완전성, 만원→원, 계약일·해제·권리 종류 정규화 | `--dry-run`은 무호출; 실제 수집은 공공 API 키 필요 |
+| [분석 실행기](api/analysis-runs.md) · `scripts/run_analysis_worker.py` | 대기 작업 인수·입력 준비·임대 확인 후 저장 | 개발 DB와 전용 작업자 프로세스 |
 | `scripts/store_api_key.py` | 숨김 입력, 키별 로컬 파일 저장 | 대화형 터미널에서만 사용 |
 | `scripts/import_api_response.py` | 직접 저장한 공식 응답을 출처·해시와 등록 | 보관 권한을 확인한 로컬 파일 필요 |
 | `scripts/extract_notice_pdf.py` | PDF 페이지·표·셀·현재 공고 식별 문장 추출 | 로컬 PDF와 선택 의존성 필요 |

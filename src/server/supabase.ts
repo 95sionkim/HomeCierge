@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { createClient, StorageApiError } from '@supabase/supabase-js';
 import type { Database } from '../db/database.types.js';
+import { AnalysisRunError, parseAnalysisRun } from './analysis-runs.js';
 import type { Backend, BackendConfig } from './handler.js';
 
 const uploadBucket = 'analysis-uploads';
@@ -38,6 +39,34 @@ export function createBackend(config: BackendConfig): Backend {
         .eq('user_id', id).maybeSingle();
       if (error) throw new Error('database_unavailable');
       return data;
+    },
+    async runAnalysis(operation, signal) {
+      const args = { p_analysis_id: operation.analysisId };
+      const rpc = operation.action === 'enqueue'
+        ? client.rpc('enqueue_analysis_run', { ...args, p_idempotency_key: operation.idempotencyKey, p_input: operation.input })
+        : client.rpc(operation.action === 'get' ? 'get_analysis_run' : 'cancel_analysis_run', {
+          ...args, p_run_id: operation.runId,
+        });
+      const { data, error } = await rpc.abortSignal(signal);
+      if (error?.code === 'PT404') throw new AnalysisRunError('run_not_found');
+      if (error?.code === 'PT409') throw new AnalysisRunError('run_conflict');
+      if (error?.code === '22023') throw new AnalysisRunError('invalid_run_input');
+      if (operation.action === 'enqueue' && error?.code === 'PT429') throw new AnalysisRunError('run_rate_limited');
+      if (error) throw new Error('database_unavailable');
+
+      const run = parseAnalysisRun(data);
+      if (!run || run.analysisId !== operation.analysisId) throw new Error('invalid_run_response');
+      let matches: boolean;
+      if (operation.action === 'enqueue') {
+        const input = operation.input;
+        matches = input.kind === 'snapshot'
+          ? run.input.kind === 'snapshot' && run.input.snapshotId === input.snapshotId
+          : run.input.kind === 'synthetic' && run.input.fixture === input.fixture;
+      } else {
+        matches = run.runId === operation.runId && (operation.action !== 'cancel' || run.status === 'cancelled');
+      }
+      if (!matches) throw new Error('invalid_run_response');
+      return run;
     },
     async getUploadContent({ userId, analysisId, uploadId, signal }) {
       const { data: upload, error: lookupError } = await client.from('analysis_uploads')

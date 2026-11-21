@@ -16,6 +16,7 @@
 | [분석 결과 계약 v0](docs/api/analysis-result-v0.md) | 화면팀이 같은 요청의 정상 0개·부분 수집·출처 오류를 구별하는 스키마와 합성 응답 |
 | [공고·실거래 수집과 정규화](docs/api/ingestion-v0.md) | 한 공고의 주택형·호실 가격 근거와 지역·계약월별 거래를 합성 자료로 재생하는 방법 |
 | [분석별 저장·비공개 업로드](docs/api/ingestion-storage.md) | 같은 수집 키의 재시도, 저장한 근거 조회, 사용자 소유 PDF의 등록·삭제 순서 |
+| [분석 접수·조회·취소](docs/api/analysis-runs.md) | 같은 요청 재전송, 수집 자료 준비, 실행 중단 이후 재개와 상태 표시 |
 | [전체 개발 계획](docs/development-plan.md) | API·정규화·DB·작업 실행부터 시작하는 단계, 첫 작업 5개와 전체 수락 기준 배치 |
 | [개발 시작 안내](docs/development.md) | 실행 환경, 코드 구조, 첫 개발 과제와 완료 조건 |
 | [API 인계 상태](docs/api/prd-readiness.md) | 실제 확인한 범위와 개발 전 결정할 항목 |
@@ -69,7 +70,7 @@ docs/development.md     개발 순서와 실행 안내
 docs/development-plan.md 기초 개발 우선 전체 계획과 검수 이정표
 docs/infrastructure.md DB·환경·배포·검증 상태
 docs/frontend-handoff.md 화면 팀의 인증·데이터 연결 계약
-api/, src/server/       Vercel 진입점과 공통 인증 조회 API
+api/, src/server/       Vercel 진입점과 사용자 인증·분석 실행 API
 src/db/                 Supabase 생성 타입
 dev/                    같은 API의 로컬 실행기
 supabase/               DB 마이그레이션·로컬 설정·수동 원격 검사
@@ -82,4 +83,4 @@ tests/fixtures/         실제 응답을 포함하지 않는 합성 자료
 
 API 키, 개인 계정 기록, API 응답 원문, PDF/HWP 원본, 뉴스 본문·발췌와 교통 경로 데이터, 과거 발표 자료는 업로드하지 않습니다. 공개한 검증 수치와 원 프로젝트의 로컬 증거 위치는 [증거 색인](docs/api/evidence-index.json)으로 추적합니다. 데이터 배포 범위와 제3자 이용 조건은 [데이터 관리 안내](docs/data-handling.md)를 확인합니다.
 
-개발 브랜치에서는 공고·실거래를 정규화한 뒤, 조회 조건과 결과를 계정별 분석에 저장하고 다시 읽을 수 있습니다. 화면팀은 [분석 결과 계약](docs/api/analysis-result-v0.md)과 [스냅샷·비공개 PDF 연결 안내](docs/api/ingestion-storage.md)를 사용할 수 있습니다. 다음 개발 묶음(BE-04)은 분석 접수·조회·취소와 중단된 작업의 복구입니다. 실거래의 공급면적 대응, 권리 거래의 단지 식별, 공고 PDF와 출처별 이용 조건은 검증을 이어갑니다. [전체 개발 계획](docs/development-plan.md) · [공식 자료 조사 기록](docs/api/be-01-evidence.md)
+개발 브랜치에서는 공고·실거래를 정규화한 뒤, 조회 조건과 결과를 계정별 분석에 저장하고 다시 읽을 수 있습니다. 화면팀은 [분석 결과 계약](docs/api/analysis-result-v0.md)과 [스냅샷·비공개 PDF 연결 안내](docs/api/ingestion-storage.md)를 사용할 수 있습니다. 분석을 접수하고 중단된 작업을 이어 처리할 수 있습니다. 다음 개발 묶음(BE-05)은 준비된 자료에서 주변 비교 단지를 선정하고 거래 종류별 통계를 제공하는 것입니다. 실거래의 공급면적 대응, 권리 거래의 단지 식별, 공고 PDF와 출처별 이용 조건은 검증을 이어갑니다. [전체 개발 계획](docs/development-plan.md) · [공식 자료 조사 기록](docs/api/be-01-evidence.md)

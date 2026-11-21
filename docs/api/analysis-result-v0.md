@@ -4,8 +4,8 @@
 
 - **기계 판독 기준은 하나다.** [JSON 스키마(draft-07)](analysis-result-v0.schema.json)가 필드·값·불변 조건의 기준이다. 이 문서는 의미와, 스키마로 검사할 수 없는 조건(§10)을 적는다. 둘이 다르면 스키마를 고치고 이 문서를 맞춘다.
 - **합성 예시**: [analysis-result-v0.json](../../tests/fixtures/analysis-result-v0.json)의 `normalZero`·`partialCollection`·`upstreamFailure`는 같은 요청의 세 결과이며 각각 루트 스키마를 따른다. 모든 값은 합성 자료다(`dataOrigin: "synthetic"`).
-- **대상 경로는 계획 단계다.** 이 본문은 `GET /api/v1/runs/{runId}`의 200 응답으로 설계했다. 경로를 개설하지 않았으며 지금 호출하면 기존 처리기가 404 `not_found`를 반환한다. 화면 연결은 [화면팀 연결 계약](../frontend-handoff.md)을 따른다.
-- **v0에 넣지 않은 것**: 비교표(선정 단지·순위·직선거리·가격 통계·거래 원장), 분석 접수·취소 요청, 작업 재시도·임대 세부, 대상 단지 자체 거래 표시. 비교 결과는 BE-05, 실행 접수·재시도는 BE-04에서 정한다.
+- **비교 결과는 BE-05에서 연결한다.** BE-04의 `GET /api/v1/analyses/{analysisId}/runs/{runId}`는 수집 입력 준비 상태와 스냅샷 ID를 반환한다. 아래 스키마는 BE-05에서 제공할 비교 결과의 합성 예시에 적용한다. [분석 실행 계약](analysis-runs.md)
+- **v0에 넣지 않은 것**: 비교표(선정 단지·순위·직선거리·가격 통계·거래 원장), 분석 접수·취소 요청, 작업 재시도·임대 세부, 대상 단지 자체 거래 표시. 비교 결과는 BE-05, 실행 접수·재시도는 BE-04 실행 계약을 따른다.
 
 ## 1. 기존 API와의 호환을 확인한다
 
@@ -17,7 +17,7 @@
 | `GET /api/ready` | 200 `{ "status": "ready", "database": "reachable" }`. 사용자 권한으로 프로필 조회 성공 |
 | `GET /api/v1/me` | 200 `{ "user": { "id" }, "profile" }`. 최초에는 `profile: null` 가능 |
 
-모든 처리기 응답에 `Cache-Control: no-store`, `Vary: Origin`, `X-Content-Type-Options: nosniff`, `X-Request-Id`가 붙는다. 허용 origin이면 그 값과 `Access-Control-Allow-Methods: GET, OPTIONS`, `Access-Control-Allow-Headers: Authorization, Content-Type`을 반환하고, `OPTIONS`는 204다. 검사 순서는 origin → `OPTIONS` → 메서드 → 경로 → Bearer 형식 → 설정 → 사용자·DB 조회다.
+위 세 GET의 처리기 응답에 `Cache-Control: no-store`, `Vary: Origin`, `X-Content-Type-Options: nosniff`, `X-Request-Id`가 붙는다. 허용 origin이면 그 값과 `Access-Control-Allow-Methods: GET, OPTIONS`, `Access-Control-Allow-Headers: Authorization, Content-Type`을 반환하고, `OPTIONS`는 204다. 검사 순서는 origin → `OPTIONS` → 메서드 → 경로 → Bearer 형식 → 설정 → 사용자·DB 조회다.
 
 | HTTP | `error` | 발생 조건 |
 | --- | --- | --- |
@@ -29,9 +29,9 @@
 | 503 | `backend_unavailable` | Auth·DB 조회 예외. 원문은 응답·로그에 남기지 않음 |
 | 500 | `internal_error` | 로컬 실행기 `dev/server.ts`의 예외에서만. 본문에 `requestId`가 없고 `X-Request-Id`도 없음 |
 
-처리기의 오류 본문은 `{ "error": "<코드>", "requestId": "<UUID v4>" }`이며 스키마의 `definitions/httpErrorResponse`(루트가 아닌 참조용 정의)에 기록했다. 계획 경로에서 추가할 HTTP 코드는 `run_not_found`(404) 하나다. 없는 실행과 다른 계정의 실행을 구분하지 않는다. 분석 안의 외부 조회 오류는 HTTP 오류가 아니라 200 본문의 `collections[].error`(`upstream_*`)이고, 실행 자체의 실패는 `run.error`(`run_*`)다. 접두어로 기존 코드와 겹치지 않게 했다. `health`·`ready`의 최상위 `status`와 이 계약의 `run.status`는 서로 다른 값이다.
+기존 조회 오류 본문 `{ "error": "<코드>", "requestId": "<UUID v4>" }`은 스키마의 `definitions/httpErrorResponse`에 정의했다. BE-04의 실행 API도 같은 구조를 쓰며 접수·취소에 쓰는 세부 오류와 HTTP 상태는 [실행 계약](analysis-runs.md)을 따른다. 없는 실행과 다른 계정의 실행을 구분하지 않는다. 분석 안의 외부 조회 오류는 HTTP 오류가 아니라 200 본문의 `collections[].error`(`upstream_*`)이고, 실행 자체의 실패는 `run.error`(`run_*`)다. 접두어로 기존 코드와 겹치지 않게 했다. `health`·`ready`의 최상위 `status`와 이 계약의 `run.status`는 서로 다른 값이다.
 
-DB의 기존 상태값은 이번 계약으로 바꾸지 않는다. `analyses.status`(`draft/queued/running/partial/completed/failed`)는 실행 상태와 결과 완전성이 섞여 있으므로, 두 축으로의 변환은 BE-04의 새 마이그레이션에서 정한다. `private.ingestion_runs.status`의 `complete`는 건수 정합성이지 정상 0개 판정이 아니다. `housing_types.supply_area_status`의 `unknown/verified/conflict`는 이 계약의 `unverified/confirmed/conflict`에 대응시키는 것을 제안한다.
+BE-04의 `analyses.status`는 가장 최근에 접수한 실행을 요약하며, 수집 입력 준비가 끝나면 `input_ready`가 된다. 기존 실행 이전의 분석 상태와 이 문서의 비교 결과 완전성은 각각 보존한다. [실행 상태 대응](analysis-runs.md) `private.ingestion_runs.status`의 `complete`는 건수 정합성이지 정상 0개 판정이 아니다. `housing_types.supply_area_status`의 `unknown/verified/conflict`는 이 계약의 `unverified/confirmed/conflict`에 대응시키는 것을 제안한다.
 
 ## 2. 응답의 구성을 읽는다
 
@@ -171,7 +171,7 @@ DB의 기존 상태값은 이번 계약으로 바꾸지 않는다. `analyses.sta
 
 페이지가 빠졌거나 전체 건수가 바뀌면 `partial`이다. 마지막 페이지까지 도착했어도 수신 행 수가 보고 건수보다 적거나 많으면 `collection_row_count_mismatch`를 기록한다. 두 건수가 같아도 같은 페이지가 반복되거나 페이지 번호·크기가 맞지 않으면 `collection_page_inconsistent`로 보류한다. 생산자가 페이지와 건수를 대조한 뒤 상태를 정한다.
 
-`error`는 `{ code, layer }`만 담고 원문 메시지·요청 URL·인증값을 담지 않는다. `layer`는 `network`·`http`·`business`(HTTP 200 안의 업무 오류)·`parse`다. 스키마는 `upstream_business_error`→`business`, `upstream_timeout`→`network`, `upstream_malformed_response`·`upstream_response_too_large`→`parse`를 강제한다. 나머지 `upstream_unavailable`, `upstream_rate_limited`, `upstream_auth_rejected`는 실제 계층을 기록한다. 재시도 횟수·지연·상한은 D-07·BE-04에서 정한다.
+`error`는 `{ code, layer }`만 담고 원문 메시지·요청 URL·인증값을 담지 않는다. `layer`는 `network`·`http`·`business`(HTTP 200 안의 업무 오류)·`parse`다. 스키마는 `upstream_business_error`→`business`, `upstream_timeout`→`network`, `upstream_malformed_response`·`upstream_response_too_large`→`parse`를 강제한다. 나머지 `upstream_unavailable`, `upstream_rate_limited`, `upstream_auth_rejected`는 실제 계층을 기록한다. 외부 출처별 재시도와 운영 한도는 D-07에서 정한다. BE-04의 작업 인수 횟수와 지연은 개발용 실행기에 적용한다.
 
 ## 8. 금액·면적·날짜를 표현한다
 
@@ -228,7 +228,7 @@ draft-07은 서로 다른 위치의 값 비교와 식별자 참조를 검사하�
 | 지역 `id`와 공식 코드의 대응, 리→읍·면 소속, 구 존재 판정, 윤일·시간대 경계, 재수집 주기 | D-02 |
 | 면적 차이 동률, 대표 좌표·거리 미확인 처리, 가격 통계·짝수 건수 중위값 표시 | D-03, BE-05 |
 | 비교표·자체 거래 참고·종류별 통계의 응답 형식 | BE-05 |
-| 접수(202)·멱등 키·취소 요청, 재시도·임대·실행 세대, 실패·취소 시 중간 결과 노출, `analyses.status` 변환 | BE-04 |
+| 입력 준비 진행 상태와 중간 결과 | [BE-04 실행 계약](analysis-runs.md). 비교 단계에서의 중간 결과 노출은 BE-05에서 검토 |
 | 근거 원문 조회 API, OpenAPI·공용 타입, 실제 인증 연결 | 계약 v1(M1-b) |
 | 재시도 상한·지연·쿼터 | D-07 |
 

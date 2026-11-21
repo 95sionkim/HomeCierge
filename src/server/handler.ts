@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { AnalysisRunError, readAnalysisRunOperation, uuidPattern } from './analysis-runs.js';
+import type { AnalysisRun, AnalysisRunOperation } from './analysis-runs.js';
 
 export type Environment = Record<string, string | undefined>;
 export type Backend = {
@@ -10,11 +12,12 @@ export type Backend = {
     uploadId: string;
     signal: AbortSignal;
   }) => Promise<ReadableStream<Uint8Array> | null>;
+  runAnalysis: (operation: AnalysisRunOperation, signal: AbortSignal) => Promise<AnalysisRun>;
 };
 export type BackendConfig = { url: string; key: string; token: string };
 
-const uuid = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
-const uploadContentPath = new RegExp(`^/api/v1/analyses/(${uuid})/uploads/(${uuid})/content$`);
+const uploadContentPath = new RegExp(`^/api/v1/analyses/(${uuidPattern})/uploads/(${uuidPattern})/content$`);
+const analysisRunPath = /^\/api\/v1\/analyses\/([^/]+)\/runs(?:\/([^/]+)(\/cancel)?)?$/;
 
 function readConfig(env: Environment, token: string): BackendConfig {
   const url = env.SUPABASE_URL;
@@ -41,6 +44,10 @@ export function createHandler(deps: {
     const requestId = randomUUID();
     const path = new URL(request.url).pathname;
     const upload = path.match(uploadContentPath);
+    const run = path.match(analysisRunPath);
+    const enqueues = run !== null && !run[2];
+    const method = enqueues || run?.[3] ? 'POST' : 'GET';
+    const allowedMethods = `${method}, OPTIONS`;
     const headers = new Headers({
       'Cache-Control': 'no-store',
       'Vary': 'Origin',
@@ -58,16 +65,17 @@ export function createHandler(deps: {
     if (origin) {
       if (!allowed.includes(origin)) return respond({ error: 'origin_not_allowed', requestId }, 403);
       headers.set('Access-Control-Allow-Origin', origin);
-      headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
-      headers.set('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+      headers.set('Access-Control-Allow-Methods', allowedMethods);
+      headers.set('Access-Control-Allow-Headers', enqueues ? 'Authorization, Content-Type, Idempotency-Key' : 'Authorization, Content-Type');
+      if (enqueues) headers.set('Access-Control-Expose-Headers', 'Location');
     }
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
-    if (request.method !== 'GET') {
-      headers.set('Allow', 'GET, OPTIONS');
+    if (request.method !== method) {
+      headers.set('Allow', allowedMethods);
       return respond({ error: 'method_not_allowed', requestId }, 405);
     }
     if (path === '/api/health') return respond({ status: 'ok', service: 'homecierge-api', version: '0.1.0' }, 200);
-    if (!upload && !['/api/v1/me','/api/ready'].includes(path)) return respond({ error: 'not_found', requestId }, 404);
+    if (!upload && !run && !['/api/v1/me','/api/ready'].includes(path)) return respond({ error: 'not_found', requestId }, 404);
 
     const authorization = request.headers.get('authorization');
     const match = authorization?.match(/^Bearer ([^\s]+)$/i);
@@ -81,6 +89,15 @@ export function createHandler(deps: {
     try {
       const user = await backend.getUser();
       if (!user || user.isAnonymous) return respond({ error: 'authentication_required', requestId }, 401);
+      if (run) {
+        const operation = await readAnalysisRunOperation(request, run[1], run[2], !!run[3]);
+        const result = await backend.runAnalysis(operation, request.signal);
+        if (operation.action === 'enqueue') {
+          headers.set('Location', `/api/v1/analyses/${result.analysisId}/runs/${result.runId}`);
+          return respond(result, 202);
+        }
+        return respond(result, 200);
+      }
       if (upload) {
         const content = await backend.getUploadContent({
           userId: user.id, analysisId: upload[1]!, uploadId: upload[2]!, signal: request.signal,
@@ -93,7 +110,14 @@ export function createHandler(deps: {
       const profile = await backend.getProfile(user.id);
       if (path === '/api/ready') return respond({ status: 'ready', database: 'reachable' }, 200);
       return respond({ user: { id: user.id }, profile }, 200);
-    } catch {
+    } catch (error) {
+      if (error instanceof AnalysisRunError) {
+        if (error.code === 'run_rate_limited') {
+          headers.set('Retry-After', '60');
+          if (origin) headers.set('Access-Control-Expose-Headers', 'Retry-After');
+        }
+        return respond({ error: error.code, requestId }, error.status);
+      }
       // 외부 오류 원문에는 인증값·개인정보가 있을 수 있어 코드만 기록한다.
       (deps.log ?? console.error)({ requestId, code: 'backend_unavailable' });
       return respond({ error: 'backend_unavailable', requestId }, 503);

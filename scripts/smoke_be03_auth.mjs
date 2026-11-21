@@ -1,13 +1,17 @@
 // 격리한 개발 스택에서 실행한다. SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY,
 // SUPABASE_WORKER_KEY(또는 SUPABASE_SECRET_KEY/SUPABASE_SERVICE_ROLE_KEY)를 실행 환경으로 받는다.
 // 호스팅 개발 프로젝트를 사용할 때는 APP_ENV=development도 지정한다.
+// 같은 두 계정으로 로컬 HTTP 서버를 통해 BE-03과 BE-04를 검수한다.
 // node --import tsx scripts/smoke_be03_auth.mjs 로 실행한다.
 import { execFile, spawnSync } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { once } from 'node:events';
 import { isDeepStrictEqual, promisify } from 'node:util';
 import { createClient } from '@supabase/supabase-js';
+import { createDevServer } from '../dev/server.ts';
 import { createHandler } from '../src/server/handler.ts';
 import { createBackend } from '../src/server/supabase.ts';
+import { checkBe04Cleanup, runBe04Smoke } from './smoke_be04_runs.mjs';
 
 const DEVELOPMENT_ORIGIN = 'https://jcaelooqogosbzrfyrhe.supabase.co';
 const ACCOUNT_TAG = 'homecierge_be03_smoke_run';
@@ -22,7 +26,7 @@ const ROOT = new URL('../', import.meta.url);
 const INGESTION_FIXTURE = 'tests/fixtures/ingestion-v0.json';
 const PYTHON_ENV = { PATH: process.env.PATH, PYTHONUTF8: '1', PYTHONDONTWRITEBYTECODE: '1' };
 const execFileAsync = promisify(execFile);
-const ME_ROUTE = 'http://127.0.0.1/api/v1/me';
+const ME_ROUTE = '/api/v1/me';
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
 class SmokeFailure extends Error {}
@@ -158,9 +162,8 @@ async function refreshAndVerify(account, initial) {
   return session;
 }
 
-async function checkMe(handle, account, session) {
-  const request = new Request(ME_ROUTE, { headers: { Authorization: `Bearer ${session.access_token}` } });
-  const reply = await handle(request);
+async function checkMe(requestApi, account, session) {
+  const reply = await requestApi(ME_ROUTE, { headers: { Authorization: `Bearer ${session.access_token}` } });
   check(reply.status === 200, 'me_status');
   const data = await reply.json();
   check(data.user?.id === account.id && data.profile?.user_id === account.id, 'me_identity_and_profile');
@@ -337,9 +340,9 @@ async function checkOwnFile(bucket, path, pdf) {
   check(data && Buffer.from(await data.arrayBuffer()).equals(pdf), 'storage_owner_contents');
 }
 
-function requestUploadContent(handle, account, token) {
-  const route = new URL(`/api/v1/analyses/${account.analysisId}/uploads/${account.upload.id}/content`, ME_ROUTE);
-  return handle(new Request(route, { headers: { Authorization: `Bearer ${token}` } }));
+function requestUploadContent(requestApi, account, token) {
+  const route = `/api/v1/analyses/${account.analysisId}/uploads/${account.upload.id}/content`;
+  return requestApi(route, { headers: { Authorization: `Bearer ${token}` } });
 }
 
 function checkContentResponse(reply, status, step) {
@@ -348,15 +351,15 @@ function checkContentResponse(reply, status, step) {
   check(directives.some(value => value.trim() === 'no-store'), `${step}_no_store`);
 }
 
-async function checkUploadContents(handle, account, pdf, step) {
-  const reply = await requestUploadContent(handle, account, account.accessToken);
+async function checkUploadContents(requestApi, account, pdf, step) {
+  const reply = await requestUploadContent(requestApi, account, account.accessToken);
   checkContentResponse(reply, 200, step);
   check(reply.headers.get('content-type')?.split(';')[0] === 'application/pdf', `${step}_type`);
   check(Buffer.from(await reply.arrayBuffer()).equals(pdf), `${step}_bytes`);
 }
 
-async function checkUnavailableUpload(handle, account, token, step) {
-  const reply = await requestUploadContent(handle, account, token);
+async function checkUnavailableUpload(requestApi, account, token, step) {
+  const reply = await requestUploadContent(requestApi, account, token);
   checkContentResponse(reply, 404, step);
   const body = await reply.json().catch(() => null);
   check(body?.error === 'not_found', `${step}_body`);
@@ -370,11 +373,11 @@ async function checkPublicFile(bucket, path, publishable) {
     'storage_public_route_denied');
 }
 
-async function checkStorageIsolation(handle, account, other, pdf, publishable) {
+async function checkStorageIsolation(requestApi, account, other, pdf, publishable) {
   const { path } = account.upload;
   const ownBucket = account.client.storage.from(UPLOAD_BUCKET);
   const otherBucket = other.client.storage.from(UPLOAD_BUCKET);
-  await checkUnavailableUpload(handle, account, account.accessToken, 'upload_content_before_upload');
+  await checkUnavailableUpload(requestApi, account, account.accessToken, 'upload_content_before_upload');
 
   const foreignRegistration = await uploadRpc(other.client, REGISTER_UPLOAD, account);
   check(foreignRegistration.error?.code === 'P0002', 'upload_foreign_registration_denied');
@@ -385,9 +388,9 @@ async function checkStorageIsolation(handle, account, other, pdf, publishable) {
   const uploaded = result(await uploadObject(account.client, path, pdf), 'storage_owner_upload');
   check(uploaded?.path === path, 'storage_uploaded_path');
   await checkOwnFile(ownBucket, path, pdf);
-  await checkUploadContents(handle, account, pdf, 'upload_content_first_read');
-  await checkUploadContents(handle, account, pdf, 'upload_content_repeat_read');
-  await checkUnavailableUpload(handle, account, other.accessToken, 'upload_content_foreign');
+  await checkUploadContents(requestApi, account, pdf, 'upload_content_first_read');
+  await checkUploadContents(requestApi, account, pdf, 'upload_content_repeat_read');
+  await checkUnavailableUpload(requestApi, account, other.accessToken, 'upload_content_foreign');
 
   const foreignRead = await otherBucket.download(path, { cacheNonce: randomUUID() });
   check(deniedByStorage(foreignRead.error), 'storage_foreign_download_denied');
@@ -404,10 +407,10 @@ async function removeAndFinalizeUpload(account, requireFile) {
   account.upload.finalized = true;
 }
 
-async function checkUploadDeletion(handle, account, other, userClient) {
+async function checkUploadDeletion(requestApi, account, other, userClient) {
   const pending = result(await uploadRpc(account.client, REQUEST_UPLOAD_DELETE, account), 'upload_delete_request');
   checkUploadRow(pending, account, 'deletion_requested', 'upload_delete_requested_identity');
-  await checkUnavailableUpload(handle, account, account.accessToken, 'upload_content_deletion_requested');
+  await checkUnavailableUpload(requestApi, account, account.accessToken, 'upload_content_deletion_requested');
   const premature = await uploadRpc(account.client, FINALIZE_UPLOAD_DELETE, account);
   check(premature.error?.code === '55000', 'upload_cannot_finalize_with_object');
 
@@ -421,10 +424,10 @@ async function checkUploadDeletion(handle, account, other, userClient) {
   const metadata = result(await account.client.from(UPLOAD_TABLE).select('id')
     .eq('analysis_id', account.analysisId).eq('id', account.upload.id), 'upload_after_delete_read');
   check(metadata?.length === 0, 'upload_deleted_row_hidden');
-  await checkUnavailableUpload(handle, account, account.accessToken, 'upload_content_finalized');
+  await checkUnavailableUpload(requestApi, account, account.accessToken, 'upload_content_finalized');
   const reopened = userClient();
   const newSession = await login(account, reopened);
-  await checkUnavailableUpload(handle, account, newSession.access_token, 'upload_content_deleted_relogin');
+  await checkUnavailableUpload(requestApi, account, newSession.access_token, 'upload_content_deleted_relogin');
 
   // 새 주소로 Storage 원본 조회도 수행해 이전 응답 캐시의 영향을 피한다.
   const gone = await reopened.storage.from(UPLOAD_BUCKET).download(account.upload.path, { cacheNonce: randomUUID() });
@@ -471,21 +474,18 @@ async function retryCleanup(cleanUp, failures) {
   }
 }
 
-async function run(config, capture) {
-  const handle = createHandler({
-    env: { APP_ENV: 'development', SUPABASE_URL: config.origin, SUPABASE_PUBLISHABLE_KEY: config.publishable },
-    createBackend,
-    log: () => {},
-  });
+async function run(config, capture, requestApi) {
   const admin = makeClient(config.origin, config.service);
   const userClient = () => makeClient(config.origin, config.publishable);
   const runId = randomUUID();
   const captureKey = randomUUID();
   const accounts = [];
   const failed = [];
+  let be04Started = false;
   try {
-    const noSession = await handle(new Request(ME_ROUTE));
+    const noSession = await requestApi(ME_ROUTE);
     check(noSession.status === 401, 'me_unauthenticated');
+    await noSession.body?.cancel();
     for (let index = 0; index < 2; index++) {
       const account = makeAccount();
       accounts.push(account);
@@ -494,7 +494,7 @@ async function run(config, capture) {
       const initial = await login(account, account.client);
       const session = await refreshAndVerify(account, initial);
       await seedAccount(account);
-      await checkMe(handle, account, session);
+      await checkMe(requestApi, account, session);
     }
     await saveSnapshot(admin, accounts[0], capture, captureKey, params => storeWithPython(config, params));
     await saveSnapshot(admin, accounts[1], capture, captureKey, params => storeConcurrently(admin, params));
@@ -502,7 +502,7 @@ async function run(config, capture) {
     for (const [account, other] of pairs) {
       const reopened = userClient();
       const session = await login(account, reopened);
-      await checkMe(handle, account, session);
+      await checkMe(requestApi, account, session);
       await checkVisibility('user_profiles', 'user_id', account.id, other.id, reopened);
       await checkVisibility('chats', 'id', account.chatId, other.chatId, reopened);
       await checkVisibility('analyses', 'id', account.analysisId, other.analysisId, reopened);
@@ -516,37 +516,82 @@ async function run(config, capture) {
     const pdf = makeSyntheticPdf();
     for (const [account, other] of pairs) {
       await checkVisibility(UPLOAD_TABLE, 'id', account.upload.id, other.upload.id, account.client);
-      await checkStorageIsolation(handle, account, other, pdf, config.publishable);
+      await checkStorageIsolation(requestApi, account, other, pdf, config.publishable);
     }
     for (const [account, other] of pairs) {
-      await checkUploadDeletion(handle, account, other, userClient);
+      await checkUploadDeletion(requestApi, account, other, userClient);
     }
+    be04Started = true;
+    const secondWorker = makeClient(config.origin, config.service);
+    await runBe04Smoke({ requestApi, admin, secondWorker, accounts, capture, config, check, result });
+    // 새 기기처럼 로그인한 뒤 분석 목록만으로 마지막 실행과 저장한 수집본을 다시 찾는다.
+    const [peer, owner] = accounts;
+    const reopened = userClient();
+    const session = await login(owner, reopened);
+    const visible = result(await reopened.from('analyses').select('id,latest_run_id,status')
+      .in('id', [peer.analysisId, owner.analysisId]), 'be04_reopen_analyses');
+    check(visible.length === 1 && visible[0].id === owner.analysisId && visible[0].status === 'input_ready'
+      && typeof visible[0].latest_run_id === 'string', 'be04_reopen_latest_run');
+    const resumed = await requestApi(`/api/v1/analyses/${owner.analysisId}/runs/${visible[0].latest_run_id}`, {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    check(resumed.status === 200, 'be04_reopen_run_status');
+    const operation = await resumed.json();
+    check(operation.runId === visible[0].latest_run_id && operation.status === 'finished'
+      && operation.snapshotId === owner.snapshotId, 'be04_reopen_run_capture');
   } catch (error) {
-    failed.push(failureStep(error));
+    const step = failureStep(error);
+    failed.push(be04Started && step === 'unexpected_failure' ? 'be04_unexpected_failure' : step);
   } finally {
     for (const account of accounts) {
       await retryCleanup(() => cleanUpUpload(account), failed);
       await retryCleanup(() => deleteAccount(admin, account, runId), failed);
     }
+    if (be04Started) await retryCleanup(() => checkBe04Cleanup(admin, accounts, check, result), failed);
   }
   return failed;
+}
+
+function restrictFetch(fetcher, allowedOrigin) {
+  return (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : input);
+    check(url.origin === allowedOrigin, 'unexpected_request_target');
+    const timeout = AbortSignal.timeout(10_000);
+    const signal = init?.signal ? AbortSignal.any([timeout, init.signal]) : timeout;
+    return fetcher(input, { ...init, signal, redirect: 'error' });
+  };
 }
 
 async function main() {
   const config = readConfig(process.env);
   const capture = loadCapture();
-  // 공용 핸들러까지 같은 개발 호스트로 제한하고 서비스의 리다이렉트를 따라가지 않는다.
   const fetchForSmoke = globalThis.fetch;
-  globalThis.fetch = (input, init) => {
-    const url = new URL(input instanceof Request ? input.url : input);
-    check(url.origin === config.origin, 'unexpected_request_target');
-    const timeout = AbortSignal.timeout(10_000);
-    const signal = init?.signal ? AbortSignal.any([timeout, init.signal]) : timeout;
-    return fetchForSmoke(input, { ...init, signal, redirect: 'error' });
-  };
+  // 사용자 HTTP 요청만 로컬 포트로 보낸다. 서버의 외부 요청은 승인된 개발 DB로 제한한다.
+  globalThis.fetch = restrictFetch(fetchForSmoke, config.origin);
   // SDK 자체 진단에는 외부 본문이 실릴 수 있으므로 CLI는 정해진 검사명만 출력한다.
   console.warn = console.error = () => {};
-  return run(config, capture);
+  const server = createDevServer(createHandler({
+    env: { APP_ENV: 'development', SUPABASE_URL: config.origin, SUPABASE_PUBLISHABLE_KEY: config.publishable },
+    createBackend,
+    log: () => {},
+  }));
+  try {
+    const listening = once(server, 'listening');
+    server.listen(0, '127.0.0.1');
+    await listening;
+    const address = server.address();
+    check(address && typeof address === 'object', 'http_listen');
+    const apiOrigin = `http://127.0.0.1:${address.port}`;
+    const apiFetch = restrictFetch(fetchForSmoke, apiOrigin);
+    return await run(config, capture, (path, init) => apiFetch(new URL(path, apiOrigin), init));
+  } finally {
+    if (server.listening) {
+      const closed = once(server, 'close');
+      server.close();
+      server.closeAllConnections();
+      await closed;
+    }
+  }
 }
 
 let failures;
@@ -556,8 +601,12 @@ try {
   failures = [failureStep(error)];
 }
 if (failures.length) {
-  for (const step of failures) process.stderr.write(`BE-03 smoke failed (${step})\n`);
+  for (const step of failures) {
+    const stage = step.startsWith('be04_') ? 'BE-04' : 'BE-03';
+    process.stderr.write(`${stage} smoke failed (${step})\n`);
+  }
   process.exitCode = 1;
 } else {
   process.stdout.write('BE-03 smoke passed (Auth, /api/v1/me, RLS, capture, upload content API, Storage, cleanup)\n');
+  process.stdout.write('BE-04 smoke passed (run API, RLS, scoped worker, claim and cancel races, recovery, cleanup)\n');
 }

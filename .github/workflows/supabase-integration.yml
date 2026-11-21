@@ -5,6 +5,8 @@ on:
     paths: &integration_paths
       - '.github/workflows/supabase-integration.yml'
       - 'supabase/**'
+      - 'api/**'
+      - 'dev/**'
       - 'src/**'
       - 'scripts/**'
       - 'tests/fixtures/ingestion-v0.json'
@@ -42,7 +44,7 @@ jobs:
             docker ps -a --format 'table {{.Names}}\t{{.Status}}'
             exit 1
           fi
-      - name: Sign in two users and check snapshots and private files
+      - name: Sign in two users and check snapshots, private files, and analysis runs
         run: |
           umask 077
           local_status="$RUNNER_TEMP/homecierge-status.json"
