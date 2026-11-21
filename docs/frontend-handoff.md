@@ -5,7 +5,7 @@
 | 연결 대상을 정한다 | 주소·계약을 확인한다 |
 | --- | --- |
 | Supabase 개발 DB·Auth | `https://jcaelooqogosbzrfyrhe.supabase.co` |
-| Vercel Preview API | `https://homecierge-4xlj53eo5-sions-projects-d18fe574.vercel.app` |
+| Vercel Preview API | `https://homecierge-1qgrkzixy-sions-projects-d18fe574.vercel.app` |
 | 로컬 API | `npm run dev` → `http://127.0.0.1:3001` |
 | 타입 | [원격 DB에서 생성한 Database 타입](../src/db/database.types.ts) |
 
@@ -13,7 +13,7 @@
 
 Preview에는 Vercel 배포 보호가 켜져 있다. Vercel 로그인과 Supabase의 서비스 사용자 로그인은 별개이며, 별도 화면의 자동 API 호출에 배포 보호가 추가로 적용될 수 있다. 로컬 API로 먼저 연동하고 화면 배포 때 접근 방식을 함께 검수한다. 보호 우회 값을 화면 코드에 넣지 않는다.
 
-11월 21일 Preview에는 PDF 다운로드와 분석 접수·상태 조회·취소 API가 배포됐다. `/api/health`는 200, Supabase 로그인 없이 실행을 조회하면 401을 반환한다. 접수한 실행을 처리하려면 개발 작업자를 별도로 실행한다. [작업자 실행 방법](api/analysis-runs.md)
+11월 21일 배포한 `cad297e`에는 PDF 다운로드, 분석 접수·상태 조회·취소, 저장된 비교 결과 조회가 포함됐다. 팀의 배포 보호를 통과한 상태에서 `/api/health`는 200, 서비스 로그인 없이 `/result`를 조회하면 401 `authentication_required`를 반환했다. 접수한 실행은 별도 개발 작업자가 처리한다. [작업자 실행 방법](api/analysis-runs.md) · [비교 결과 계약](api/comparison-v1.md)
 
 ## 1. 인증과 API를 연결한다
 

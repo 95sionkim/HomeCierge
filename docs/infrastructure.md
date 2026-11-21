@@ -111,6 +111,8 @@ Node.js 버전은 [.nvmrc](../.nvmrc), 라이브러리와 CLI는 [package.json](
 
 서울 개발 DB에 [BE-05 비교 결과 마이그레이션](../supabase/migrations/20261121024901_comparison_results.sql)을 적용하고 DB 타입을 다시 생성했다. 두 시험 계정으로 합성 공고를 비교해 주변 2단지의 종류별 가격을 조회하고, 같은 수집본 재실행 및 재로그인 뒤 결과의 일치를 확인했다. 다른 계정의 조회는 404였고 독립적으로 저장된 수집본에는 데모 근거가 적용되지 않았다. 검사 후 계정·실행·수집본·비교 결과·비공개 업로드의 잔여 건수는 각각 0이었다. [비교 결과 계약](api/comparison-v1.md)
 
+BE-05 구현 커밋 `cad297e`의 보호된 Preview는 `READY`를 확인했다. 배포 보호가 적용된 주소는 팀 세션 없이 접근하면 302, 팀 세션으로 접근한 생존 확인은 200, Supabase 사용자 세션 없이 요청한 비교 결과는 401이었다. 마이그레이션을 처음부터 적용한 GitHub Actions의 격리 Supabase에서도 두 사용자 검사가 통과했다. [화면 팀 Preview 주소](frontend-handoff.md) · [Supabase 통합 검사](https://github.com/95sionkim/HomeCierge/actions/runs/44858258513) · [기본 검사](https://github.com/95sionkim/HomeCierge/actions/runs/44858258476)
+
 ## 6. 연결할 환경변수를 구분한다
 
 | 이름을 확인한다 | 설정 위치를 정한다 | 사용 목적을 설명한다 |
