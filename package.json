@@ -10,6 +10,7 @@
     "dev": "node --env-file-if-exists=.secrets/backend.env --import tsx dev/server.ts",
     "check": "tsc --noEmit",
     "test": "tsx --test tests/backend/*.test.ts",
+    "test:ingestion": "node --test tests/ingestion/*.test.mjs",
     "test:db": "node --test tests/database/*.test.mjs",
     "build": "npm run check",
     "db:cli": "supabase"

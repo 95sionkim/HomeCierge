@@ -34,6 +34,7 @@ Python 검사에서는 합성 자료로 수집·주소 판정과 조회·가져�
 | 파일을 찾는다 | 재사용할 역할을 확인한다 | 실행 조건을 확인한다 |
 | --- | --- | --- |
 | `scripts/probe_apis.py` | 공식 호스트 제한, 인증값 제거, JSON/XML 해석, 오류·정상 0건 구분 | 실호출에는 서비스 인증값 필요 |
+| [공고·실거래 재생](api/ingestion-v0.md) · `scripts/replay_ingestion.py` | 공고·주택형·문서 근거와 지역·계약월별 거래를 조회해 정규화한다 | 기본 실행은 합성 자료와 Python 표준 라이브러리 사용 |
 | `scripts/collect_recent_trades.py` | 월·페이지 완전성, 만원→원, 계약일·해제·권리 종류 정규화 | `--dry-run`은 무호출; 실제 수집은 공공 API 키 필요 |
 | `scripts/store_api_key.py` | 숨김 입력, 키별 로컬 파일 저장 | 대화형 터미널에서만 사용 |
 | `scripts/import_api_response.py` | 직접 저장한 공식 응답을 출처·해시와 등록 | 보관 권한을 확인한 로컬 파일 필요 |

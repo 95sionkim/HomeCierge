@@ -197,7 +197,7 @@ LLM은 구조화된 사실·계산 결과의 설명과 변경 제안을 보조�
 
 ## 10. 첫 작업을 다섯 묶음으로 실행한다
 
-`codex/backend-foundation`의 역할별 담당은 [개발팀 운영 계획안](development-team.md)에 정리했다. BE-01에서 만든 [분석 결과 계약과 합성 예시](api/analysis-result-v0.md)는 화면팀이 사용하며, [공식 명세 조사 기록](api/be-01-evidence.md)은 BE-02에서 거래 필드를 정규화할 때 참조한다.
+`codex/backend-foundation`의 역할별 담당은 [개발팀 운영 계획안](development-team.md)에 정리했다. 화면팀은 BE-01의 [분석 결과 계약과 합성 예시](api/analysis-result-v0.md)를 사용한다. BE-02의 [공고·실거래 재생 안내](api/ingestion-v0.md)에는 [공식 명세 조사 기록](api/be-01-evidence.md)을 바탕으로 정규화한 값과 DB에 넘길 수집 기록의 확인 방법이 있다.
 
 | 작업 묶음을 만든다 | 구현 범위를 정한다 | 완료를 확인한다 |
 | --- | --- | --- |

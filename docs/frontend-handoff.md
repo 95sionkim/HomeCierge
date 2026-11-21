@@ -35,6 +35,8 @@ Preview에는 Vercel 배포 보호가 켜져 있다. Vercel 로그인과 Supabas
 | `partialCollection` (`partial`) | 거래 14건 중 10건을 받았고 2페이지가 누락됐다. 확인한 내용과 누락 사유를 표시하고, 현재 지역의 단지 수 확정과 자동 확대는 보류한다. |
 | `upstreamFailure` (`unavailable`) | 출처 조회에 실패해 비교 결과를 제공할 수 없다. 실패한 항목과 응답에 명시된 재조회 행동을 표시한다. |
 
+수집 기록의 출처·월·누락 사유가 어떻게 만들어지는지는 [BE-02 재생 명령](api/ingestion-v0.md)으로 확인한다. 출력의 `tradeBatches[].record`는 위 계약의 `collections[]` 원소와 같은 형식이다. 프론트엔드는 한 출처의 빈 응답만으로 지역 확대를 결정하지 않는다.
+
 ## 2. Supabase Data API로 사용자 자료를 다룬다
 
 SDK에 publishable key와 로그인 세션을 사용한다. 테이블·열별 허용 작업은 [인프라 권한표](infrastructure.md)의 제한을 따른다. 직접 SQL 관리 권한이나 service-role key를 화면에 전달하지 않는다.

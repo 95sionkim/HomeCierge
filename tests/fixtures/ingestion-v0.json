@@ -1,0 +1,338 @@
+{
+  "dataOrigin": "synthetic",
+  "request": {
+    "noticeSource": "applyhome_apt",
+    "target": {
+      "houseManageNo": "9900000001",
+      "noticeNo": "9900000042",
+      "edition": "synthetic-edition-1"
+    },
+    "asOf": "2026-11-10",
+    "start": "2026-10-10",
+    "end": "2026-10-31",
+    "requestRegionCodes": [
+      "99999"
+    ],
+    "tradeKinds": [
+      "sale",
+      "presale_right",
+      "occupancy_right"
+    ],
+    "pageSize": 2
+  },
+  "pages": [
+    {
+      "source": "applyhome_apt",
+      "scope": {
+        "cond[HOUSE_MANAGE_NO::EQ]": "9900000001",
+        "cond[PBLANC_NO::EQ]": "9900000042"
+      },
+      "page": 1,
+      "pageSize": 2,
+      "httpStatus": 200,
+      "observedAt": "2026-11-10T01:00:01Z",
+      "body": {
+        "page": 1,
+        "perPage": 2,
+        "currentCount": 1,
+        "matchCount": 1,
+        "totalCount": 90,
+        "data": [
+          {
+            "HOUSE_MANAGE_NO": "9900000001",
+            "PBLANC_NO": "9900000042",
+            "HOUSE_SECD": "01",
+            "HOUSE_SECD_NM": "아파트",
+            "HOUSE_NM": "합성 가람 아파트",
+            "HSSPLY_ADRES": "합성구 가람동",
+            "RCRIT_PBLANC_DE": "2026-10-05",
+            "RCEPT_BGNDE": "2026-10-19",
+            "RCEPT_ENDDE": "2026-10-23",
+            "MVN_PREARNGE_YM": "202812",
+            "PBLANC_URL": "https://example.invalid/synthetic-notices/42"
+          }
+        ]
+      }
+    },
+    {
+      "source": "applyhome_apt_model",
+      "scope": {
+        "cond[HOUSE_MANAGE_NO::EQ]": "9900000001",
+        "cond[PBLANC_NO::EQ]": "9900000042"
+      },
+      "page": 1,
+      "pageSize": 2,
+      "httpStatus": 200,
+      "observedAt": "2026-11-10T01:00:01Z",
+      "body": {
+        "page": 1,
+        "perPage": 2,
+        "currentCount": 1,
+        "matchCount": 1,
+        "totalCount": 90,
+        "data": [
+          {
+            "HOUSE_MANAGE_NO": "9900000001",
+            "PBLANC_NO": "9900000042",
+            "MODEL_NO": "01",
+            "HOUSE_TY": "084.0000A",
+            "SUPLY_AR": "112.40",
+            "LTTOT_TOP_AMOUNT": "75,000",
+            "SUPLY_HSHLDCO": 2,
+            "SPSPLY_HSHLDCO": 0
+          }
+        ]
+      }
+    },
+    {
+      "source": "apt_trade",
+      "scope": {
+        "LAWD_CD": "99999",
+        "DEAL_YMD": "202610"
+      },
+      "page": 1,
+      "pageSize": 2,
+      "httpStatus": 200,
+      "observedAt": "2026-11-10T01:00:01Z",
+      "body": {
+        "response": {
+          "header": {
+            "resultCode": "000",
+            "resultMsg": "OK"
+          },
+          "body": {
+            "pageNo": 1,
+            "numOfRows": 2,
+            "totalCount": 3,
+            "items": {
+              "item": [
+                {
+                  "sggCd": "99999",
+                  "umdNm": "가람동",
+                  "umdCd": "00100",
+                  "aptNm": "합성 비교 A",
+                  "aptSeq": "99999-100",
+                  "jibun": "100",
+                  "dealYear": "2026",
+                  "dealMonth": "10",
+                  "dealDay": "20",
+                  "dealAmount": "51,500",
+                  "excluUseAr": "84.00",
+                  "floor": "7",
+                  "cdealType": "",
+                  "cdealDay": ""
+                },
+                {
+                  "sggCd": "99999",
+                  "umdNm": "가람동",
+                  "umdCd": "00100",
+                  "aptNm": "합성 비교 A",
+                  "aptSeq": "99999-100",
+                  "jibun": "100",
+                  "dealYear": "2026",
+                  "dealMonth": "10",
+                  "dealDay": "21",
+                  "dealAmount": "51,500",
+                  "excluUseAr": "84.00",
+                  "floor": "8",
+                  "cdealType": "O",
+                  "cdealDay": "26.10.29"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "source": "apt_trade",
+      "scope": {
+        "LAWD_CD": "99999",
+        "DEAL_YMD": "202610"
+      },
+      "page": 2,
+      "pageSize": 2,
+      "httpStatus": 200,
+      "observedAt": "2026-11-10T01:00:02Z",
+      "body": {
+        "response": {
+          "header": {
+            "resultCode": "000",
+            "resultMsg": "OK"
+          },
+          "body": {
+            "pageNo": 2,
+            "numOfRows": 2,
+            "totalCount": 3,
+            "items": {
+              "item": [
+                {
+                  "sggCd": "99999",
+                  "umdNm": "가람동",
+                  "umdCd": "00100",
+                  "aptNm": "합성 비교 A",
+                  "aptSeq": "99999-100",
+                  "jibun": "100",
+                  "dealYear": "2026",
+                  "dealMonth": "10",
+                  "dealDay": "9",
+                  "dealAmount": "51,500",
+                  "excluUseAr": "84.00",
+                  "floor": "9",
+                  "cdealType": "",
+                  "cdealDay": ""
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "source": "apt_rights",
+      "scope": {
+        "LAWD_CD": "99999",
+        "DEAL_YMD": "202610"
+      },
+      "page": 1,
+      "pageSize": 2,
+      "httpStatus": 200,
+      "observedAt": "2026-11-10T01:00:01Z",
+      "body": {
+        "response": {
+          "header": {
+            "resultCode": "000",
+            "resultMsg": "OK"
+          },
+          "body": {
+            "pageNo": 1,
+            "numOfRows": 2,
+            "totalCount": 2,
+            "items": {
+              "item": [
+                {
+                  "sggCd": "99999",
+                  "umdNm": "가람동",
+                  "aptNm": "합성 비교 B",
+                  "jibun": "201",
+                  "dealYear": "2026",
+                  "dealMonth": "10",
+                  "dealDay": "24",
+                  "dealAmount": "40,500",
+                  "excluUseAr": "82.50",
+                  "floor": "5",
+                  "cdealType": "",
+                  "cdealDay": "",
+                  "ownershipGbn": ""
+                },
+                {
+                  "sggCd": "99999",
+                  "umdNm": "가람동",
+                  "aptNm": "합성 비교 B",
+                  "jibun": "201",
+                  "dealYear": "2026",
+                  "dealMonth": "10",
+                  "dealDay": "26",
+                  "dealAmount": "48,600",
+                  "excluUseAr": "82.50",
+                  "floor": "5",
+                  "cdealType": "",
+                  "cdealDay": "",
+                  "ownershipGbn": "입"
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ],
+  "evidence": [
+    {
+      "document": {
+        "id": "synthetic-notice-pdf",
+        "version": "synthetic-v1",
+        "source": "official",
+        "houseManageNo": "9900000001",
+        "noticeNo": "9900000042",
+        "edition": "synthetic-edition-1"
+      },
+      "page": 7,
+      "modelNo": "01",
+      "houseType": "084.0000A",
+      "room": "101동 101호",
+      "item": "sale_price",
+      "check": "confirmed",
+      "won": "700000000"
+    },
+    {
+      "document": {
+        "id": "synthetic-notice-pdf",
+        "version": "synthetic-v1",
+        "source": "official",
+        "houseManageNo": "9900000001",
+        "noticeNo": "9900000042",
+        "edition": "synthetic-edition-1"
+      },
+      "page": 8,
+      "modelNo": "01",
+      "houseType": "084.0000A",
+      "room": "101동 101호",
+      "item": "required_options",
+      "check": "confirmed",
+      "won": "10000000"
+    },
+    {
+      "document": {
+        "id": "synthetic-notice-pdf",
+        "version": "synthetic-v1",
+        "source": "official",
+        "houseManageNo": "9900000001",
+        "noticeNo": "9900000042",
+        "edition": "synthetic-edition-1"
+      },
+      "page": 7,
+      "modelNo": "01",
+      "houseType": "084.0000A",
+      "room": "101동 102호",
+      "item": "sale_price",
+      "check": "confirmed",
+      "won": "720000000"
+    },
+    {
+      "document": {
+        "id": "synthetic-notice-pdf",
+        "version": "synthetic-v1",
+        "source": "official",
+        "houseManageNo": "9900000001",
+        "noticeNo": "9900000042",
+        "edition": "synthetic-edition-1"
+      },
+      "page": 8,
+      "modelNo": "01",
+      "houseType": "084.0000A",
+      "room": "101동 102호",
+      "item": "required_options",
+      "check": "unverified",
+      "won": null
+    },
+    {
+      "document": {
+        "id": "synthetic-notice-pdf",
+        "version": "synthetic-v1",
+        "source": "official",
+        "houseManageNo": "9900000001",
+        "noticeNo": "9900000042",
+        "edition": "synthetic-edition-1"
+      },
+      "page": 4,
+      "modelNo": "01",
+      "houseType": "084.0000A",
+      "item": "supply_area",
+      "basis": "supply",
+      "unit": "m2",
+      "m2": "112.400",
+      "check": "confirmed"
+    }
+  ]
+}

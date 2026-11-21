@@ -14,6 +14,7 @@
 | [DB·배포 준비](docs/infrastructure.md) | Supabase 스키마·권한, Vercel 환경 분리, 로컬 검사와 실제 연결 상태 |
 | [화면 팀 연결 계약](docs/frontend-handoff.md) | 사용자 인증, 데이터 접근, 프로필 승인과 구현 전 기능 |
 | [분석 결과 계약 v0](docs/api/analysis-result-v0.md) | 화면팀이 같은 요청의 정상 0개·부분 수집·출처 오류를 구별하는 스키마와 합성 응답 |
+| [공고·실거래 수집과 정규화](docs/api/ingestion-v0.md) | 한 공고의 주택형·호실 가격 근거와 지역·계약월별 거래를 합성 자료로 재생하는 방법 |
 | [전체 개발 계획](docs/development-plan.md) | API·정규화·DB·작업 실행부터 시작하는 단계, 첫 작업 5개와 전체 수락 기준 배치 |
 | [개발 시작 안내](docs/development.md) | 실행 환경, 코드 구조, 첫 개발 과제와 완료 조건 |
 | [API 인계 상태](docs/api/prd-readiness.md) | 실제 확인한 범위와 개발 전 결정할 항목 |
@@ -26,15 +27,16 @@
 
 기본 테스트는 Python 표준 라이브러리만 사용합니다. API 키·네트워크·실제 응답 파일 없이 실행할 수 있습니다.
 
-새 DB·API 기반은 Node.js 26에서 `npm ci`, `npm run build`, `npm test`, `npm run test:db`로 검사합니다. 패키지 설치 후 검사는 실제 클라우드 계정·인증값 없이 실행합니다.
+DB·API 기반은 Node.js 26에서 `npm ci`, `npm run build`, `npm test`, `npm run test:db`로 검사합니다. Python 3도 설치된 환경에서 `npm run test:ingestion`을 실행하면 실제 재생 결과가 화면팀의 수집 기록 스키마를 따르는지 확인할 수 있습니다.
 
 화면 연동용 로컬 API는 `npm run dev`로 실행합니다. DB 연결값은 `.secrets/backend.env`에 저장하며 [화면 팀 연결 계약](docs/frontend-handoff.md)의 환경변수와 권한을 따릅니다.
 
 ```sh
-git clone https://github.com/95sionkim/HomeCierge.git
+git clone --branch codex/backend-foundation https://github.com/95sionkim/HomeCierge.git
 cd HomeCierge
 python3 -m unittest discover -s scripts -p 'test_*.py' -v
 python3 scripts/check_repository.py
+python3 scripts/replay_ingestion.py tests/fixtures/ingestion-v0.json
 python3 scripts/collect_recent_trades.py --probe apt_trade --lawd-cd 11215 --start 202511 --end 202610 --dry-run
 ```
 
@@ -79,4 +81,4 @@ tests/fixtures/         실제 응답을 포함하지 않는 합성 자료
 
 API 키, 개인 계정 기록, API 응답 원문, PDF/HWP 원본, 뉴스 본문·발췌와 교통 경로 데이터, 과거 발표 자료는 업로드하지 않습니다. 공개한 검증 수치와 원 프로젝트의 로컬 증거 위치는 [증거 색인](docs/api/evidence-index.json)으로 추적합니다. 데이터 배포 범위와 제3자 이용 조건은 [데이터 관리 안내](docs/data-handling.md)를 확인합니다.
 
-개발 브랜치의 첫 묶음(BE-01)은 분석 결과 계약과 외부 응답 해석을 다룹니다. 다음 묶음(BE-02)은 공고·거래 커넥터와 정규화입니다. 실거래에 대응하는 공급면적, 권리 거래의 식별자, 공고 PDF와 출처별 이용 조건은 별도로 추적합니다. [전체 개발 계획](docs/development-plan.md) · [공식 자료 조사 기록](docs/api/be-01-evidence.md)
+개발 브랜치에는 분석 결과 계약(BE-01)과 공고·실거래 수집 및 정규화(BE-02)가 있습니다. 다음 묶음(BE-03)은 관측값과 근거를 Supabase에 저장하고 실제 시험 계정 두 개로 접근 권한을 확인하는 작업입니다. 실거래에 대응하는 공급면적, 권리 거래의 단지 식별, 공고 PDF와 출처별 이용 조건은 자료 검증을 계속합니다. [전체 개발 계획](docs/development-plan.md) · [공식 자료 조사 기록](docs/api/be-01-evidence.md)

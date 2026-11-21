@@ -43,6 +43,8 @@ NAVER 예제는 API HUB의 `X-NCP-APIGW-API-KEY-ID`·`X-NCP-APIGW-API-KEY` 방�
 
 ## 필요한 범위만 수동 호출한다
 
+[공고·실거래 수집 재생](ingestion-v0.md)은 한 공고·주택형과 지역·계약월별 거래를 합성 응답으로 읽는 개발 진입점이다. 로컬의 `python3 scripts/replay_ingestion.py tests/fixtures/ingestion-v0.json`으로 실행한다.
+
 아래 명령은 실제 API를 호출하고 `api-evidence/`에 응답을 저장한다. 보관·이용 조건과 인증값을 확인한 다음 실행한다. CI에는 넣지 않는다.
 
 조회 도구는 받은 JSON·XML로 업무 상태와 거래 수를 판정하고 저장용 사본의 인증값을 가린다. 긴 인증값이 필드명으로 되돌아오거나 확인되지 않은 항목에 짧은 인증값이 독립된 값으로 나타나면 `redaction_failed`를 기록하고 본문과 파싱 결과의 저장을 보류한다. 짧은 인증값과 우연히 겹치는 정상 거래값·건수·상태 코드는 보존한다. UTF-8 또는 문서 형식을 해석할 수 없을 때도 본문 저장을 보류한다.

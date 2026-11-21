@@ -121,10 +121,14 @@ def xml_value(node):
     return result
 
 
-def parse_payload(raw):
+def parse_payload(raw, loads=None):
+    """JSON/XML 본문을 해석한다. loads는 JSON 해석 함수이며 기본은 기존과 같은 json.loads(float)다.
+
+    BE-02 수집은 금액·면적의 십진 자릿수를 보존하는 ingestion_pages.loads_source_json을 넘긴다.
+    """
     text = raw.decode('utf-8-sig')
     if text.lstrip().startswith(('{', '[')):
-        payload = json.loads(text)
+        payload = (loads or json.loads)(text)
         if '\\ud' in text or '\\uD' in text:
             # JSON 문자열의 단독 서로게이트는 해석돼도 UTF-8 파일로 보관할 수 없다.
             json.dumps(payload, ensure_ascii=False).encode('utf-8')
