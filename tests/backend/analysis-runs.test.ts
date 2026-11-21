@@ -209,6 +209,51 @@ test('run errors use stable public codes without exposing database details', asy
   assert.doesNotMatch(JSON.stringify(logs), /SYNTHETIC/);
 });
 
+test('comparison GET reads a frozen result with the user session and preserves held versus complete', async t => {
+  const resultPath = `${runPath}/result`;
+  const result = { contractVersion: 'comparison/v1', dataOrigin: 'synthetic', completeness: 'partial', rankingComplete: false,
+    target: {}, conditions: {}, noticePrice: {}, regionDecision: {}, tradeKinds: {}, collections: [],
+    appliedScope: null, comparables: [], targetReferences: [], holds: [{ reasonCode: 'trade_supply_area_unverified' }],
+    exclusions: [] };
+  const saved = { analysisId, runId, snapshotId, rulesVersion: 'synthetic-v1', result };
+  let response = () => Response.json(saved);
+  const calls = mockRpc(t, () => response());
+  const handle = createHandler({ env, createBackend, log: () => {} });
+  const read = () => handle(request(resultPath, { headers: auth }));
+  assert.equal((await handle(request(resultPath))).status, 401);
+  assert.equal((await handle(request(resultPath, { method: 'POST', headers: auth }))).status, 405);
+  assert.equal((await handle(request(resultPath.replace(runId, 'invalid'), { headers: auth }))).status, 400);
+  const ok = await read();
+  assert.equal(ok.status, 200);
+  assert.equal(ok.headers.get('cache-control'), 'private, no-store');
+  assert.deepEqual(await ok.json(), saved);
+  assert.deepEqual(calls, [{ rpc: 'get_analysis_comparison', args: { p_analysis_id: analysisId, p_run_id: runId } }]);
+  const held = { ...saved, result: { ...result, completeness: 'unavailable', target: null, noticePrice: null } };
+  response = () => Response.json(held);
+  assert.deepEqual(await (await read()).json(), held);
+  for (const [code, status, expected] of [
+    ['PT403', 403, 'comparison_source_restricted'], ['PT404', 404, 'run_not_found'], ['PT409', 409, 'comparison_not_available'],
+  ] as const) {
+    response = () => Response.json({ code, message: 'synthetic database detail' }, { status });
+    const failure = await read();
+    assert.equal(failure.status, status);
+    assert.deepEqual(await failure.json(), { error: expected, requestId: failure.headers.get('x-request-id') });
+  }
+  for (const invalid of [{ ...saved, runId: userId }, { ...saved, snapshotId: null },
+    { ...saved, result: { ...result, dataOrigin: 'unknown' } },
+    { ...saved, result: { ...result, collections: undefined } },
+    { ...saved, result: { ...result, rankingComplete: undefined } },
+    { ...saved, result: { ...result, target: null } },
+    { ...saved, result: { ...result, comparables: [{ complexId: 'a' }] } },
+    { ...saved, result: { ...result, appliedScope: 'priority', comparables: [{ complexId: 'a' }, { complexId: 'a' }] } },
+    { ...saved, result: { ...result, appliedScope: 'priority', comparables: [{ complexId: 'a' }],
+      targetReferences: [{ complexId: 'a' }] } },
+    { ...saved, result: { ...result, comparables: Array.from({ length: 6 }, () => ({})) } }]) {
+    response = () => Response.json(invalid);
+    assert.equal((await read()).status, 503);
+  }
+});
+
 test('only an enqueue PT429 exposes the public retry delay', async t => {
   let code = 'PT429';
   const calls = mockRpc(t, () => Response.json({ code, message: 'SYNTHETIC_PRIVATE_DETAIL' }, {

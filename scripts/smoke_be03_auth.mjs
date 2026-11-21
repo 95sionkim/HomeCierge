@@ -1,7 +1,7 @@
 // 격리한 개발 스택에서 실행한다. SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY,
 // SUPABASE_WORKER_KEY(또는 SUPABASE_SECRET_KEY/SUPABASE_SERVICE_ROLE_KEY)를 실행 환경으로 받는다.
 // 호스팅 개발 프로젝트를 사용할 때는 APP_ENV=development도 지정한다.
-// 같은 두 계정으로 로컬 HTTP 서버를 통해 BE-03과 BE-04를 검수한다.
+// 같은 두 계정으로 로컬 HTTP 서버를 통해 수집본·실행·저장된 비교 결과를 검수한다.
 // node --import tsx scripts/smoke_be03_auth.mjs 로 실행한다.
 import { execFile, spawnSync } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -523,7 +523,7 @@ async function run(config, capture, requestApi) {
     }
     be04Started = true;
     const secondWorker = makeClient(config.origin, config.service);
-    await runBe04Smoke({ requestApi, admin, secondWorker, accounts, capture, config, check, result });
+    const savedComparison = await runBe04Smoke({ requestApi, admin, secondWorker, accounts, capture, config, check, result });
     // 새 기기처럼 로그인한 뒤 분석 목록만으로 마지막 실행과 저장한 수집본을 다시 찾는다.
     const [peer, owner] = accounts;
     const reopened = userClient();
@@ -539,6 +539,11 @@ async function run(config, capture, requestApi) {
     const operation = await resumed.json();
     check(operation.runId === visible[0].latest_run_id && operation.status === 'finished'
       && operation.snapshotId === owner.snapshotId, 'be04_reopen_run_capture');
+    const restored = await requestApi(`/api/v1/analyses/${owner.analysisId}/runs/${operation.runId}/result`, {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    check(restored.status === 200 && isDeepStrictEqual(await restored.json(), savedComparison),
+      'be05_reopen_saved_comparison');
   } catch (error) {
     const step = failureStep(error);
     failed.push(be04Started && step === 'unexpected_failure' ? 'be04_unexpected_failure' : step);
@@ -602,11 +607,12 @@ try {
 }
 if (failures.length) {
   for (const step of failures) {
-    const stage = step.startsWith('be04_') ? 'BE-04' : 'BE-03';
+    const stage = step.startsWith('be05_') ? 'BE-05' : step.startsWith('be04_') ? 'BE-04' : 'BE-03';
     process.stderr.write(`${stage} smoke failed (${step})\n`);
   }
   process.exitCode = 1;
 } else {
   process.stdout.write('BE-03 smoke passed (Auth, /api/v1/me, RLS, capture, upload content API, Storage, cleanup)\n');
   process.stdout.write('BE-04 smoke passed (run API, RLS, scoped worker, claim and cancel races, recovery, cleanup)\n');
+  process.stdout.write('BE-05 smoke passed (comparison, evidence holds, snapshot replay, two-user isolation, new session)\n');
 }

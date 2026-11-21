@@ -10,6 +10,7 @@ on:
       - 'src/**'
       - 'scripts/**'
       - 'tests/fixtures/ingestion-v0.json'
+      - 'tests/fixtures/comparison-evidence-v1.json'
       - 'package*.json'
       - '.nvmrc'
   pull_request:
@@ -44,7 +45,7 @@ jobs:
             docker ps -a --format 'table {{.Names}}\t{{.Status}}'
             exit 1
           fi
-      - name: Sign in two users and check snapshots, private files, and analysis runs
+      - name: Sign in two users and check snapshots, files, analysis runs and saved comparisons
         run: |
           umask 077
           local_status="$RUNNER_TEMP/homecierge-status.json"

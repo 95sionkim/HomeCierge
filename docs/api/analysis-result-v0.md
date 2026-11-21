@@ -4,7 +4,7 @@
 
 - **기계 판독 기준은 하나다.** [JSON 스키마(draft-07)](analysis-result-v0.schema.json)가 필드·값·불변 조건의 기준이다. 이 문서는 의미와, 스키마로 검사할 수 없는 조건(§10)을 적는다. 둘이 다르면 스키마를 고치고 이 문서를 맞춘다.
 - **합성 예시**: [analysis-result-v0.json](../../tests/fixtures/analysis-result-v0.json)의 `normalZero`·`partialCollection`·`upstreamFailure`는 같은 요청의 세 결과이며 각각 루트 스키마를 따른다. 모든 값은 합성 자료다(`dataOrigin: "synthetic"`).
-- **비교 결과는 BE-05에서 연결한다.** BE-04의 `GET /api/v1/analyses/{analysisId}/runs/{runId}`는 수집 입력 준비 상태와 스냅샷 ID를 반환한다. 아래 스키마는 BE-05에서 제공할 비교 결과의 합성 예시에 적용한다. [분석 실행 계약](analysis-runs.md)
+- **실행 상태와 비교 결과를 읽는다.** 실행 주소의 GET은 진행 상태와 수집본 ID를 반환한다. 같은 주소의 `/result`에서 해당 실행이 저장한 가격·단지별 통계·근거를 읽는다. 이 문서의 v0 스키마는 기존 화면용 합성 예시에 적용한다. [비교 결과 v1](comparison-v1.md) · [분석 실행 계약](analysis-runs.md)
 - **v0에 넣지 않은 것**: 비교표(선정 단지·순위·직선거리·가격 통계·거래 원장), 분석 접수·취소 요청, 작업 재시도·임대 세부, 대상 단지 자체 거래 표시. 비교 결과는 BE-05, 실행 접수·재시도는 BE-04 실행 계약을 따른다.
 
 ## 1. 기존 API와의 호환을 확인한다

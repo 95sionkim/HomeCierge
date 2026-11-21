@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { createClient, StorageApiError } from '@supabase/supabase-js';
 import type { Database } from '../db/database.types.js';
-import { AnalysisRunError, parseAnalysisRun } from './analysis-runs.js';
+import { AnalysisRunError, parseAnalysisRun, parseComparisonSnapshot } from './analysis-runs.js';
 import type { Backend, BackendConfig } from './handler.js';
 
 const uploadBucket = 'analysis-uploads';
@@ -67,6 +67,18 @@ export function createBackend(config: BackendConfig): Backend {
       }
       if (!matches) throw new Error('invalid_run_response');
       return run;
+    },
+    async getComparison(analysisId, runId, signal) {
+      const { data, error } = await client.rpc('get_analysis_comparison', {
+        p_analysis_id: analysisId, p_run_id: runId,
+      }).abortSignal(signal);
+      if (error?.code === 'PT403') throw new AnalysisRunError('comparison_source_restricted');
+      if (error?.code === 'PT404') throw new AnalysisRunError('run_not_found');
+      if (error?.code === 'PT409') throw new AnalysisRunError('comparison_not_available');
+      if (error) throw new Error('database_unavailable');
+      const snapshot = parseComparisonSnapshot(data, analysisId, runId);
+      if (!snapshot) throw new Error('invalid_comparison_response');
+      return snapshot;
     },
     async getUploadContent({ userId, analysisId, uploadId, signal }) {
       const { data: upload, error: lookupError } = await client.from('analysis_uploads')

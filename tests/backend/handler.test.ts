@@ -17,6 +17,7 @@ const backend: Backend = {
   getProfile: async id => ({ user_id: id, revision: 0 }),
   getUploadContent: async () => null,
   runAnalysis: async () => { throw new Error('unexpected_run_operation'); },
+  getComparison: async () => { throw new Error('unexpected_comparison_read'); },
 };
 const req = (path: string, headers: Record<string,string> = {}, method = 'GET') =>
   new Request(`https://api.invalid${path}`, { method, headers });

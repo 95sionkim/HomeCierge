@@ -2,7 +2,7 @@
 
 희망 지역·예산으로 청약 공고를 찾고, 한 번에 한 공고·한 주택형의 분양 조건을 아파트 실거래와 비교하는 의사결정 지원 서비스입니다. **같은 동·읍·면을 우선 비교하고 정상 0개일 때 같은 구, 구가 없으면 같은 시·군으로 확대**합니다.
 
-현재 요구 기준은 **PRD v1.1**입니다. 사용자 결정 36개를 바탕으로 확정 요구와 수락 기준을 연결하고 에이전트 평가 방법을 제안합니다. 2026-11-11에는 서울의 Supabase 개발 DB를 생성해 스키마·RLS·프로필 승인 함수를 적용하고, 화면과 독립적인 Vercel Preview API를 배포했습니다. 로컬 46개 검사와 실제 DB의 권한 검사·배포 응답을 확인했습니다. 계정별 저장과 파일 접근은 [BE-03 통합 검사](docs/api/ingestion-storage.md)로 확인합니다. 제품 화면과 출시 로그인 방식은 별도 화면팀과 연결합니다. 2026-11-09의 10서비스·14조회는 과거 데이터 접근 근거이고 공고 검색·공급면적 비교·보고서·보조 기능의 구현 완료를 뜻하지 않습니다.
+현재 요구 기준은 **PRD v1.1**입니다. 사용자 결정 36개를 바탕으로 확정 요구와 수락 기준을 연결했습니다. 서울 Supabase 개발 DB와 화면 독립형 Vercel API를 사용합니다. 현재 개발 버전은 한 공고의 수집본과 검수된 공급면적으로 주변 거래를 비교하고, 로그인한 사용자가 당시 결과를 다시 열 수 있습니다. 구의동 실자료에서 확인한 보류 사례와 합성 공고에서 재현할 수 있는 비교 결과를 각각 기록했습니다. 제품 화면과 출시 로그인 방식은 별도 화면팀과 연결합니다. [실거래 비교 실행 예시](docs/api/comparison-v1.md) · [구의동 실자료 검산](docs/api/be-05-real-case.md)
 
 ## 먼저 읽기
 
@@ -17,6 +17,7 @@
 | [공고·실거래 수집과 정규화](docs/api/ingestion-v0.md) | 한 공고의 주택형·호실 가격 근거와 지역·계약월별 거래를 합성 자료로 재생하는 방법 |
 | [분석별 저장·비공개 업로드](docs/api/ingestion-storage.md) | 같은 수집 키의 재시도, 저장한 근거 조회, 사용자 소유 PDF의 등록·삭제 순서 |
 | [분석 접수·조회·취소](docs/api/analysis-runs.md) | 같은 요청 재전송, 수집 자료 준비, 실행 중단 이후 재개와 상태 표시 |
+| [실거래 비교 결과 v1](docs/api/comparison-v1.md) | 고정한 주택형과 주변 거래를 대조해 단지별 통계·보류 근거를 저장하고 다시 읽는 방법 |
 | [전체 개발 계획](docs/development-plan.md) | API·정규화·DB·작업 실행부터 시작하는 단계, 첫 작업 5개와 전체 수락 기준 배치 |
 | [개발 시작 안내](docs/development.md) | 실행 환경, 코드 구조, 첫 개발 과제와 완료 조건 |
 | [API 인계 상태](docs/api/prd-readiness.md) | 실제 확인한 범위와 개발 전 결정할 항목 |
@@ -39,6 +40,7 @@ cd HomeCierge
 python3 -m unittest discover -s scripts -p 'test_*.py' -v
 python3 scripts/check_repository.py
 python3 scripts/replay_ingestion.py tests/fixtures/ingestion-v0.json
+python3 scripts/run_analysis_worker.py --demo
 python3 scripts/collect_recent_trades.py --probe apt_trade --lawd-cd 11215 --start 202511 --end 202610 --dry-run
 ```
 

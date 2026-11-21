@@ -17,6 +17,10 @@ class WorkerRpcError(RuntimeError):
         self.code = code
 
 
+class WorkerRpcResponseTooLarge(WorkerRpcError):
+    """읽기 응답이 호출자가 처리할 수 있는 크기를 넘었다."""
+
+
 class WorkerRpc:
     def __init__(self, env, opener=None):
         if (env.get('APP_ENV', 'development') != 'development' or env.get('VERCEL_ENV') == 'production'
@@ -58,7 +62,7 @@ class WorkerRpc:
             with self.opener.open(call, timeout=30) as response:
                 data = response.read(limit + 1)
             if len(data) > limit:
-                raise WorkerRpcError()
+                raise WorkerRpcResponseTooLarge()
             return json.loads(data)
         except error.HTTPError as exc:
             code = None

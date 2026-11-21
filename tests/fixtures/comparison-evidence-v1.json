@@ -1,0 +1,112 @@
+{
+  "contractVersion": "comparison-evidence/v1",
+  "dataOrigin": "synthetic",
+  "target": {
+    "houseManageNo": "9900000001",
+    "noticeNo": "9900000042",
+    "edition": "synthetic-edition-1",
+    "notice": {
+      "source": "applyhome_apt",
+      "page": 1,
+      "position": 1,
+      "address": "합성구 가람동"
+    },
+    "complexId": "target",
+    "evidence": {"source": "synthetic-complex-register", "reference": "target-42"}
+  },
+  "scopes": {
+    "priority": {
+      "code": "9999900100",
+      "requestRegionCodes": ["99999"],
+      "evidence": {"source": "synthetic-region-register", "reference": "garam"}
+    },
+    "expansion": {
+      "kind": "district",
+      "code": "99999",
+      "requestRegionCodes": ["99999"],
+      "evidence": {"source": "synthetic-region-register", "reference": "district-99999"}
+    }
+  },
+  "regions": [
+    {
+      "localityCode": "9999900100",
+      "localityType": "dong",
+      "localityName": "가람동",
+      "umdCd": "00100",
+      "requestRegionCode": "99999",
+      "districtCode": "99999",
+      "municipalityCode": "99990",
+      "evidence": {"source": "synthetic-region-register", "reference": "garam"}
+    }
+  ],
+  "complexes": [
+    {
+      "complexId": "target",
+      "name": "합성 가람 아파트",
+      "localityCode": "9999900100",
+      "evidence": {"source": "synthetic-complex-register", "reference": "target-42"},
+      "coordinates": {
+        "latitude": "37.500",
+        "longitude": "127.000",
+        "evidence": {"source": "synthetic-coordinate-register", "reference": "target-42"}
+      }
+    },
+    {
+      "complexId": "comparison-a",
+      "name": "합성 비교 A",
+      "localityCode": "9999900100",
+      "evidence": {"source": "synthetic-complex-register", "reference": "comparison-a"},
+      "coordinates": {
+        "latitude": "37.510",
+        "longitude": "127.000",
+        "evidence": {"source": "synthetic-coordinate-register", "reference": "comparison-a"}
+      }
+    },
+    {
+      "complexId": "comparison-b",
+      "name": "합성 비교 B",
+      "localityCode": "9999900100",
+      "evidence": {"source": "synthetic-complex-register", "reference": "comparison-b"},
+      "coordinates": {
+        "latitude": "37.505",
+        "longitude": "127.000",
+        "evidence": {"source": "synthetic-coordinate-register", "reference": "comparison-b"}
+      }
+    }
+  ],
+  "tradeLinks": [
+    {
+      "recordId": "col-apt_trade-99999-202610",
+      "source": "apt_trade",
+      "page": 1,
+      "position": 1,
+      "identifiers": {"aptNm": "합성 비교 A", "aptSeq": "99999-100", "sggCd": "99999", "umdCd": "00100", "umdNm": "가람동", "jibun": "100"},
+      "exclusiveAreaM2": "84.00",
+      "complexId": "comparison-a",
+      "supplyAreaM2": "112.50",
+      "evidence": {"source": "synthetic-area-register", "reference": "comparison-a/84.00"}
+    },
+    {
+      "recordId": "col-apt_rights-99999-202610",
+      "source": "apt_rights",
+      "page": 1,
+      "position": 1,
+      "identifiers": {"aptNm": "합성 비교 B", "sggCd": "99999", "umdNm": "가람동", "jibun": "201"},
+      "exclusiveAreaM2": "82.50",
+      "complexId": "comparison-b",
+      "supplyAreaM2": "110.00",
+      "evidence": {"source": "synthetic-area-register", "reference": "comparison-b/82.50"}
+    },
+    {
+      "recordId": "col-apt_rights-99999-202610",
+      "source": "apt_rights",
+      "page": 1,
+      "position": 2,
+      "identifiers": {"aptNm": "합성 비교 B", "sggCd": "99999", "umdNm": "가람동", "jibun": "201"},
+      "exclusiveAreaM2": "82.50",
+      "complexId": "comparison-b",
+      "supplyAreaM2": "110.00",
+      "evidence": {"source": "synthetic-area-register", "reference": "comparison-b/82.50"}
+    }
+  ]
+}

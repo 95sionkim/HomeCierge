@@ -530,6 +530,7 @@ export type Database = {
       source_registry: {
         Row: {
           display_name: string
+          display_permission: string
           documentation_url: string | null
           export_permission: string
           id: string
@@ -541,6 +542,7 @@ export type Database = {
         }
         Insert: {
           display_name: string
+          display_permission?: string
           documentation_url?: string | null
           export_permission?: string
           id: string
@@ -552,6 +554,7 @@ export type Database = {
         }
         Update: {
           display_name?: string
+          display_permission?: string
           documentation_url?: string | null
           export_permission?: string
           id?: string
@@ -771,6 +774,17 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      finish_analysis_comparison: {
+        Args: {
+          p_comparison: Json
+          p_generation: number
+          p_input: Json
+          p_lease_token: string
+          p_result: Json
+          p_run_id: string
+        }
+        Returns: Json
+      }
       finish_analysis_run: {
         Args: {
           p_generation: number
@@ -781,8 +795,16 @@ export type Database = {
         }
         Returns: Json
       }
+      get_analysis_comparison: {
+        Args: { p_analysis_id: string; p_run_id: string }
+        Returns: Json
+      }
       get_analysis_run: {
         Args: { p_analysis_id: string; p_run_id: string }
+        Returns: Json
+      }
+      read_comparison_work: {
+        Args: { p_generation: number; p_lease_token: string; p_run_id: string }
         Returns: Json
       }
       register_analysis_upload: {
@@ -800,6 +822,14 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      register_comparison_evidence: {
+        Args: {
+          p_evidence: Json
+          p_snapshot_id: string
+          p_source_ids: string[]
+        }
+        Returns: string
       }
       renew_analysis_run: {
         Args: {

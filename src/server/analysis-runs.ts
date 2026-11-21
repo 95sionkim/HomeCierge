@@ -23,8 +23,10 @@ export type AnalysisRun = {
 
 const runErrorStatuses = {
   invalid_run_input: 400,
+  comparison_source_restricted: 403,
   run_not_found: 404,
   run_conflict: 409,
+  comparison_not_available: 409,
   payload_too_large: 413,
   unsupported_media_type: 415,
   run_rate_limited: 429,
@@ -45,6 +47,39 @@ function isUuid(value: unknown): value is string {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
+
+// 결과는 저장된 버전으로 읽는다. 실행 상태만으로 비교 가능 여부를 결정하지 않는다.
+export function parseComparisonSnapshot(value: unknown, analysisId: string, runId: string) {
+  if (!isRecord(value) || value.analysisId !== analysisId || value.runId !== runId
+    || !isUuid(value.snapshotId) || typeof value.rulesVersion !== 'string' || !value.rulesVersion
+    || !isRecord(value.result)) return null;
+  const { contractVersion, dataOrigin, completeness, appliedScope, rankingComplete,
+    target, conditions, noticePrice, regionDecision, tradeKinds, collections,
+    comparables, targetReferences, holds, exclusions } = value.result;
+  if (contractVersion !== 'comparison/v1' || (dataOrigin !== 'synthetic' && dataOrigin !== 'collected')
+    || (completeness !== 'complete' && completeness !== 'partial' && completeness !== 'unavailable')
+    || (appliedScope !== null && appliedScope !== 'priority' && appliedScope !== 'expansion')
+    || typeof rankingComplete !== 'boolean'
+    || (target !== null && !isRecord(target)) || !isRecord(conditions)
+    || (noticePrice !== null && !isRecord(noticePrice))
+    || ((target === null || noticePrice === null) && completeness !== 'unavailable')
+    || !isRecord(regionDecision) || !isRecord(tradeKinds) || !Array.isArray(collections)
+    || !Array.isArray(comparables) || comparables.length > 5 || !Array.isArray(targetReferences)
+    || !Array.isArray(holds) || !Array.isArray(exclusions)) return null;
+  const candidateIds = new Set<string>();
+  for (const candidate of comparables) {
+    if (!isRecord(candidate) || typeof candidate.complexId !== 'string' || !candidate.complexId
+      || candidateIds.has(candidate.complexId) || appliedScope === null || completeness === 'unavailable') return null;
+    candidateIds.add(candidate.complexId);
+  }
+  if (targetReferences.some(row => !isRecord(row) || typeof row.complexId !== 'string'
+    || candidateIds.has(row.complexId))) return null;
+  return { analysisId, runId, snapshotId: value.snapshotId, rulesVersion: value.rulesVersion,
+    result: { contractVersion, dataOrigin, completeness, appliedScope, rankingComplete, target, conditions, noticePrice,
+      regionDecision, tradeKinds, collections, comparables, targetReferences, holds, exclusions } };
+}
+
+export type ComparisonSnapshot = NonNullable<ReturnType<typeof parseComparisonSnapshot>>;
 
 function parseInput(value: unknown): AnalysisRunInput | null {
   if (!isRecord(value) || Object.keys(value).length !== 2) return null;

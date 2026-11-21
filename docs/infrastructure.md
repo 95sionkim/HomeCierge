@@ -50,11 +50,12 @@ Supabase는 서울 `ap-northeast-2`, API 실행 리전은 서울 `icn1`이다. V
 | `analyses` | 한 분석의 공고·주택형·조건·규칙 버전·상태 | 자기 초안 생성·조회. 완료 상태는 서버 작업만 변경 |
 | `funding_entries` | 분석별 보유/추가 자금·날짜·확정/예상 | 자기 분석에만 생성·수정·조회. 보유 자금은 분석당 한 행 |
 | `reports` | 결과·조건·출처·미확인·조회 시점의 버전별 스냅샷 | 자기 결과 조회. 생성·수정은 서버 작업 전용 |
-| `source_registry` | 저장·재사용·LLM·내보내기의 허용 상태 | 로그인 후 읽기. 기본은 `unknown`, 실제 출처 자료 없음 |
+| `source_registry` | 저장·재사용·화면 표시·LLM·내보내기의 허용 상태 | 로그인 후 읽기. 허용 상태의 기본값은 `unknown` |
 | `notices`, `notice_documents`, `housing_types` | 공고·문서 버전·면적 종류·출처 페이지 | 로그인 후 읽기. 수집·검수 서버만 기록 |
 | 실행 기록과 대기열 | 접수 때 고정한 분석 입력, 시도·임대·상태, 준비한 수집본 참조 | 소유자는 접수·조회·취소 함수를 사용하고 작업자는 임대 유효 기간에 결과를 기록 |
 | `private.ingestion_runs` | 요청 범위·수집 상태·건수·시점 | Data API 비공개. 서버만 접근 |
 | `analysis_input_snapshots`와 수집 조회 뷰 | 분석 시점의 입력·규칙, 공고·문서 버전, 페이지·거래 관측 | 서버 작업자가 저장하고 소유자만 조회 |
+| `private.comparison_evidence`, `private.comparison_results` | 수집본에 대조한 단지·면적 근거와 실행별 비교 결과 | 서버가 근거를 등록하고 결과를 저장. 사용자는 자기 분석과 실행을 지정해 결과를 조회 |
 | `analysis_uploads`와 비공개 `analysis-uploads` 버킷 | 사용자·분석에 귀속된 PDF 등록, 업로드와 삭제 상태 | 로그인한 소유자만 등록·업로드·읽기·삭제 |
 
 공개 스키마의 모든 테이블에 RLS와 명시적 권한을 함께 적용했다. 다른 사용자의 대화나 분석을 자식 행에서 참조하지 못하도록 `(id, user_id)` 복합 외래 키를 사용한다. 익명 역할과 익명 로그인은 사용자 자료에 접근하지 못한다.
@@ -107,6 +108,8 @@ Node.js 버전은 [.nvmrc](../.nvmrc), 라이브러리와 CLI는 [package.json](
 11월 11일 Vercel Preview는 `READY`와 오류 없는 최종 빌드 로그를 확인했다. 실제 HTTP 응답은 생존 확인 200, 미로그인·잘못된 토큰 401, 없는 경로 404였다. 배포 보호를 유지한 브라우저에서 본문까지 확인했다. 첫 호출의 기본 target이 Production으로 잡힌 배포는 삭제했으며 이후 REST 요청은 `target: staging`을 명시해 대시보드의 Preview 환경임을 확인했다.
 
 11월 21일 `codex/backend-foundation`의 `8843026`으로 보호된 Preview를 배포해 `READY`를 확인했다. `/api/health`는 200, 서비스 로그인 없이 실행을 조회한 요청은 401 `authentication_required`, 접수 주소에 보낸 GET은 405와 `Allow: POST, OPTIONS`를 반환했다. 두 계정의 로그인부터 작업자 완료까지는 서울 개발 DB와 GitHub Actions의 격리 Supabase에서 각각 검수했다. 화면 도메인·로그인까지 이어지는 검수는 화면 인계 후 진행한다. [Preview 주소](frontend-handoff.md) · [Supabase 통합 검사](https://github.com/95sionkim/HomeCierge/actions/runs/44854748617) · [기본 검사](https://github.com/95sionkim/HomeCierge/actions/runs/44854748670)
+
+서울 개발 DB에 [BE-05 비교 결과 마이그레이션](../supabase/migrations/20261121024901_comparison_results.sql)을 적용하고 DB 타입을 다시 생성했다. 두 시험 계정으로 합성 공고를 비교해 주변 2단지의 종류별 가격을 조회하고, 같은 수집본 재실행 및 재로그인 뒤 결과의 일치를 확인했다. 다른 계정의 조회는 404였고 독립적으로 저장된 수집본에는 데모 근거가 적용되지 않았다. 검사 후 계정·실행·수집본·비교 결과·비공개 업로드의 잔여 건수는 각각 0이었다. [비교 결과 계약](api/comparison-v1.md)
 
 ## 6. 연결할 환경변수를 구분한다
 

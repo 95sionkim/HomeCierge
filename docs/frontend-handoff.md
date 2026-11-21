@@ -26,6 +26,7 @@ Preview에는 Vercel 배포 보호가 켜져 있다. Vercel 로그인과 Supabas
 | `GET /api/v1/me` | 인증한 사용자의 ID·프로필 조회 | `{ user: { id }, profile }`. 최초에는 `profile: null` 가능 |
 | `POST /api/v1/analyses/{analysisId}/runs` | 자기 분석에서 수집 자료 준비를 접수 | 202와 조회 주소. 같은 키로 다른 입력을 보내면 409 |
 | `GET /api/v1/analyses/{analysisId}/runs/{runId}` | 실행 상태를 다시 읽음 | 200. 자료가 준비되면 `snapshotId` 제공 |
+| `GET /api/v1/analyses/{analysisId}/runs/{runId}/result` | 선택한 주택형과 주변 실거래의 저장된 비교 결과를 읽음 | 200이면 완전성·가격 상태·보류 사유를 표시. 출처 표시 권한이 철회되면 403, 다른 계정이면 404, 저장된 결과가 없으면 409 |
 | `POST /api/v1/analyses/{analysisId}/runs/{runId}/cancel` | 해당 실행을 취소 | 200. 이미 준비 또는 실패로 끝났으면 409 |
 | `GET /api/v1/analyses/{analysisId}/uploads/{uploadId}/content` | 본인 분석의 등록된 PDF 다운로드 | 200은 PDF 본문, 미로그인 401, 타인·미등록·삭제 중 또는 완료 404, 서비스 오류 503 |
 
@@ -33,7 +34,7 @@ Preview에는 Vercel 배포 보호가 켜져 있다. Vercel 로그인과 Supabas
 
 ### 수집 진행과 실거래 비교를 표시한다
 
-실행 API의 `finished`는 수집 자료를 열 수 있다는 뜻이다. BE-05의 비교 결과 화면을 제작할 때는 같은 요청에 대한 세 가지 합성 응답을 사용할 수 있다. 세 예시 모두 실행 상태(`run.status`)는 `finished`다. 결과를 어디까지 보여줄지는 `result.completeness`로 정하고, 지역 확대 여부는 `result.regionScopes`에서 읽는다. [분석 결과 계약 v0](api/analysis-result-v0.md) · [JSON 스키마](api/analysis-result-v0.schema.json) · [화면용 합성 응답](../tests/fixtures/analysis-result-v0.json)
+실행이 `finished`이면 `/result`를 조회한다. 저장된 `comparison/v1`의 `result.completeness`와 `appliedScope`를 읽고, 확인한 범위·가격·건수 옆에 보류 근거를 표시한다. 기존 v0의 세 합성 예시는 정상 0개·부분 수집·실패 문구를 연습할 때 계속 사용할 수 있다. v0의 지역 판정 필드는 `result.regionScopes`다. [저장된 비교 결과 v1](api/comparison-v1.md) · [화면용 합성 예시 v0](../tests/fixtures/analysis-result-v0.json)
 
 | 예시를 선택한다 | 화면에서 전달할 내용 |
 | --- | --- |
@@ -81,7 +82,7 @@ const { data, error } = await supabase.rpc('decide_profile_change', {
 
 ## 4. 구현 전인 기능을 구분한다
 
-- 공고 검색·PDF 자동 확보·공급면적 매칭·실거래 통계·법령·뉴스·경로·자금 계산은 이 인프라 API에서 아직 실행하지 않는다.
-- 호실별 분양가·필수 옵션과 보류 사유는 저장된 `result_snapshot.catalog`에서 읽는다. 빈 거래 목록을 정상 0개 결과로 표시하지 않는다.
+- 현재 작업자는 이미 수집한 거래와 검수된 공급면적 근거로 단지별 통계를 계산한다. 공고 검색·PDF 자동 확보·실거래 공급면적 근거의 자동 수집·법령·뉴스·경로·자금 계산은 후속으로 연결한다.
+- 호실별 분양가·필수 옵션 원자료는 `result_snapshot.catalog`, 선택한 호실 또는 주택형의 확인 가격과 보류 사유는 `result.noticePrice`에서 읽는다. 빈 거래 목록의 의미는 `regionDecision`으로 확인한다.
 - 비공개 업로드 한 건은 삭제할 수 있다. 계정 전체, 파생 보고서와 백업 정리를 포함한 삭제 완료 화면은 후속 작업이다.
 - 실제 로그인 제공자, 화면 도메인, Production DB, 사용자 가치 검증과 59개 제품 수락 기준은 아직 별도 완료 조건이다.

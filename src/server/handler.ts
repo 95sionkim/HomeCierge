@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { AnalysisRunError, readAnalysisRunOperation, uuidPattern } from './analysis-runs.js';
-import type { AnalysisRun, AnalysisRunOperation } from './analysis-runs.js';
+import type { AnalysisRun, AnalysisRunOperation, ComparisonSnapshot } from './analysis-runs.js';
 
 export type Environment = Record<string, string | undefined>;
 export type Backend = {
@@ -13,11 +13,12 @@ export type Backend = {
     signal: AbortSignal;
   }) => Promise<ReadableStream<Uint8Array> | null>;
   runAnalysis: (operation: AnalysisRunOperation, signal: AbortSignal) => Promise<AnalysisRun>;
+  getComparison: (analysisId: string, runId: string, signal: AbortSignal) => Promise<ComparisonSnapshot>;
 };
 export type BackendConfig = { url: string; key: string; token: string };
 
 const uploadContentPath = new RegExp(`^/api/v1/analyses/(${uuidPattern})/uploads/(${uuidPattern})/content$`);
-const analysisRunPath = /^\/api\/v1\/analyses\/([^/]+)\/runs(?:\/([^/]+)(\/cancel)?)?$/;
+const analysisRunPath = /^\/api\/v1\/analyses\/([^/]+)\/runs(?:\/([^/]+)(?:\/(cancel|result))?)?$/;
 
 function readConfig(env: Environment, token: string): BackendConfig {
   const url = env.SUPABASE_URL;
@@ -46,7 +47,7 @@ export function createHandler(deps: {
     const upload = path.match(uploadContentPath);
     const run = path.match(analysisRunPath);
     const enqueues = run !== null && !run[2];
-    const method = enqueues || run?.[3] ? 'POST' : 'GET';
+    const method = enqueues || run?.[3] === 'cancel' ? 'POST' : 'GET';
     const allowedMethods = `${method}, OPTIONS`;
     const headers = new Headers({
       'Cache-Control': 'no-store',
@@ -54,7 +55,7 @@ export function createHandler(deps: {
       'X-Content-Type-Options': 'nosniff',
       'X-Request-Id': requestId,
     });
-    if (upload) {
+    if (upload || run?.[3] === 'result') {
       headers.set('Cache-Control', 'private, no-store');
       headers.set('Vary', 'Authorization, Origin');
       headers.set('Vercel-CDN-Cache-Control', 'no-store');
@@ -90,7 +91,10 @@ export function createHandler(deps: {
       const user = await backend.getUser();
       if (!user || user.isAnonymous) return respond({ error: 'authentication_required', requestId }, 401);
       if (run) {
-        const operation = await readAnalysisRunOperation(request, run[1], run[2], !!run[3]);
+        const operation = await readAnalysisRunOperation(request, run[1], run[2], run[3] === 'cancel');
+        if (run[3] === 'result' && operation.action === 'get') {
+          return respond(await backend.getComparison(operation.analysisId, operation.runId, request.signal), 200);
+        }
         const result = await backend.runAnalysis(operation, request.signal);
         if (operation.action === 'enqueue') {
           headers.set('Location', `/api/v1/analyses/${result.analysisId}/runs/${result.runId}`);

@@ -20,6 +20,12 @@ function cancel(account, runId) {
   return { account, runId, method: 'POST', cancel: true };
 }
 
+function readComparison(requestApi, account, runId, analysisId = account.analysisId) {
+  return requestApi(`/api/v1/analyses/${analysisId}/runs/${runId}/result`, {
+    headers: { Authorization: `Bearer ${account.accessToken}` },
+  });
+}
+
 function requestRun(requestApi, { account, analysisId = account.analysisId, runId, method = 'GET',
   cancel = false, key, body, authorized = true }) {
   const route = `/api/v1/analyses/${analysisId}/runs${runId ? `/${runId}` : ''}${cancel ? '/cancel' : ''}`;
@@ -311,6 +317,8 @@ export async function runBe04Smoke({ requestApi, admin, secondWorker, accounts, 
   const { runId } = queued;
   const expected = { analysisId: owner.analysisId, runId, status: 'queued', input: SYNTHETIC };
   checkOperation(check, queued, expected, 'be04_submitted_shape');
+  const waiting = await readRunResponse(await readComparison(requestApi, owner, runId), check, 'be05_pending', 409);
+  check(waiting.error === 'comparison_not_available', 'be05_pending_reason');
   check(queued.attempt === 0 && isDeepStrictEqual(queued, retry), 'be04_parallel_identity');
   await api('be04_idempotency_conflict', 409, submit(owner, { kind: 'snapshot', snapshotId: owner.snapshotId }, request.key));
   await checkRunIsolation(api, owner, other, side, runId, check);
@@ -322,6 +330,22 @@ export async function runBe04Smoke({ requestApi, admin, secondWorker, accounts, 
   const finished = await api('be04_synthetic_finished', 200, { account: owner, runId });
   checkOperation(check, finished, { ...expected, status: 'finished', snapshotId: outcome.snapshotId }, 'be04_synthetic_finished_shape');
   await checkSyntheticCapture(owner, other, finished, capture, check, result);
+  const saved = await readRunResponse(await readComparison(requestApi, owner, runId), check, 'be05_result', 200);
+  check(saved.runId === runId && saved.analysisId === owner.analysisId && saved.snapshotId === finished.snapshotId
+    && saved.result?.contractVersion === 'comparison/v1' && saved.result.dataOrigin === 'synthetic'
+    && saved.result.appliedScope === 'priority' && saved.result.completeness === 'complete'
+    && isDeepStrictEqual(saved.result.comparables.map(item => item.complexId), ['comparison-a', 'comparison-b'])
+    && saved.result.noticePrice.minWon === '710000000'
+    && saved.result.comparables[0].tradeStats.sale.medianWon === '515000000'
+    && saved.result.comparables[1].tradeStats.presale_right.medianWon === '405000000'
+    && saved.result.comparables[1].tradeStats.occupancy_right.medianWon === '486000000', 'be05_demo_comparison');
+  await readRunResponse(await readComparison(requestApi, other, runId, owner.analysisId), check, 'be05_foreign_result', 404);
+  const reusedInput = { kind: 'snapshot', snapshotId: finished.snapshotId };
+  const pinned = await api('be05_reuse_submit', 202, submit(owner, reusedInput));
+  await workerOnce(config, pinned.runId, check, 'be05_reuse');
+  const restored = await readRunResponse(await readComparison(requestApi, owner, pinned.runId), check, 'be05_reuse_read', 200);
+  check(restored.snapshotId === saved.snapshotId && restored.runId === pinned.runId
+    && isDeepStrictEqual(saved.result, restored.result), 'be05_same_inputs_same_comparison');
   const currentReplay = await api('be04_finished_replay', 202, request);
   check(isDeepStrictEqual(currentReplay, finished), 'be04_replay_current_state');
   const idle = await workerOnce(config, runId, check, 'be04_repeat');
@@ -337,12 +361,18 @@ export async function runBe04Smoke({ requestApi, admin, secondWorker, accounts, 
   checkOperation(check, otherFinished, { analysisId: other.analysisId, runId: otherRun.runId, status: 'finished',
     input: otherInput, snapshotId: other.snapshotId }, 'be04_snapshot_finished_shape');
   await checkCaptureIds(other, [other.snapshotId], check, result, 'be04_existing_snapshot_only');
+  const withoutEvidence = await readRunResponse(
+    await readComparison(requestApi, other, otherRun.runId), check, 'be05_no_evidence', 200);
+  check(withoutEvidence.snapshotId === other.snapshotId && withoutEvidence.result?.appliedScope === null
+    && withoutEvidence.result.comparables.length === 0 && withoutEvidence.result.holds.length > 0,
+  'be05_no_evidence_stays_held');
 
   await checkLeaseRecovery(api, admin, owner, check, result);
   await checkFailures(api, admin, owner, check, result);
   await checkConcurrentTerminal({ api, requestApi, admin, secondWorker, account: side, capture, check, result });
   await checkCancelledAndDeleted(api, admin, owner, side, capture, check, result);
   await checkCaptureIds(owner, [owner.snapshotId, finished.snapshotId], check, result, 'be04_terminal_capture_count');
+  return withoutEvidence;
 }
 
 export async function checkBe04Cleanup(admin, accounts, check, result) {

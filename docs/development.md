@@ -2,7 +2,7 @@
 
 ## 현재 개발 자산을 확인한다
 
-서울 Supabase 개발 DB와 보호된 Vercel Preview API를 사용한다. 공고·주택형·실거래를 정규화하고, 조회 조건과 결과를 분석별로 저장해 다시 읽을 수 있다. 비공개 PDF의 등록·삭제와 사용자별 접근은 두 시험 계정으로 검수한다. 분석을 접수하면 DB에 기록한 실행을 작업자가 이어받고, 사용자는 진행 상태를 조회하거나 취소할 수 있다. 다음 단계는 수집본에서 비교 단지를 선정하고 통계를 산출하는 BE-05다. [수집 결과와 파일 저장 계약](api/ingestion-storage.md)
+서울 Supabase 개발 DB와 보호된 Vercel Preview API를 사용한다. 공고·주택형·실거래를 정규화하고, 조회 조건과 결과를 분석별로 저장해 다시 읽을 수 있다. 비공개 PDF의 등록·삭제와 사용자별 접근은 두 시험 계정으로 검수한다. 분석을 접수하면 작업자가 수집본과 근거를 대조해 지역, 비교 단지, 거래 종류별 가격과 보류 사유를 저장한다. 로컬에서 `python3 scripts/run_analysis_worker.py --demo`로 합성 공고 한 건을 재현할 수 있다. [비교 결과 계약](api/comparison-v1.md) · [수집 결과와 파일 저장 계약](api/ingestion-storage.md)
 
 DB·배포 작업은 [인프라 준비](infrastructure.md), 화면 팀의 연결은 [인계 계약](frontend-handoff.md)을 따른다. Node.js 26에서 `npm ci`, `npm run build`, `npm test`, `npm run test:db`로 새 기반을 검사한다. 기본 검사는 실제 클라우드 계정·인증값 없이 실행한다.
 
