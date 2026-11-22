@@ -19,3 +19,7 @@
 ## 검수 범위
 
 2026-11-22 개발 기기에서 서울시청과 강남구청의 공개 주소를 조회해 카카오 주소 일치와 자동차 시간·거리 응답을 확인했다. 같은 요청에서 ODsay는 인증 오류를 반환했다. 대중교통 정상 경로, 도보 시간 미제공, 수단별 오류, 타 계정 접근과 공유 목적지 저장·취소는 합성 검사로 재현한다. [카카오 로컬 주소 검색](https://developers.kakao.com/docs/ko/local/dev-guide) · [카카오모빌리티 자동차 길찾기](https://developers.kakaomobility.com/guide/navi-api/directions.html) · [ODsay 경로 문서](https://lab.odsay.com/guide/releaseReference) · [ODsay 플랫폼·상표 가이드](https://lab.odsay.com/guide/guide?platform=web)
+
+같은 날 보호된 개발 미리보기에서 시흥 공고 `2026910268`의 실제 청약홈 소재지와 서울시청 공개 주소를 연결했다. 소유자 세션의 HTTP 응답은 200이었고 자동차 시간·도로 거리를 받았다. 같은 분석을 다른 계정에서 조회하면 404였다. 경로 조회만 한 시점에는 공유 목적지가 비어 있었고, 소유자가 확인한 저장과 해제만 프로필에 반영됐다. 시험 계정과 수집본을 정리했다. [검수한 구현](https://github.com/95sionkim/HomeCierge/commit/c86b0a8e72ca0b09a1185d073891c0a4537bb9a3)
+
+미리보기의 대중교통 응답은 `provider_denied`였다. ODsay는 Web(URI)과 Server(IP)에 각각 키를 발급한다. 미리보기에서 실경로를 확인하려면 앱에 등록한 서버 플랫폼·송신 IP와 배포에 연결된 키의 대응을 점검해야 한다. [ODsay 플랫폼별 인증 안내](https://lab.odsay.com/community/boardView?seq=597)
