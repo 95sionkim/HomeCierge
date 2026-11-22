@@ -11,6 +11,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createDevServer } from '../dev/server.ts';
 import { createHandler } from '../src/server/handler.ts';
 import { createBackend } from '../src/server/supabase.ts';
+import { checkNoticeSearch } from './smoke_notice_search.mjs';
 import { checkBe04Cleanup, runBe04Smoke } from './smoke_be04_runs.mjs';
 
 const DEVELOPMENT_ORIGIN = 'https://jcaelooqogosbzrfyrhe.supabase.co';
@@ -69,6 +70,7 @@ function readConfig(env) {
   check((url.origin === DEVELOPMENT_ORIGIN || loopback) && url.pathname === '/'
     && !url.username && !url.password && !url.search && !url.hash, 'target_not_allowed');
   check(loopback || env.APP_ENV === 'development', 'development_only');
+  check(env.BE07_EPHEMERAL_SEARCH_FIXTURE !== '1' || loopback, 'be07_ephemeral_database_required');
 
   const publishable = env.SUPABASE_PUBLISHABLE_KEY;
   const service = env.SUPABASE_WORKER_KEY ?? env.SUPABASE_SECRET_KEY ?? env.SUPABASE_SERVICE_ROLE_KEY;
@@ -533,6 +535,9 @@ async function run(config, capture, requestApi, apiPort) {
       account.accessToken = session.access_token;
       await registerUpload(account);
     }
+    if (process.env.BE07_EPHEMERAL_SEARCH_FIXTURE === '1') {
+      await checkNoticeSearch({ config, accounts, admin, requestApi, check, result });
+    }
     const pdf = makeSyntheticPdf();
     for (const [account, other] of pairs) {
       await checkVisibility(UPLOAD_TABLE, 'id', account.upload.id, other.upload.id, account.client);
@@ -634,11 +639,14 @@ try {
 }
 if (failures.length) {
   for (const step of failures) {
-    const stage = step.startsWith('be05_') ? 'BE-05' : step.startsWith('be04_') ? 'BE-04' : 'BE-03';
+    const stage = step.startsWith('be07_') ? 'BE-07' : step.startsWith('be05_') ? 'BE-05' : step.startsWith('be04_') ? 'BE-04' : 'BE-03';
     process.stderr.write(`${stage} smoke failed (${step})\n`);
   }
   process.exitCode = 1;
 } else {
+  if (process.env.BE07_EPHEMERAL_SEARCH_FIXTURE === '1') {
+    process.stdout.write('BE-07 smoke passed (two-user search, publication, budget, incomplete rooms, source revocation)\n');
+  }
   process.stdout.write('BE-03 smoke passed (Auth, /api/v1/me, RLS, capture, upload content API, Storage, cleanup)\n');
   process.stdout.write('BE-04 smoke passed (run API, RLS, scoped worker, claim and cancel races, recovery, cleanup)\n');
   process.stdout.write('BE-05 smoke passed (comparison, evidence holds, snapshot replay, two-user isolation, new session)\n');

@@ -45,7 +45,7 @@ jobs:
             docker ps -a --format 'table {{.Names}}\t{{.Status}}'
             exit 1
           fi
-      - name: Sign in two users and check snapshots, files, analysis runs and saved comparisons
+      - name: Sign in two users and check files, analysis runs, saved comparisons and notice search
         run: |
           umask 077
           local_status="$RUNNER_TEMP/homecierge-status.json"
@@ -55,7 +55,7 @@ jobs:
           SUPABASE_PUBLISHABLE_KEY=$(jq -er '.PUBLISHABLE_KEY' "$local_status")
           SUPABASE_WORKER_KEY=$(jq -er '.SECRET_KEY // .SERVICE_ROLE_KEY' "$local_status")
           export SUPABASE_URL SUPABASE_PUBLISHABLE_KEY SUPABASE_WORKER_KEY
-          npm run test:auth
+          BE07_EPHEMERAL_SEARCH_FIXTURE=1 npm run test:auth
       - name: Remove the test stack
         if: always()
         run: |

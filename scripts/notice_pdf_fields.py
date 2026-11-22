@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""공식 공고 PDF 바이트에서 주택형 공급면적·호실 분양가·필수 승계 옵션을 찾아 점검한 뒤 BE-02 근거 행으로 돌려준다.
+"""공식 공고 PDF에서 주택형 공급면적·호실 가격·필수 옵션과 항목별 납부 일정을 점검한다.
 
 공고 식별(현재 공고 지정 문장·공급대상 표의 주택관리번호, 공고일과 API RCRIT_PBLANC_DE), API 주택형(modelNo·houseType),
 원문 쪽·표 셀·단위와 산술(공급=주거전용+주거공용, 분양가=대지비+건축비=납부 합계, 유상 옵션 합=납부 합계)을 대조한다.
 점검을 모두 통과한 값만 confirmed다. 불일치는 conflict, 불명확·부분은 unverified로 금액 없이 남겨 normalize_catalog가
 그 항목만 보류하게 한다. 근거 자체가 없는 항목(표에 없는 주택형·옵션 표에 없는 호실)은 쪽을 만들어 넣지 않고 행을 내지 않는다.
 OCR·모델 추출·공식 PDF 확보·정정본 선택(D-04)은 하지 않는다. PyMuPDF는 호출 시점에만 불러오는 선택 의존성이다.
+납부 일정은 BE-02 근거 행과 별도로 제공한다. 납부 금액은 호실별로 검산하고 기한과 사건 기준은 원문 표에 묶는다.
 """
 import argparse
 import hashlib
@@ -38,7 +39,20 @@ SCHEDULE_DATE = re.compile(r'(\d{4})[.\-](\d{1,2})[.\-](\d{1,2})\.?(?:\(([월화
 # 두 자리 연도 일정값. 세기를 추정하지 않고 API 공고일(또는 원문의 유일한 전체 날짜)과 같을 때만 그 날짜로 본다.
 SHORT_DATE = re.compile(r'(\d{2})\.(\d{1,2})\.(\d{1,2})\.?(?:\(([월화수목금토일])\))?')
 SCHEDULE_TRIGGER = re.compile(r'입주자모집공고일.{0,80}?당첨자발표')
+CONTRACT_SCHEDULE_TRIGGER = re.compile(r'당첨자발표.{0,80}?(?:계약체결|정당계약)')
+CONTRACT_SCHEDULE_HEADERS = ('계약체결', '계약체결일', '정당계약', '정당계약일')
+AWARD_SCHEDULE_HEADERS = ('당첨자발표', '당첨자발표일')
 SCHEDULE_BELOW = 20  # 머리말 행만 표로 잡힌 일정표에서 값 행으로 보는 아래 거리(pt)
+PAYMENT_STAGES = {'계약금': 'deposit', '중도금': 'interim', '잔금': 'balance'}
+PAYMENT_HEADING = re.compile(r'\s*(계\s*약\s*금|중\s*도\s*금|잔\s*금)')
+PAYMENT_HEADING_DETAIL = re.compile(r'^\s*(?:(?:제\s*)?\d+\s*(?:차|회)\s*|[(\[]?\s*\d+(?:\.\d+)?\s*%\s*[)\]]?\s*)+')
+PAYMENT_CONTRACT = re.compile(r'^(?:정당)?계약(?:체결)?(?:시|일|기간|때)?')
+PAYMENT_MOVE_IN = re.compile(r'^입주(?:지정기간(?:종료일)?|지정일|시|때)?')
+PAYMENT_RELATIVE = re.compile(r'(?:로부터|부터|후|이후|전|이전)?(?:\d+(?:일|주|개월))?(?:내|이내|까지|후|이후|전|이전)?')
+PAYMENT_RANGE = re.compile(r'[~～∼–—]|(?:(?<=[0-9.)])|(?<=\d일))부터.+까지|(?<=[0-9.)일])-(?=\d{4}[.-]\d{1,2}[.-])')
+PAYMENT_SHORT_DATE = re.compile(r"[‘’']?" + SHORT_DATE.pattern)
+KOREAN_DATE = re.compile(r'(\d{4})년(\d{1,2})월(\d{1,2})일(?:\(([월화수목금토일])\))?')
+MAX_PAYMENT_TIMING_TEXT = 160  # 즉시 응답에는 머리말의 짧은 납부 문구만 남긴다.
 SUMMARY_ROWS = ('합계', '계', '소계', '총계')
 WEEKDAYS = '월화수목금토일'
 # API 공고일의 전체 형식(구분자는 한 종류). 달력 검사는 _iso가 한다.
@@ -121,7 +135,8 @@ def _read_pdf(raw):
 
             for entry in pages:
                 key = compact(entry['text'])
-                if any(word in key for word in TABLE_TRIGGERS) or SCHEDULE_TRIGGER.search(key):
+                if (any(word in key for word in TABLE_TRIGGERS) or SCHEDULE_TRIGGER.search(key)
+                        or CONTRACT_SCHEDULE_TRIGGER.search(key)):
                     scan(entry['page'])
             # 쪽 끝의 가격·옵션 표는 다음 쪽에 머리말 없이 이어질 수 있어 그 다음 쪽까지 읽는다.
             for number in list(scanned):
@@ -181,6 +196,15 @@ def _is_data_row(line):
     return any(cell and NUMBER.fullmatch(compact(cell['text'])) for cell in line)
 
 
+def _header_cells(grid, count, column):
+    seen = set()
+    for row in grid[:count]:
+        cell = row[column]
+        if cell and cell['origin'] not in seen and compact(cell['text']):
+            seen.add(cell['origin'])
+            yield cell['text']
+
+
 def _header(grid):
     """앞쪽의 숫자 없는 행(최대 3행)을 머리말로 보고 열마다 위에서 아래로 이름 조각을 모은다."""
     count = 0
@@ -188,15 +212,7 @@ def _header(grid):
         count += 1
     if count == 0 or count == len(grid):
         return None, None
-    labels = []
-    for c in range(len(grid[0])):
-        parts, seen = [], set()
-        for r in range(count):
-            cell = grid[r][c]
-            if cell and cell['origin'] not in seen and compact(cell['text']):
-                seen.add(cell['origin'])
-                parts.append(compact(cell['text']))
-        labels.append(tuple(parts))
+    labels = [tuple(map(compact, _header_cells(grid, count, column))) for column in range(len(grid[0]))]
     return count, labels
 
 
@@ -238,7 +254,7 @@ AREA_RULES = dict(COMMON_RULES, **{
     'contract': lambda p: _first(p).startswith('계약면적'),
     'landlords': lambda p: _first(p).startswith(('토지등소유자', '임대세대')),
 })
-PAYMENT_RULE = {'payments': lambda p: _first(p).startswith(('계약금', '중도금', '잔금'))}
+PAYMENT_RULE = {'payments': lambda p: _first(p).startswith(tuple(PAYMENT_STAGES))}
 ROOM_RULES = {
     'room': lambda p: _last(p) in ROOM_NAMES,
     'dong': lambda p: _last(p) == '동',
@@ -278,13 +294,15 @@ def _kind(table):
     return _classify(header)[0] if header else None
 
 
-def _schedule_values(grid, words):
+def _schedule_values(grid, words, headers=SCHEDULE_HEADERS, *, alongside=()):
     """일정표에서 머리말 셀이 정확히 입주자모집공고일인 칸의 값: 같은 열 아래 셀, 표가 머리말 행에서 끝나면
     그 셀 바로 아래 같은 가로 범위의 글자, 첫 열 머리말이면 오른쪽 셀."""
     found = []
     for r, line in enumerate(grid or []):
+        if alongside and not any(_text(cell) in alongside for cell in line):
+            continue
         for c, cell in enumerate(line):
-            if not cell or cell['origin'] != (r, c) or _text(cell) not in SCHEDULE_HEADERS:
+            if not cell or cell['origin'] != (r, c) or _text(cell) not in headers:
                 continue
             below = [grid[rr][c] for rr in range(r + 1, len(grid))]
             value = next((_text(o) for o in below if o and o['origin'] != cell['origin'] and _text(o)), None)
@@ -310,6 +328,13 @@ def _schedule_dates(grid, words, page):
         elif short:
             dates.append({'short': short.groups(), 'page': page, 'kind': 'schedule_table_two_digit_year'})
     return dates
+
+
+def _contract_dates(grid, words, page):
+    # 계약금 칸의 두 자리 연도는 같은 공고의 당첨자·계약체결 일정표에서 날짜 전체가 일치할 때만 푼다.
+    values = _schedule_values(grid, words, CONTRACT_SCHEDULE_HEADERS, alongside=AWARD_SCHEDULE_HEADERS)
+    return [value for text in values if (match := SCHEDULE_DATE.fullmatch(text) or KOREAN_DATE.fullmatch(text))
+            and (value := _dated(match.groups(), page, 'contract_schedule_table'))]
 
 
 def _units(labels, note):
@@ -571,17 +596,168 @@ def _map_type(row, cols, labels, types):
     return None, 'room_type_ambiguous' if found else 'room_type_unmapped'
 
 
-def _payments(row_list, cols):
+def _payments(row_list, cols, *, ignore_free_blanks=False):
     """납부 열의 서로 다른 원래 셀만 더한다. 하나라도 빈칸·대시·판독 불가면 합계 점검을 하지 않는다."""
     cells = {}
     for _, row in row_list:
+        free = ignore_free_blanks and 'charge' in cols and _text(row[cols['charge']]) == '무상'
         for column in cols.get('payments', []):
-            if row[column]:
+            if row[column] and (not free or not _blank(row[column])):
                 cells[row[column]['origin']] = row[column]
     values = [_amount(cell) for cell in cells.values()]
     if not values or None in values:
         return None
     return sum(values)
+
+
+def _page_ref(document, page):
+    return {'document': document['id'], 'version': document['version'], 'page': page}
+
+
+def _unwrap(text):
+    return text[1:-1] if text.startswith('(') and text.endswith(')') else text
+
+
+def _payment_timing(text, page, document, contract_dates):
+    """납부 열의 머리말에 붙은 일정만 사용한다. 날짜 범위·사건 기준은 원문 표현을 유지한다."""
+    text = ' '.join(text.split())
+    timing = {'trigger': None, 'date': None, 'text': None, 'dateStatus': 'missing', 'evidence': []}
+    if not text or compact(text) in DASHES:
+        return timing
+    timing['dateStatus'] = 'unverified'
+    if len(text) > MAX_PAYMENT_TIMING_TEXT or not text.isprintable():
+        return timing
+    timing['text'] = text
+    key = compact(text)
+    contract, move_in = PAYMENT_CONTRACT.match(key), PAYMENT_MOVE_IN.match(key)
+    event = 'contract_signing' if contract else 'move_in' if move_in else None
+    event_match = contract or move_in
+    term = _unwrap(key[event_match.end():] if event_match else key)
+    if PAYMENT_RANGE.search(term):
+        return dict(timing, trigger=event, dateStatus='range')
+    deadline = term.endswith(('까지', '이전'))
+    if deadline and not PAYMENT_RELATIVE.fullmatch(term):
+        term = _unwrap(term[:-2])
+    full = SCHEDULE_DATE.fullmatch(term) or KOREAN_DATE.fullmatch(term)
+    short = PAYMENT_SHORT_DATE.fullmatch(term) if event == 'contract_signing' else None
+    dates = {entry['date'] for entry in contract_dates}
+    pages = [page]
+    if full:
+        dated = _dated(full.groups(), page, 'payment_header')
+    elif short and len(dates) == 1 and all(entry['weekday'] != 'mismatch' for entry in contract_dates):
+        year, month, day, weekday = short.groups()
+        reference = next(iter(dates))
+        dated = _dated((reference[:4], month, day, weekday), page, 'payment_header')
+        if year != reference[2:4] or dated is None or dated['date'] != reference:
+            dated = None
+        else:
+            pages.extend(entry['page'] for entry in contract_dates)
+    else:
+        dated = None
+    if dated and dated['weekday'] != 'mismatch':
+        return dict(timing, trigger='deadline' if deadline else event or 'calendar_date', date=dated['date'],
+                    dateStatus='exact', evidence=[_page_ref(document, n) for n in sorted(set(pages))])
+    if event and (PAYMENT_RELATIVE.fullmatch(term) or term == '납부'):
+        return dict(timing, trigger=event, dateStatus='relative')
+    return dict(timing, trigger=event if full or short else None)
+
+
+def _payment_columns(grid, count, columns, page, document, contract_dates):
+    result = []
+    for column in columns:
+        heading, *parts = _header_cells(grid, count, column)
+        stage = PAYMENT_HEADING.match(heading)
+        if not stage:
+            return []
+        terms = PAYMENT_HEADING_DETAIL.sub('', ' '.join([heading[stage.end():], *parts]))
+        result.append((PAYMENT_STAGES[compact(stage[1])], _payment_timing(terms, page, document, contract_dates)))
+    return result
+
+
+def _ambiguous_amount_cells(rows, cols):
+    """같은 원본 금액 셀이 여러 호실이나 금액 열에 걸치면 적용 범위가 불명확하다."""
+    total = cols['amount' if 'amount' in cols else 'total']
+    placements = {}
+    for _, row in rows:
+        room = _room(row, cols)
+        for column in [total, *cols['payments']]:
+            cell = row[column]
+            if cell:
+                placements.setdefault(cell['origin'], set()).add((room, column))
+    return {origin for origin, owners in placements.items() if len(owners) > 1}
+
+
+def _installment_amounts(rows, cols, ambiguous):
+    """같은 납부 셀 묶음이 적용되는 옵션 행을 검산하고 단계별 원문 금액을 한 번씩 센다."""
+    columns, groups, free_cells = cols['payments'], {}, []
+    total_column = cols['amount' if 'amount' in cols else 'total']
+    seen_totals = set()
+    for _, row in rows:
+        cells = [row[column] for column in columns]
+        if 'charge' in cols and _text(row[cols['charge']]) == '무상':
+            free_cells.extend(cell for cell in cells if not _blank(cell))
+            continue
+        amounts = [_amount(cell) for cell in cells]
+        total_cell = row[total_column]
+        total = _amount(total_cell)
+        if not columns:
+            return None, 'payment_evidence_missing'
+        if total is None or None in amounts:
+            return None, 'payment_amount_missing'
+        total_origin = total_cell['origin']
+        if total_origin in ambiguous or total_origin in seen_totals:
+            return None, 'payment_scope_unverified'
+        seen_totals.add(total_origin)
+        origins = tuple(cell['origin'] for cell in cells)
+        group = groups.setdefault(origins, {'total': 0, 'amounts': amounts})
+        group['total'] += total
+    # 병합된 계약금과 잔금의 적용 행이 서로 다르면 품목별 금액을 묶어 검산할 수 없다.
+    seen = set()
+    totals = [0] * len(columns)
+    for origins, group in groups.items():
+        if set(origins) & (seen | ambiguous):
+            return None, 'payment_scope_unverified'
+        seen.update(origins)
+        if sum(group['amounts']) != group['total']:
+            return None, 'payment_amount_mismatch'
+        totals = [total + amount for total, amount in zip(totals, group['amounts'])]
+    for cell in free_cells:
+        if cell['origin'] not in seen:
+            amount = _amount(cell)
+            if amount != 0:
+                return None, 'payment_amount_missing' if amount is None else 'payment_amount_mismatch'
+    return totals, None
+
+
+def _payment_schedule(field, document, *, timings=(), amounts=None, reasons=()):
+    data = field.data
+    schedule = {key: data[key] for key in ('modelNo', 'houseType', 'room', 'item')}
+    evidence = [_page_ref(document, data['page'])] if data['page'] else []
+    problems = list(dict.fromkeys([*reasons, *data['reasons']]))
+    status = field.status
+    if status == 'confirmed' and 'payment_amount_mismatch' in problems:
+        status = 'conflict'
+    if status == 'confirmed' and (amounts is None or problems):
+        status = 'unverified'
+    installments = [{'stage': stage, 'won': amount, 'timing': timing}
+                    for (stage, timing), amount in zip(timings, amounts or ()) if amount != '0']
+    if status == 'confirmed' and sum(int(i['won']) for i in installments) != int(field.value):
+        status = 'conflict'
+        problems.append('payment_amount_mismatch')
+    if status != 'confirmed' and not problems:
+        problems.append('payment_total_unverified')
+    return dict(schedule, status=status, totalWon=field.value if status == 'confirmed' else None,
+                installments=installments if status == 'confirmed' else [], reasons=problems, evidence=evidence)
+
+
+def _payment_details(rows, entry, *reasons):
+    totals, reason = _installment_amounts(rows, entry['cols'], entry['ambiguousAmountCells'])
+    units = entry['units'][0]
+    unit = next(iter(units)) if len(units) == 1 else None
+    amounts = [str(amount * unit) for amount in totals] if totals is not None and unit is not None else None
+    if not reason and entry['cols']['payments'] and not entry['paymentTimings']:
+        reason = 'payment_evidence_missing'
+    return {'amounts': amounts, 'timings': entry['paymentTimings'], 'reasons': reasons + ((reason,) if reason else ())}
 
 
 def _price_fields(table, rows, cols, units, page, labels, types, document):
@@ -710,7 +886,7 @@ def _option_field(room, mapped, group):
     if len(names) != len(set(names)):
         field.hold('option_item_duplicated')  # 추출 중복인지 별개 품목인지 원문만으로 가리지 않는다
     field.raw = '+'.join(raws) if raws else (_text(first_amount) or None)
-    paid = _payments(group['rows'], cols)
+    paid = _payments(group['rows'], cols, ignore_free_blanks=True)
     if partial:
         field.data['checks']['options_equal_payment_schedule'] = 'not_applicable'
     elif paid_total and paid is not None:
@@ -839,7 +1015,7 @@ def _document_reasons(document, target, digest):
 def _new_result(document, digest, size):
     return {'contract': CONTRACT, 'status': None, 'document': {'id': document['id'], 'version': document['version']},
             'source': {'sha256': digest, 'bytes': size, 'pageCount': None}, 'extractor': None, 'identity': None,
-            'pages': None, 'tables': None, 'fields': [], 'summary': None, 'evidence': [], 'issues': []}
+            'pages': None, 'tables': None, 'fields': [], 'summary': None, 'evidence': [], 'issues': [], 'paymentSchedules': []}
 
 
 def _finish(result, document, status, *codes, **context):
@@ -906,12 +1082,14 @@ def _inspect(pages, target, catalog, document, result):
         return _finish(result, document, 'ocr_required', 'pdf_text_layer_missing')
     types, issues = _catalog_types(catalog), result['issues']
     recognized = {'area': [], 'price': [], 'options': [], 'ignored': [], 'unsupported': []}
-    parsed, ignored, schedule = [], {}, []
+    parsed, ignored, schedule, contract_dates = [], {}, [], []
     for page in pages:
         tables = sorted(page.get('tables') or [], key=lambda t: t['bbox'][1])
         for position, table in enumerate(tables):
             grid = _grid(table)
-            schedule.extend(_schedule_dates(grid, page.get('words') or [], page['page']))
+            words = page.get('words') or []
+            schedule.extend(_schedule_dates(grid, words, page['page']))
+            contract_dates.extend(_contract_dates(grid, words, page['page']))
             count, header = _header(grid) if grid else (None, None)
             kind, cols = _classify(header) if header else (None, None)
             if kind == 'price_without_rooms':
@@ -931,6 +1109,7 @@ def _inspect(pages, target, catalog, document, result):
             recognized[kind].append(table['id'])
             parsed.append({'kind': kind, 'page': page, 'table': table, 'tables': tables, 'cols': cols,
                            'width': len(grid[0]), 'rows': [(i, grid[i]) for i in range(count, len(grid))],
+                           'grid': grid, 'headerCount': count,
                            'units': _units(header, _unit_note(page, table, tables)), 'last': position == len(tables) - 1})
     result['tables'] = recognized
     numbers, fields, label_map = [], [], []
@@ -950,9 +1129,14 @@ def _inspect(pages, target, catalog, document, result):
         return _finish(result, document, 'unsupported_layout', 'pdf_tables_not_recognized')
     if incomplete:
         issues.append(_issue(document, 'table_scan_incomplete', pages=incomplete))
-    option_groups = {}
+    option_groups, payments = {}, {}
     for entry in parsed:
+        if entry['kind'] == 'area':
+            continue
         page, table = entry['page'], entry['table']
+        entry['paymentTimings'] = _payment_columns(entry['grid'], entry['headerCount'], entry['cols']['payments'],
+                                                  page['page'], document, contract_dates)
+        entry['ambiguousAmountCells'] = _ambiguous_amount_cells(entry['rows'], entry['cols'])
         # 다음 쪽 첫 표가 머리말 없이 같은 열 수면 이 표가 이어진 것일 수 있다.
         continued = entry['last'] and (0, entry['width']) in ignored.get(page['page'] + 1, [])
         if entry['kind'] == 'price':
@@ -960,6 +1144,11 @@ def _inspect(pages, target, catalog, document, result):
                                                 types, document)
             fields.extend(found)
             issues.extend(found_issues)
+            table_rows = dict(entry['rows'])
+            payment_reasons = ('payment_scope_unverified',) if continued else ()
+            for field in found:
+                index = field.data['row']
+                payments[field] = _payment_details([(index, table_rows[index])], entry, *payment_reasons)
             if continued:
                 issues.append(_issue(document, 'price_table_continuation_unverified', page=page['page'], table=table['id']))
         elif entry['kind'] == 'options':
@@ -969,7 +1158,8 @@ def _inspect(pages, target, catalog, document, result):
                                                          ('option_table_continuation_unverified', continued),
                                                          ('table_scan_incomplete', bool(incomplete))) if flag}
             for room, group in groups.items():
-                group.update(cols=entry['cols'], units=entry['units'], scope=scope[0], tableReasons=table_reasons)
+                group.update(cols=entry['cols'], units=entry['units'], scope=scope[0], tableReasons=table_reasons,
+                             paymentTable=entry)
                 option_groups.setdefault(room, []).append(group)
     rooms = {}
     for field in fields:
@@ -981,7 +1171,10 @@ def _inspect(pages, target, catalog, document, result):
         mapped = rooms[room][0][:2] + (next((m[2] for m in rooms[room] if m[2]), None),)
         groups = option_groups.get(room, [])
         if len(groups) == 1:
-            fields.append(_option_field(room, mapped, groups[0]))
+            group = groups[0]
+            field = _option_field(room, mapped, group)
+            fields.append(field)
+            payments[field] = _payment_details(group['rows'], group['paymentTable'])
             continue
         if groups:
             # 여러 옵션 표에 나온 호실은 완전성·중복을 확인하지 않고 합산하거나 한 표 값으로 확정하지 않는다.
@@ -993,16 +1186,20 @@ def _inspect(pages, target, catalog, document, result):
             continue
         # 옵션 근거가 없으면 0원이 아니라 미확인이다. 근거 쪽이 없으므로 evidence 행을 만들지 않는다.
         code = 'room_not_in_options_table' if recognized['options'] else 'options_table_not_found'
-        result['fields'].append({'item': 'required_options', 'modelNo': mapped[0], 'houseType': mapped[1], 'room': room,
-                                 'page': None, 'pageLabel': None, 'table': None, 'row': None, 'cell': None,
-                                 'checks': {}, 'reasons': [code], 'classification': 'missing',
-                                 'status': 'unverified', 'value': None, 'raw': None})
+        missing = _Field('required_options', None, None, None, modelNo=mapped[0], houseType=mapped[1], room=room)
+        missing.hold(code)
+        result['fields'].append(dict(missing.data, pageLabel=None, classification='missing',
+                                     status=missing.status, value=None, raw=None))
+        result['paymentSchedules'].append(_payment_schedule(missing, document, reasons=['payment_evidence_missing']))
         issues.append(_issue(document, code, item='required_options', modelNo=mapped[0], room=room))
     for room in sorted(set(option_groups) - set(rooms)):
         issues.append(_issue(document, 'option_room_not_in_price_table', room=room))
     hold_all = label_summary['status'] == 'inconsistent'
     if hold_all:
         issues.append(_issue(document, 'page_labels_inconsistent'))
+    linked = {(h['modelNo'], h['houseType']['value']) for h in catalog['housingTypes'] if h['status'] == 'linked'}
+    origin = document.get('originCheck')
+    trusted = origin == 'confirmed' or (origin is None and document.get('source') == 'official')
     for field in fields:
         if hold_all:
             field.hold('page_labels_inconsistent')
@@ -1014,7 +1211,17 @@ def _inspect(pages, target, catalog, document, result):
                                  page=entry['page']))
         if not {'pdf_model_not_in_catalog', 'pdf_model_ambiguous'} & set(field.data['reasons']):
             result['evidence'].append(_evidence_row(meta, field))
+        if entry['item'] in ('sale_price', 'required_options'):
+            payment = payments.get(field, {'reasons': ('payment_evidence_missing',)})
+            reasons = list(payment['reasons'])
+            if not trusted:
+                reasons.append('payment_document_origin_unverified')
+            if ((entry['modelNo'], entry['houseType']) not in linked
+                    or len({m[:2] for m in rooms[entry['room']]}) != 1):
+                reasons.append('payment_scope_unverified')
+            result['paymentSchedules'].append(_payment_schedule(field, document, **dict(payment, reasons=reasons)))
     result['fields'].sort(key=lambda f: (f['item'], f['modelNo'], f['room'] or '', f['page'] or 0))
+    result['paymentSchedules'].sort(key=lambda s: (s['modelNo'], s['room'], s['item']))
     return _finish(result, document, 'held' if hold_all else 'checked')
 
 

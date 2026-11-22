@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { AnalysisRunError, readAnalysisRunOperation, uuidPattern } from './analysis-runs.js';
+import { ApiError, readJsonRequest } from './http-input.js';
+import { parseNoticeSearchConditions, evaluateNoticeSearch } from './notice-search.js';
+import { readAnalysisRunOperation, uuidPattern } from './analysis-runs.js';
 import type { AnalysisRun, AnalysisRunOperation, ComparisonSnapshot } from './analysis-runs.js';
 
 export type Environment = Record<string, string | undefined>;
@@ -13,10 +15,12 @@ export type Backend = {
     signal: AbortSignal;
   }) => Promise<ReadableStream<Uint8Array> | null>;
   runAnalysis: (operation: AnalysisRunOperation, signal: AbortSignal) => Promise<AnalysisRun>;
+  getNoticeSearchIndex: (signal: AbortSignal) => Promise<unknown>;
   getComparison: (analysisId: string, runId: string, signal: AbortSignal) => Promise<ComparisonSnapshot>;
 };
 export type BackendConfig = { url: string; key: string; token: string };
 
+const koreaDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' });
 const uploadContentPath = new RegExp(`^/api/v1/analyses/(${uuidPattern})/uploads/(${uuidPattern})/content$`);
 const analysisRunPath = /^\/api\/v1\/analyses\/([^/]+)\/runs(?:\/([^/]+)(?:\/(cancel|result))?)?$/;
 
@@ -39,6 +43,7 @@ function readConfig(env: Environment, token: string): BackendConfig {
 export function createHandler(deps: {
   env: Environment;
   createBackend: (config: BackendConfig) => Backend;
+  now?: () => Date;
   log?: (event: { requestId: string; code: string }) => void;
 }) {
   return async (request: Request): Promise<Response> => {
@@ -46,8 +51,9 @@ export function createHandler(deps: {
     const path = new URL(request.url).pathname;
     const upload = path.match(uploadContentPath);
     const run = path.match(analysisRunPath);
+    const search = path === '/api/v1/notices/search';
     const enqueues = run !== null && !run[2];
-    const method = enqueues || run?.[3] === 'cancel' ? 'POST' : 'GET';
+    const method = search || enqueues || run?.[3] === 'cancel' ? 'POST' : 'GET';
     const allowedMethods = `${method}, OPTIONS`;
     const headers = new Headers({
       'Cache-Control': 'no-store',
@@ -55,7 +61,7 @@ export function createHandler(deps: {
       'X-Content-Type-Options': 'nosniff',
       'X-Request-Id': requestId,
     });
-    if (upload || run?.[3] === 'result') {
+    if (search || upload || run?.[3] === 'result') {
       headers.set('Cache-Control', 'private, no-store');
       headers.set('Vary', 'Authorization, Origin');
       headers.set('Vercel-CDN-Cache-Control', 'no-store');
@@ -76,7 +82,7 @@ export function createHandler(deps: {
       return respond({ error: 'method_not_allowed', requestId }, 405);
     }
     if (path === '/api/health') return respond({ status: 'ok', service: 'homecierge-api', version: '0.1.0' }, 200);
-    if (!upload && !run && !['/api/v1/me','/api/ready'].includes(path)) return respond({ error: 'not_found', requestId }, 404);
+    if (!upload && !run && !search && !['/api/v1/me','/api/ready'].includes(path)) return respond({ error: 'not_found', requestId }, 404);
 
     const authorization = request.headers.get('authorization');
     const match = authorization?.match(/^Bearer ([^\s]+)$/i);
@@ -90,6 +96,17 @@ export function createHandler(deps: {
     try {
       const user = await backend.getUser();
       if (!user || user.isAnonymous) return respond({ error: 'authentication_required', requestId }, 401);
+      if (search) {
+        const conditions = parseNoticeSearchConditions(await readJsonRequest(request, 'invalid_search_input'));
+        if (!conditions) throw new ApiError('invalid_search_input');
+        const index = await backend.getNoticeSearchIndex(request.signal);
+        if (index === null) throw new ApiError('search_index_not_ready');
+        if (typeof index !== 'object' || !('dataOrigin' in index) || index.dataOrigin !== 'collected') {
+          throw new Error('invalid_search_index');
+        }
+        const asOf = koreaDate.format(deps.now?.() ?? new Date());
+        return respond(evaluateNoticeSearch(index, conditions, asOf), 200);
+      }
       if (run) {
         const operation = await readAnalysisRunOperation(request, run[1], run[2], run[3] === 'cancel');
         if (run[3] === 'result' && operation.action === 'get') {
@@ -115,7 +132,7 @@ export function createHandler(deps: {
       if (path === '/api/ready') return respond({ status: 'ready', database: 'reachable' }, 200);
       return respond({ user: { id: user.id }, profile }, 200);
     } catch (error) {
-      if (error instanceof AnalysisRunError) {
+      if (error instanceof ApiError) {
         if (error.code === 'run_rate_limited') {
           headers.set('Retry-After', '60');
           if (origin) headers.set('Access-Control-Expose-Headers', 'Retry-After');

@@ -151,3 +151,17 @@ class AnalysisWorkerTests(TestCase):
         opener.open.return_value = io.BytesIO(b'null ' * 100)
         with self.assertRaises(WorkerRpcError):
             client.post('claim_analysis_run', {}, limit=20)
+
+    def test_void_publication_accepts_http_204_without_treating_empty_json_as_success(self):
+        opener = Mock()
+        client = WorkerRpc({'SUPABASE_URL': 'http://127.0.0.1', 'SUPABASE_WORKER_KEY': 'sb_secret_synthetic'}, opener)
+        for status, accepts_void, succeeds in [(204, True, True), (204, False, False), (200, True, False)]:
+            with self.subTest(status=status, accepts_void=accepts_void):
+                response = io.BytesIO(b'')
+                response.status = status
+                opener.open.return_value = response
+                if succeeds:
+                    self.assertIsNone(client.post('publish_notice_search_index', {}, allow_no_content=accepts_void))
+                else:
+                    with self.assertRaises(WorkerRpcError):
+                        client.post('publish_notice_search_index', {}, allow_no_content=accepts_void)

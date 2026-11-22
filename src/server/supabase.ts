@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { createClient, StorageApiError } from '@supabase/supabase-js';
 import type { Database } from '../db/database.types.js';
-import { AnalysisRunError, parseAnalysisRun, parseComparisonSnapshot } from './analysis-runs.js';
+import { ApiError } from './http-input.js';
+import { parseAnalysisRun, parseComparisonSnapshot } from './analysis-runs.js';
 import type { Backend, BackendConfig } from './handler.js';
 
 const uploadBucket = 'analysis-uploads';
@@ -48,10 +49,10 @@ export function createBackend(config: BackendConfig): Backend {
           ...args, p_run_id: operation.runId,
         });
       const { data, error } = await rpc.abortSignal(signal);
-      if (error?.code === 'PT404') throw new AnalysisRunError('run_not_found');
-      if (error?.code === 'PT409') throw new AnalysisRunError('run_conflict');
-      if (error?.code === '22023') throw new AnalysisRunError('invalid_run_input');
-      if (operation.action === 'enqueue' && error?.code === 'PT429') throw new AnalysisRunError('run_rate_limited');
+      if (error?.code === 'PT404') throw new ApiError('run_not_found');
+      if (error?.code === 'PT409') throw new ApiError('run_conflict');
+      if (error?.code === '22023') throw new ApiError('invalid_run_input');
+      if (operation.action === 'enqueue' && error?.code === 'PT429') throw new ApiError('run_rate_limited');
       if (error) throw new Error('database_unavailable');
 
       const run = parseAnalysisRun(data);
@@ -68,13 +69,22 @@ export function createBackend(config: BackendConfig): Backend {
       if (!matches) throw new Error('invalid_run_response');
       return run;
     },
+    async getNoticeSearchIndex(signal) {
+      const { data, error } = await client.rpc('read_notice_search_index').abortSignal(signal);
+      if (error?.code === '42501' && error.message === 'notice_search_authentication_required') {
+        throw new ApiError('authentication_required');
+      }
+      if (error?.code === 'PT403') throw new ApiError('search_source_restricted');
+      if (error) throw new Error('database_unavailable');
+      return data;
+    },
     async getComparison(analysisId, runId, signal) {
       const { data, error } = await client.rpc('get_analysis_comparison', {
         p_analysis_id: analysisId, p_run_id: runId,
       }).abortSignal(signal);
-      if (error?.code === 'PT403') throw new AnalysisRunError('comparison_source_restricted');
-      if (error?.code === 'PT404') throw new AnalysisRunError('run_not_found');
-      if (error?.code === 'PT409') throw new AnalysisRunError('comparison_not_available');
+      if (error?.code === 'PT403') throw new ApiError('comparison_source_restricted');
+      if (error?.code === 'PT404') throw new ApiError('run_not_found');
+      if (error?.code === 'PT409') throw new ApiError('comparison_not_available');
       if (error) throw new Error('database_unavailable');
       const snapshot = parseComparisonSnapshot(data, analysisId, runId);
       if (!snapshot) throw new Error('invalid_comparison_response');

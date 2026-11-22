@@ -1,6 +1,6 @@
 # 데이터베이스·배포 환경 준비
 
-2026-11-21 기준. 사용자가 Supabase와 Vercel을 선택했고 화면 제작은 별도 팀이 맡는다. 이 문서는 [PRD](prd/01-product-prd.md)의 D-06·D-07 관련 개발 환경과 현재 연결 범위를 기록한다.
+2026-11-22 기준. 사용자가 Supabase와 Vercel을 선택했고 화면 제작은 별도 팀이 맡는다. 이 문서는 [PRD](prd/01-product-prd.md)의 D-06·D-07 관련 개발 환경과 현재 연결 범위를 기록한다.
 
 ## 1. 준비 상태를 구분한다
 
@@ -35,7 +35,7 @@ flowchart LR
 | 환경을 구분한다 | DB 연결을 정한다 | 배포·자료 사용 조건을 정한다 |
 | --- | --- | --- |
 | 로컬 | PGlite 합성 검사 또는 별도 로컬 Supabase | 합성 자료만 기본 사용. Docker가 없으면 전체 Supabase 로컬 스택은 실행할 수 없음 |
-| Development / Preview | 생성한 `homecierge-dev` | 별도 개발 계정과 합성 자료. Production용 DB URL·키를 복사하지 않음 |
+| Development / Preview | 생성한 `homecierge-dev` | 별도 개발 계정·합성 검사 자료. 공고 탐색에는 이용 조건을 확인한 청약홈 구조화 목록과 현존 지역코드를 게시 |
 | Production | 별도 운영 Supabase를 연결하는 설계 | 이번에 운영 DB를 자동 생성하지 않음. 이용 조건·삭제·인증 설정 검수 후 별도 연결 |
 
 Supabase는 서울 `ap-northeast-2`, API 실행 리전은 서울 `icn1`이다. Vercel 빌드 머신은 미국 `iad1`에서 실행됐으므로 빌드 위치와 함수 실행 위치를 구분한다. `APP_ENV`가 Production과 맞지 않으면 인증 API는 503으로 닫힌다. `health`의 200은 DB 연결 성공을 의미하지 않는다. Production 환경변수·운영 DB·운영 배포는 준비하지 않았다.
@@ -112,6 +112,8 @@ Node.js 버전은 [.nvmrc](../.nvmrc), 라이브러리와 CLI는 [package.json](
 서울 개발 DB에 [BE-05 비교 결과 마이그레이션](../supabase/migrations/20261121024901_comparison_results.sql)을 적용하고 DB 타입을 다시 생성했다. 두 시험 계정으로 합성 공고를 비교해 주변 2단지의 종류별 가격을 조회하고, 같은 수집본 재실행 및 재로그인 뒤 결과의 일치를 확인했다. 다른 계정의 조회는 404였고 독립적으로 저장된 수집본에는 데모 근거가 적용되지 않았다. 검사 후 계정·실행·수집본·비교 결과·비공개 업로드의 잔여 건수는 각각 0이었다. [비교 결과 계약](api/comparison-v1.md)
 
 BE-05 구현 커밋 `cad297e`의 보호된 Preview는 `READY`를 확인했다. 배포 보호가 적용된 주소는 팀 세션 없이 접근하면 302, 팀 세션으로 접근한 생존 확인은 200, Supabase 사용자 세션 없이 요청한 비교 결과는 401이었다. 마이그레이션을 처음부터 적용한 GitHub Actions의 격리 Supabase에서도 두 사용자 검사가 통과했다. [화면 팀 Preview 주소](frontend-handoff.md) · [Supabase 통합 검사](https://github.com/95sionkim/HomeCierge/actions/runs/44858258513) · [기본 검사](https://github.com/95sionkim/HomeCierge/actions/runs/44858258476)
+
+2026-11-22에 서울 개발 DB에 [공고 탐색 색인 마이그레이션](../supabase/migrations/20261122044154_notice_search_index.sql)을 적용하고 사용자·작업자 RPC 타입을 다시 생성했다. 가입 확인을 마친 사용자의 DB 역할로 조회하는 롤백 검사에서 공고 83건과 현존 지역코드 269개가 반환됐다. 익명 역할은 읽을 수 없고 일반 사용자는 게시할 수 없었다. 출처 이용 조건을 확인한 두 공고 목록과 지역코드 세 출처만 등록했다. PDF를 포함한 호실 자료의 공유 게시에는 별도 출처 검수가 필요하다. [게시 범위와 수동 갱신 절차](api/notice-search.md)
 
 ## 6. 연결할 환경변수를 구분한다
 

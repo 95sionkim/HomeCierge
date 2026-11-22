@@ -803,10 +803,15 @@ export type Database = {
         Args: { p_analysis_id: string; p_run_id: string }
         Returns: Json
       }
+      publish_notice_search_index: {
+        Args: { p_index: Json }
+        Returns: undefined
+      }
       read_comparison_work: {
         Args: { p_generation: number; p_lease_token: string; p_run_id: string }
         Returns: Json
       }
+      read_notice_search_index: { Args: never; Returns: Json }
       register_analysis_upload: {
         Args: { analysis_id: string; upload_id: string }
         Returns: {

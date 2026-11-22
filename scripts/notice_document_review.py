@@ -1,12 +1,59 @@
 """공식 첨부의 판본과 페이지별 점검 결과를 청약홈 공고·주택형에 연결한다."""
 from decimal import Decimal
 
+from extract_notice_pdf import compact
 from notice_pdf_acquisition import acquire_notice_pdf, make_live_fetch
 from notice_pdf_fields import inspect_notice_pdf, reported_notice_date
 
 
 def item_key(record):
     return record['modelNo'], record['houseType'], record.get('room'), record['item']
+
+
+def _payment_signature(schedule):
+    return schedule['totalWon'], tuple(
+        (i['stage'], i['won'], i['timing']['trigger'], i['timing']['date'], i['timing']['dateStatus'],
+         compact(i['timing']['text'])) for i in schedule['installments'])
+
+
+def _payment_evidence(rows):
+    refs = {(r['document'], r['version'], r['page']): r for row in rows for r in row['evidence']}
+    return [refs[k] for k in sorted(refs)]
+
+
+def _combine_payment_schedules(reviews):
+    """판본별로 검산한 전체 일정이 일치할 때만 한 번 반환한다. 금액·일정을 판본 간 보충하지 않는다."""
+    items, room_types = {}, {}
+    for version, review in enumerate(reviews):
+        for row in review.get('paymentSchedules', ()):
+            model, house_type, room, _ = key = item_key(row)
+            room_types.setdefault(room, set()).add((model, house_type))
+            items.setdefault(key, {}).setdefault(version, []).append(row)
+
+    schedules = []
+    for key, versions in sorted(items.items()):
+        rows = [row for version in versions.values() for row in version]
+        checked = [row for row in rows if row['status'] == 'confirmed']
+        reasons = list(dict.fromkeys(reason for row in rows for reason in row['reasons']))
+        scope_conflict = len(room_types[key[2]]) > 1
+        disagreement = len({_payment_signature(row) for row in checked}) > 1
+        conflict = disagreement or scope_conflict or any(row['status'] == 'conflict' for row in rows)
+        missing = len(versions) != len(reviews) or len(checked) != len(rows)
+        if scope_conflict:
+            reasons.append('payment_room_model_conflict')
+        if disagreement:
+            reasons.append('payment_schedule_revision_conflict' if len(versions) > 1 else 'payment_schedule_conflict')
+        if missing and len(reviews) > 1:
+            reasons.append('payment_schedule_revision_unverified')
+        amount, installments = None, []
+        if not conflict and not missing:
+            amount = checked[0]['totalWon']
+            for index, installment in enumerate(checked[0]['installments']):
+                date_evidence = _payment_evidence(row['installments'][index]['timing'] for row in checked)
+                installments.append(dict(installment, timing=dict(installment['timing'], evidence=date_evidence)))
+        schedules.append(dict(rows[0], status='conflict' if conflict else 'unverified' if missing else 'confirmed',
+                              totalWon=amount, installments=installments, evidence=_payment_evidence(rows), reasons=reasons))
+    return schedules
 
 
 def combine_reviews(reviews):
@@ -16,7 +63,7 @@ def combine_reviews(reviews):
     실제로 읽은 페이지만 인용하며, 읽지 못한 문서의 페이지를 만들어 넣지 않는다.
     """
     if not reviews:
-        return {'evidence': [], 'issues': []}
+        return {'evidence': [], 'issues': [], 'paymentSchedules': []}
     issues = [issue for review in reviews for issue in review['issues']]
     keys_per_version = [{item_key(row) for row in review['evidence']} for review in reviews]
     shared = set.intersection(*keys_per_version)
@@ -43,12 +90,16 @@ def combine_reviews(reviews):
     for model, kind, room, item in sorted(incomplete, key=lambda k: (k[0], k[1], k[2] or '', k[3])):
         issues.append({'code': 'document_revision_item_unverified', 'decisionId': 'D-04',
                        'modelNo': model, 'houseType': kind, 'room': room, 'item': item})
-    return {'evidence': evidence, 'issues': issues}
+    return {'evidence': evidence, 'issues': issues, 'paymentSchedules': _combine_payment_schedules(reviews)}
 
 
 def review_catalog_documents(target, catalog, *, official_index=None, read_upload=None,
                              fetch=None, inspect=inspect_notice_pdf):
-    """서버가 조회한 상세 페이지에서 시작한다. 첨부와 업로드 바이트는 이 호출 안에서만 사용한다."""
+    """공식 상세 페이지를 대조하고 첨부 바이트는 이 호출 안에서 사용한다.
+
+    review.paymentSchedules는 즉시 응답용이다. 항목의 status는 금액 점검 상태이며 일정의 구체성은
+    installments[].timing.dateStatus에 따로 표시한다. 날짜의 evidence는 ISO 날짜의 확인 쪽을 가리킨다.
+    """
     notice = catalog['notice']
     link = notice.get('link') or {}
     url = link.get('value') if link.get('kind') == 'notice_page' and link.get('status') == 'reported' else None
@@ -91,7 +142,8 @@ def review_catalog_documents(target, catalog, *, official_index=None, read_uploa
                     actions = ['review_original_document']
                 next_actions.update(actions)
                 issues = [dict(issue, stage='document_inspection', nextActions=actions) for issue in issues]
-            reviews.append({'evidence': parsed['evidence'], 'issues': issues})
+            reviews.append({'evidence': parsed['evidence'], 'issues': issues,
+                            'paymentSchedules': parsed.get('paymentSchedules', [])})
         # 근거 행이 없는 파일도 판본 식별자가 파생 자료다. 저장 시 같은 출처·삭제 조건을 적용한다.
         version_rows.append(dict(metadata, status=status, records=0,
                                  reasons=list(dict.fromkeys(reasons)) or ['no_checked_document_fields']))
@@ -122,6 +174,6 @@ def review_catalog_documents(target, catalog, *, official_index=None, read_uploa
         'observedAt': acquired['observedAt'], 'relation': relation, 'nextActions': next_actions,
         'references': [{key: reference[key] for key in ('id', 'url', 'reason')}
                        for reference in acquired.get('references', ())],
-        'documents': documents,
+        'documents': documents, 'paymentSchedules': checked.pop('paymentSchedules'),
     }
     return checked

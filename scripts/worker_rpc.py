@@ -53,7 +53,7 @@ class WorkerRpc:
         self.base = parse.urlunsplit((target.scheme, target.netloc, '/rest/v1/rpc/', '', ''))
         self.opener = opener if opener is not None else request.build_opener(NoRedirect)
 
-    def post(self, name, arguments, *, limit=16384):
+    def post(self, name, arguments, *, limit=16384, allow_no_content=False):
         if not re.fullmatch(r'[a-z_]+', name):
             raise ValueError('잘못된 RPC 이름입니다.')
         body = json.dumps(arguments, ensure_ascii=False, allow_nan=False).encode()
@@ -61,6 +61,8 @@ class WorkerRpc:
         try:
             with self.opener.open(call, timeout=30) as response:
                 data = response.read(limit + 1)
+                if allow_no_content and response.status == 204 and not data:
+                    return None
             if len(data) > limit:
                 raise WorkerRpcResponseTooLarge()
             return json.loads(data)
