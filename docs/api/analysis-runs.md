@@ -70,7 +70,7 @@
 python3 scripts/run_analysis_worker.py --once --live --run-id "$RUN_ID"
 ```
 
-이 명령은 지정한 실행만 인수한다. 이미 처리했거나 아직 인수할 수 없으면 `{"status":"idle"}`이다. 기존 수집본이나 합성 예시 한 건은 `--live` 없이 실행할 수 있다. 개발 큐에서 새 공고와 기존 입력을 함께 처리하는 상시 명령은 `python3 scripts/run_analysis_worker.py --watch --live`다. HTTP 프로세스와 작업자는 각각 다시 시작할 수 있다. [Python 실행기](../../scripts/run_analysis_worker.py)
+이 명령은 지정한 실행만 인수한다. 이미 처리했거나 아직 인수할 수 없으면 `{"status":"idle"}`이다. 기존 수집본이나 합성 예시 한 건은 `--live` 없이 실행할 수 있다. 개발 큐에서 새 공고와 기존 입력을 함께 처리하는 상시 명령은 `python3 scripts/run_analysis_worker.py --watch --live`다. 개발 Mac 로그인 서비스도 같은 작업자 진입점을 사용하며, 프로세스가 종료되면 `launchd`가 다시 띄운다. [Python 실행기](../../scripts/run_analysis_worker.py) · [개발 Mac 서비스 운영](notice-operations.md)
 
 DB의 실행 행은 대기열 역할도 한다. 접수 때 조건·규칙 버전과 기준 시점을 고정하고, 작업자 인수 때 시도 번호와 임대 정보를 갱신한다. 기본 임대는 60초이며 개발 검사에서는 1~300초로 지정할 수 있다. DB는 현재 세대와 임대 토큰·유효 시간을 확인한 뒤 스냅샷 연결과 실행 종료를 한 트랜잭션으로 기록한다. 응답이 끊겨도 수집본을 덮어쓰지 않는다. 재시도 가능한 실패에는 1초·2초 대기를 적용하고, 최대 세 번째 인수까지 허용한다. 작업자가 중단되면 임대 만료 후 다른 작업자가 이어받는다. 취소되거나 부모 분석이 삭제되면 이전 작업자가 결과를 쓸 수 없다.
 

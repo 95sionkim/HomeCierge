@@ -25,7 +25,7 @@
 
 디렉터리는 공고 일정·지역·공식 주택형 식별자를 독립적으로 게시한다. 호실 가격과 PDF 근거를 사용하는 맞춤 검색의 발행본은 별도로 보관한다. 두 목록 중 한 피드가 실패하거나 페이지가 누락되면 마지막으로 완전히 수집한 목록과 그 관측 시각을 유지한다. 모델 출처의 사용 권한이 철회되면 공고 일정은 볼 수 있고 그 출처의 주택형은 보류한다. [청약홈 분양정보 서비스](https://www.data.go.kr/data/15098547/openapi.do) · [행정표준코드관리시스템 법정동 자료](https://www.code.go.kr/stdcode/regCodeL.do)
 
-개발 작업자는 `python3 scripts/refresh_notice_index.py --live --publish`로 한국 날짜 기준 최근 90일을 갱신한다. 법정동 자료는 행정표준코드관리시스템에서 받아 확인하고, 접수 중·예정을 우선해 최대 40개 공고의 주택형을 조회한다. 이 작업의 PDF 요청은 0회다. 기본 브랜치에 워크플로를 반영한 뒤 개발 환경 `notice-refresh-development`에 데이터포털 키와 개발 DB 주소·작업자 키를 설정하고 `NOTICE_REFRESH_ENABLED=true`로 활성화하면 매일 09:17 KST 또는 수동으로 실행한다. 11월 22일 검수는 수동 게시로 진행했다. [갱신 작업](../../scripts/refresh_notice_index.py) · [예약 실행 설정](../../.github/workflows/notice-refresh.yml)
+개발 작업자는 `python3 scripts/refresh_notice_index.py --live --publish`로 한국 날짜 기준 최근 90일을 갱신한다. 법정동 자료는 행정표준코드관리시스템에서 받아 확인하고, 접수 중·예정을 우선해 최대 40개 공고의 주택형을 조회한다. 이 작업의 PDF 요청은 0회다. 개발 Mac의 목록 서비스는 매일 09:17 KST에 갱신한다. GitHub Actions를 쓰는 경우에는 기본 브랜치의 워크플로, 개발 환경 `notice-refresh-development`의 데이터포털 키와 개발 DB 주소·작업자 키, `NOTICE_REFRESH_ENABLED=true`를 설정하고 Mac의 목록 예약을 해제한다. 11월 22일 검수는 수동 게시로 진행했다. [개발 Mac 서비스 설치와 상태 확인](notice-operations.md) · [갱신 작업](../../scripts/refresh_notice_index.py) · [GitHub 예약 설정](../../.github/workflows/notice-refresh.yml)
 
 서울 개발 환경에서 2026-11-22 15:51 KST에 8월 25일~11월 22일의 모집공고를 조회했다. 두 피드에서 198건을 수집했고, 우선 조회한 16개 공고에서 주택형 62개를 읽었다. 오늘 목록에는 접수 예정 28건과 일정 미확인 2건이 표시됐다. 확인된 접수 중 공고는 0건이었고 미확인 일정이 있어 `zeroStatus.open`은 `indeterminate`였다. 종료 167건과 지원 대상 외 1건은 기본 목록에서 제외했다. 이후 갱신 시 건수는 달라질 수 있다.
 
