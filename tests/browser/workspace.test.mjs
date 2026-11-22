@@ -173,3 +173,230 @@ test('more cards remain searchable and provisional prices stay distinct from con
     await context.close();
   }
 });
+
+test('a completed run opens each source independently, binds its snapshot and releases earlier article text', async () => {
+  const analysisId = 'a1000000-0000-4000-8000-000000000001',
+    runId = 'a1000000-0000-4000-8000-000000000002',
+    snapshotId = 'a1000000-0000-4000-8000-000000000003';
+  const owner = { id: 'a1000000-0000-4000-8000-000000000004', email: 'reader@example.invalid' };
+  const ctx = await browser.newContext();
+  await ctx.addInitScript((user) => {
+    // 인증 어댑터만 대체한다. 페이지와 사용자 HTTP 클라이언트는 실제 구현을 실행한다.
+    const auth = {
+      getSession: async () => ({ data: { session: { user, access_token: 'SYNTHETIC_TEST_SESSION' } } }),
+      onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
+    };
+    const history = {
+      select() {
+        return this;
+      },
+      eq() {
+        return this;
+      },
+      not() {
+        return this;
+      },
+      order() {
+        return this;
+      },
+      limit: async () => ({ data: [] }),
+    };
+    globalThis.supabase = { createClient: () => ({ auth, from: () => history }) };
+  }, owner);
+  const { readLegalEvidence } = await import('../../src/server/legal-evidence.ts');
+  const { readRegionalNews } = await import('../../src/server/regional-news-request.ts');
+  const asOf = '2026-10-05';
+  const legalContext = {
+    analysisId,
+    snapshotId,
+    noticeSource: 'applyhome_remainder',
+    noticeDate: asOf,
+    dataOrigin: 'collected',
+    status: 'available',
+    reference: {
+      contractVersion: 'law-reference/v1',
+      dataOrigin: 'collected',
+      asOf,
+      mst: '99900001',
+      lawId: '008243',
+      title: '주택공급에 관한 규칙',
+      promulgatedOn: '2025-01-02',
+      effectiveOn: '2025-02-03',
+      observedAt: '2026-10-05T12:00:00Z',
+      articles: [{ number: '21', branch: '2', heading: '합성 재공급 안내' }],
+    },
+  };
+  let law = readLegalEvidence(legalContext, analysisId, snapshotId);
+  const ready = await readRegionalNews(
+    { analysisId, snapshotId, status: 'ready', region: '서울특별시 광진구' },
+    analysisId,
+    snapshotId,
+    {
+      signal: new AbortController().signal,
+      clientId: 'synthetic-browser-id',
+      clientSecret: 'synthetic-browser-value',
+      fetch: async () =>
+        Response.json({
+          total: 2,
+          items: ['나', '가'].map((label, index) => ({
+            title: '합성 기사 ' + label,
+            description: '합성 검색 발췌 ' + label,
+            originallink: 'https://example.org/' + index,
+            pubDate: 'Mon, 05 Oct 2026 10:00:00 +0900',
+          })),
+        }),
+    },
+  );
+  let news = ready,
+    newsHttp = 200,
+    pending = false,
+    notifyPending,
+    resume;
+  const paused = new Promise((resolve) => {
+    notifyPending = resolve;
+  });
+  const gate = new Promise((resolve) => {
+    resume = resolve;
+  });
+  const requests = [];
+  const runPath = '/api/v1/analyses/' + analysisId + '/runs/' + runId;
+  const refPath = '/api/v1/analyses/' + analysisId + '/snapshots/' + snapshotId;
+  await ctx.route(new RegExp('.+'), async (route) => {
+    const req = route.request(),
+      url = new URL(req.url());
+    if (url.origin !== origin) return route.abort();
+    const p = url.pathname;
+    if (p === runPath)
+      return route.fulfill({
+        json: { analysisId, runId, snapshotId, status: 'finished', input: { kind: 'snapshot' } },
+      });
+    if (p === runPath + '/result')
+      return route.fulfill({ status: 403, json: { error: 'comparison_source_restricted' } });
+    if (p === refPath + '/legal-evidence') return route.fulfill({ json: law });
+    if (p === refPath + '/regional-news') {
+      requests.push({ method: req.method(), body: req.postData(), auth: req.headers().authorization });
+      if (pending) {
+        notifyPending();
+        await gate;
+      }
+      await route.fulfill({ status: newsHttp, json: news }).catch(() => {});
+      return;
+    }
+    return route.continue();
+  });
+  try {
+    const p = await ctx.newPage();
+    p.setDefaultTimeout(6000);
+    await p.goto(origin + '/#run/' + analysisId + '/' + runId);
+    await p.getByText('이 결과에 사용된 출처의 표시 권한을 확인 중입니다.').waitFor();
+    await p.getByRole('link', { name: '법령 근거' }).click();
+    await p.getByText('합성 재공급 안내', { exact: true }).waitFor();
+    assert.equal(
+      await p.getByRole('link', { name: '당시 시행본 원문' }).getAttribute('href'),
+      'https://www.law.go.kr/LSW/lsInfoP.do?lsiSeq=99900001&efYd=20250203',
+    );
+    await p.getByText('최초·재공급 공고', { exact: true }).waitFor();
+    law = readLegalEvidence(
+      { ...legalContext, status: 'version_unverified', reference: null },
+      analysisId,
+      snapshotId,
+    );
+    await p.getByRole('button', { name: '다시 확인' }).click();
+    await p.getByRole('link', { name: '법령 개정 이력 열기' }).waitFor();
+    assert.equal(await p.getByText('합성 재공급 안내', { exact: true }).count(), 0);
+    law = { ...law, snapshotId: runId };
+    await p.getByRole('button', { name: '다시 확인' }).click();
+    await p.getByText('법령 조회 실패', { exact: true }).waitFor();
+    await p.getByRole('link', { name: '지역 뉴스', exact: true }).click();
+    await p.getByRole('button', { name: '지역 뉴스 보기' }).waitFor();
+    assert.equal(requests.length, 0);
+    await p.getByRole('button', { name: '지역 뉴스 보기' }).click();
+    await p.getByRole('link', { name: '합성 기사 나' }).waitFor();
+    assert.deepEqual(
+      (await p.locator('.ref-news-list h3').allInnerTexts()).map((title) => title.trim()),
+      ['합성 기사 나', '합성 기사 가'],
+    );
+    assert.equal(
+      await p.getByRole('link', { name: '합성 기사 나' }).getAttribute('href'),
+      'https://example.org/0',
+    );
+    assert.deepEqual(requests, [{ method: 'POST', body: null, auth: 'Bearer SYNTHETIC_TEST_SESSION' }]);
+    for (const [status, label] of [
+      ['partial', '검색 결과 일부 누락'],
+      ['empty', '검색 결과 0건'],
+      ['rate_limited', '뉴스 조회 한도 도달'],
+      ['source_restricted', '출처 표시 보류'],
+    ]) {
+      news = {
+        ...ready,
+        status,
+        search:
+          status === 'source_restricted'
+            ? null
+            : { ...ready.search, items: [], omittedCount: status === 'partial' ? 1 : 0 },
+      };
+      await p.getByRole('button', { name: '다시 조회' }).click();
+      await p.getByText(label, { exact: true }).waitFor();
+      assert.equal(await p.locator('.ref-news-list').count(), 0);
+    }
+    newsHttp = 429;
+    news = { error: 'news_rate_limited' };
+    await p.getByRole('button', { name: '다시 조회' }).click();
+    await p.getByText('최근 뉴스 요청이 많습니다. 1분 뒤 다시 조회하세요.').waitFor();
+    newsHttp = 200;
+    news = ready;
+    pending = true;
+    await p.getByRole('button', { name: '다시 조회' }).click();
+    await paused;
+    await p.getByRole('link', { name: '법령 근거' }).click();
+    await p.getByText('법령 조회 실패', { exact: true }).waitFor();
+    resume();
+    await p.getByRole('link', { name: '지역 뉴스', exact: true }).click();
+    await p.getByRole('button', { name: '지역 뉴스 보기' }).waitFor();
+    assert.equal(await p.locator('.ref-news-list').count(), 0);
+    const stores = await p.evaluate(() =>
+      JSON.stringify([Object.values(localStorage), Object.values(sessionStorage)]),
+    );
+    assert.equal(stores.includes('합성 기사'), false);
+  } finally {
+    resume();
+    await ctx.close();
+  }
+});
+
+for (const width of [1440, 390]) {
+  test(`reference tabs at ${width}px label the guest example and discard news on navigation`, async () => {
+    const ctx = await browser.newContext({ viewport: { width, height: 844 } });
+    const calls = [];
+    await ctx.route(new RegExp('.+'), (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname.endsWith('/legal-evidence') || url.pathname.endsWith('/regional-news'))
+        calls.push(url.pathname);
+      return url.origin === origin ? route.continue() : route.abort();
+    });
+    try {
+      const page = await ctx.newPage();
+      await page.goto(origin + '/#sample/saved/law');
+      await page.getByText('판본 표시 예시', { exact: true }).waitFor();
+      await page.getByText('합성 재공급 예시', { exact: true }).waitFor();
+      assert.equal(await page.getByRole('link', { name: '당시 시행본 원문' }).count(), 0);
+      await page.getByRole('link', { name: '지역 뉴스', exact: true }).click();
+      const query = page.getByRole('button', { name: '예시 기사 보기' });
+      await query.focus();
+      await query.press('Enter');
+      await page.locator('.ref-news-list li').first().waitFor();
+      assert.equal(await page.evaluate(() => document.activeElement?.id), 'ref-query-action');
+      assert.equal(await page.locator('.ref-news-list h3').count(), 2);
+      assert.equal(await page.locator('.ref-news-list a').count(), 0);
+      await page.getByRole('link', { name: '법령 근거' }).click();
+      await page.getByText('판본 표시 예시', { exact: true }).waitFor();
+      await page.goBack();
+      await page.getByRole('button', { name: '예시 기사 보기' }).waitFor();
+      assert.equal(await page.locator('.ref-news-list').count(), 0);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      assert.deepEqual(calls, []);
+    } finally {
+      await ctx.close();
+    }
+  });
+}

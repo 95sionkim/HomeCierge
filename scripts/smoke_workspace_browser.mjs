@@ -1,7 +1,7 @@
 // 격리된 Supabase의 임시 사용자로 화면을 조작한다. 청약홈과 실거래 제공자 입력은 합성이다.
 import { chromium } from 'playwright-core';
 
-export async function checkWorkspaceInBrowser({ apiPort, dbOrigin, owner, notice, runWorker, check }) {
+export async function checkWorkspaceInBrowser({ apiPort, dbOrigin, owner, notice, runWorker, check, referenceDisplay }) {
   check(['127.0.0.1', 'localhost'].includes(new URL(dbOrigin).hostname), 'be11_browser_local_db_required');
   const origin = 'http://127.0.0.1:' + apiPort;
   const executablePath =
@@ -34,8 +34,8 @@ export async function checkWorkspaceInBrowser({ apiPort, dbOrigin, owner, notice
     await login();
     step = 'region_picker';
     await page.getByRole('link', {name:'맞춤 검색',exact:true}).first().click();
-    await page.locator('#criteria-regions option[value="합성시 가람구"]').waitFor({state:'attached'});
-    await page.locator('#criteria-region').fill('99999');
+    await page.locator('#criteria-regions option[value="서울특별시 광진구"]').waitFor({state:'attached'});
+    await page.locator('#criteria-region').fill('11215');
     await page.locator('#criteria-budget').fill('710000000');
     const searched = page.waitForResponse(r => new URL(r.url()).pathname === '/api/v1/notices/search' && r.request().method() === 'POST');
     await page.getByRole('button',{name:'이 조건으로 검색'}).click();
@@ -90,6 +90,32 @@ export async function checkWorkspaceInBrowser({ apiPort, dbOrigin, owner, notice
     check(new URL(page.url()).hash === hash, 'be11_browser_restore_same_run');
     await page.getByRole('link',{name:'호실 자금표'}).click();
     await page.locator('.fund-entry strong').getByText('0원',{exact:true}).waitFor();
+    step = 'reference_permissions';
+    await page.getByRole('link',{name:'법령 근거'}).click();
+    await page.getByText('출처 표시 보류',{exact:true}).waitFor();
+    await referenceDisplay(true);
+    await page.getByRole('button',{name:'다시 확인'}).click();
+    await page.getByText('합성 모집공고 확인',{exact:true}).waitFor();
+    check((await page.getByRole('link',{name:'당시 시행본 원문'}).getAttribute('href'))
+      === 'https://www.law.go.kr/LSW/lsInfoP.do?lsiSeq=99900002&efYd=20250201','workspace_historical_law_link');
+    step = 'on_demand_news';
+    let newsRequests = 0;
+    page.on('request', req => { if (new URL(req.url()).pathname.endsWith('/regional-news')) newsRequests++; });
+    await page.getByRole('link',{name:'지역 뉴스',exact:true}).click();
+    const fetchNews = page.getByRole('button',{name:'지역 뉴스 보기'});
+    await fetchNews.waitFor();
+    check(newsRequests === 0,'workspace_news_no_background_request');
+    await fetchNews.click();
+    const original = page.getByRole('link',{name:'합성 뉴스 제목'});
+    await original.waitFor();
+    check(newsRequests === 1 && await original.getAttribute('href') === 'https://example.org/article/1','workspace_news_original');
+    await referenceDisplay(false);
+    await page.getByRole('button',{name:'다시 조회'}).click();
+    await page.getByText('출처 표시 보류',{exact:true}).waitFor();
+    check(await original.count() === 0,'workspace_revoked_news_removed');
+    await page.getByRole('link',{name:'법령 근거'}).click();
+    await page.getByText('출처 표시 보류',{exact:true}).waitFor();
+    check(await page.getByRole('link',{name:'당시 시행본 원문'}).count() === 0,'workspace_revoked_law_removed');
   } catch {
     // 공급자 오류, 브라우저 상태, 계정·인증값이 CI 로그에 실리지 않도록 단계만 기록한다.
     check(false, 'be11_browser_' + step);

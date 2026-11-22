@@ -20,6 +20,7 @@ def run_sample(run_id, edition, mode):
     samples = json.loads((Path(__file__).resolve().parents[1] / 'tests/fixtures/ingestion-v0.json').read_text())
     records = {p['source']: p['body']['data'][0] for p in samples['pages'] if p['source'].startswith('applyhome')}
     records['applyhome_apt']['RCRIT_PBLANC_DE'] = edition
+    records['applyhome_apt']['HSSPLY_ADRES'] = '서울특별시 광진구 합성로 1'
 
     def provider(source, scope, page, size):
         if page != 1:

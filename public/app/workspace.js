@@ -5,6 +5,7 @@ import { comparisonView, runView, sampleHeld } from './result-view.js';
 import { frame, authDialog, noticeDialog, sourceDialog, accountDialog } from './dialogs.js';
 import { createSearchPage } from './search-page.js';
 import { createFundingPage } from './funding-page.js';
+import { createReferencePage } from './reference-page.js';
 
 const root = document.querySelector('#app');
 const dialog = document.querySelector('#workspace-dialog');
@@ -45,6 +46,8 @@ let dialogNotice = null,
 let demoDirectory, demoComparison;
 const searchPage = createSearchPage({ root, render, user: () => state.session, selectNotice: selectSearchNotice });
 const fundingPage = createFundingPage({ root, render });
+const referencePage = createReferencePage({ root, render });
+const resultSections = { comparison: '비교 결과', funding: '호실 자금표', law: '법령 근거', news: '지역 뉴스' };
 const navs = [
   ['home', 'house', '홈'],
   ['notices', 'calendar-days', '오늘의 청약'],
@@ -54,14 +57,16 @@ const navs = [
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 function readRoute() {
   const bits = location.hash.replace(/^#\/?/, '').split('/');
-  const funding = ['run','sample'].includes(bits[0]) && bits.at(-1) === 'funding';
-  if (funding) bits.pop();
+  let section = 'comparison';
+  const sectionAt = bits[0] === 'sample' && bits[1] === 'saved' ? 2 : 3;
+  if (['run', 'sample'].includes(bits[0]) && bits.length === sectionAt + 1 &&
+      ['funding', 'law', 'news'].includes(bits.at(-1))) section = bits.pop();
   if (bits[0] === 'run' && bits.length === 3 && uuid.test(bits[1]) && uuid.test(bits[2]))
-    return { key: 'run', analysisId: bits[1], runId: bits[2], funding };
-  if (bits[0] === 'sample' && bits.length === 2 && bits[1] === 'saved') return { key: 'sample', saved: true, funding };
+    return { key: 'run', analysisId: bits[1].toLowerCase(), runId: bits[2].toLowerCase(), section };
+  if (bits[0] === 'sample' && bits.length === 2 && bits[1] === 'saved') return { key: 'sample', saved: true, section };
   if (bits[0] === 'sample' && bits.length === 3) {
     try {
-      return { key: 'sample', noticeNo: decodeURIComponent(bits[1]), modelNo: decodeURIComponent(bits[2]), funding };
+      return { key: 'sample', noticeNo: decodeURIComponent(bits[1]), modelNo: decodeURIComponent(bits[2]), section };
     } catch {
       return { key: 'notices' };
     }
@@ -78,6 +83,7 @@ function navigate(to) {
 function resetPrivate() {
   searchPage.reset();
   fundingPage.reset();
+  referencePage.reset();
   ++epoch;
   ++dirVersion;
   ++historyVersion;
@@ -416,15 +422,18 @@ function render() {
           : emptyState('loader-circle', '예시 결과를 불러오고 있습니다.');
   else body = directoryView(state);
   const comparison = route.key === 'run' ? state.comparison : route.key === 'sample' ? state.sample : null;
-  if (comparison && !state.suspended && !state.sessionProblem && !state.runError) {
-    const base = location.hash.replace(/\/funding$/, '');
-    const tab = (suffix, label, current) => `<a href="${esc(base + suffix)}"${current ? ' aria-current="page"' : ''}>${label}</a>`;
-    const tabs = `<nav class="analysis-tabs" aria-label="분석 보기">${tab('','비교 결과',!route.funding)}${tab('/funding','호실 자금표',route.funding)}</nav>`;
-    body = tabs + (route.funding ? fundingPage.view() : body);
+  const finished = route.key === 'run' && state.run?.status === 'finished' && uuid.test(state.run.snapshotId);
+  if ((comparison || finished) && !state.suspended && !state.sessionProblem) {
+    const base = route.section === 'comparison' ? location.hash : location.hash.slice(0, location.hash.lastIndexOf('/'));
+    const tabs = Object.entries(resultSections).map(([key,label]) =>
+      `<a href="${esc(base + (key === 'comparison' ? '' : '/' + key))}"${key === route.section ? ' aria-current="page"' : ''}>${label}</a>`).join('');
+    if (isReference(route)) body = referencePage.view();
+    else if (route.section === 'funding' && comparison && !state.runError) body = fundingPage.view();
+    body = `<nav class="analysis-tabs" aria-label="분석 보기">${tabs}</nav>` + body;
   }
   root.innerHTML = shell(body, route);
   document.title =
-    (route.funding ? '호실별 자금표' : { notices: '오늘의 청약', search: '맞춤 공고 찾기', home: '홈', analyses: '내 분석', run: '분석 결과', sample: '분석 예시' }[
+    (route.section === 'funding' ? '호실별 자금표' : isReference(route) ? resultSections[route.section] : { notices: '오늘의 청약', search: '맞춤 공고 찾기', home: '홈', analyses: '내 분석', run: '분석 결과', sample: '분석 예시' }[
       route.key
     ] ?? '오늘의 청약') + ' | HomeCierge';
   if (searchFocus) {
@@ -444,7 +453,11 @@ async function readRun(route, version = routeVersion) {
     if (!valid()) return;
     if (r.analysisId !== route.analysisId || r.runId !== route.runId) throw new Error('unbound result');
     state.run = r;
-    if (r.status === 'finished') {
+    if (r.status === 'finished' && isReference(route)) {
+      if (!uuid.test(r.snapshotId)) throw new Error('unbound snapshot');
+      const title = state.analyses.find(a => a.analysisId === r.analysisId)?.title;
+      loadReference(route, title || (r.input?.noticeNo ? '공고 ' + r.input.noticeNo : ''), r.snapshotId);
+    } else if (r.status === 'finished') {
       const data = await api.getResult(route.analysisId, route.runId);
       if (!valid()) return;
       if (
@@ -454,7 +467,7 @@ async function readRun(route, version = routeVersion) {
       )
         throw new Error('unbound result');
       state.comparison = data.result;
-      if (route.funding) void loadFunding(route, data.result, r.snapshotId);
+      if (route.section === 'funding') void loadFunding(route, data.result, r.snapshotId);
     } else if (['queued', 'running', 'retry_wait'].includes(r.status)) {
       pollTimer = setTimeout(() => void readRun(route, version), 4000);
     }
@@ -481,9 +494,17 @@ async function readSample(route, version) {
     if (version === routeVersion) state.sampleError = error;
   }
   if (version === routeVersion) {
-    if (route.funding && state.sample) void loadFunding(route, state.sample);
+    if (state.sample && isReference(route)) loadReference(route, state.sample.target?.name);
+    if (route.section === 'funding' && state.sample) void loadFunding(route, state.sample);
     render();
   }
+}
+function isReference(route) {
+  return route.section === 'law' || route.section === 'news';
+}
+function loadReference(route, name, snapshotId) {
+  referencePage.enter({ section: route.section, guest: route.key === 'sample', saved: route.saved,
+    analysisId: route.analysisId, snapshotId, name });
 }
 function loadFunding(route, result, snapshotId) {
   return fundingPage.enter({
@@ -497,6 +518,7 @@ function routeChanged(focus = false) {
   const version = ++routeVersion;
   searchPage.reset();
   fundingPage.reset();
+  referencePage.reset();
   clearTimeout(pollTimer);
   closeDialog();
   state.run = null;
@@ -773,15 +795,17 @@ document.querySelector('.skip-link').addEventListener('click', (event) => {
   document.querySelector('#main-content')?.focus();
 });
 window.addEventListener('hashchange', () => routeChanged(true));
+function suspendPrivate() {
+  clearTimeout(pollTimer);
+  if (!state.session || state.suspended) return;
+  resetPrivate();
+  state.suspended = true;
+  render();
+}
+window.addEventListener('pagehide', suspendPrivate);
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) {
-    clearTimeout(pollTimer);
-    if (state.session) {
-      resetPrivate();
-      state.suspended = true;
-      render();
-    }
-  } else void restore(Boolean(state.suspended));
+  if (document.hidden) suspendPrivate();
+  else void restore(Boolean(state.suspended));
 });
 window.addEventListener('pageshow', (event) => {
   if (event.persisted) {

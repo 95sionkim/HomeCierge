@@ -12,15 +12,15 @@ export async function checkNoticeAnalysis({ config, accounts, admin, requestApi,
   const now = new Date();
   const date = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul' }).format(now);
   const notice = { houseManageNo: '9900000001', noticeNo: '9900000042', edition: date,
-    title: '합성 목록에서 시작하는 공고', regionCode: '99999', kind: 'new_sale',
+    title: '합성 목록에서 시작하는 공고', regionCode: '11215', kind: 'new_sale',
     application: { start: date, end: date }, moveIn: null, inventoryComplete: false,
     models: [{ modelNo: '01', houseType: '084.0000A', rooms: [], supplyAreaM2: null, areaEvidence: [] }],
     sourceIds: ['applyhome_apt', 'applyhome_apt_model'], reasonCodes: [] };
   const index = { contractVersion: 'notice-search-index/v1', dataOrigin: 'collected', observedAt: now.toISOString(),
-    publicationWindow: { start: date, end: date }, regionCodes: ['99999'], coverage: { status: 'complete',
+    publicationWindow: { start: date, end: date }, regionCodes: ['11215'], coverage: { status: 'complete',
       sources: [{ source: 'applyhome_apt', status: 'complete' }, { source: 'applyhome_remainder', status: 'empty' }] },
     notices: [notice] };
-  result(await admin.rpc('publish_notice_directory', { p_index: index, p_regions: { '99999': '합성시 가람구' } }),
+  result(await admin.rpc('publish_notice_directory', { p_index: index, p_regions: { '11215': '서울특별시 광진구' } }),
     'be11_publish_directory');
 
   const headers = account => ({ Authorization: 'Bearer ' + account.accessToken });
@@ -28,7 +28,7 @@ export async function checkNoticeAnalysis({ config, accounts, admin, requestApi,
   check(page.status === 200, 'be11_login_directory');
   const listing = await page.json();
   const selected = listing.notices[0]?.models[0]?.analysisInput;
-  check(listing.counts.open === 1 && listing.notices[0].regionName === '합성시 가람구'
+  check(listing.counts.open === 1 && listing.notices[0].regionName === '서울특별시 광진구'
     && selected?.noticeNo === notice.noticeNo && selected.modelNo === '01', 'be11_select_model');
   const { id } = result(await owner.client.from('analyses').insert({ user_id: owner.id, chat_id: owner.chatId })
     .select('id').single(), 'be11_open_draft');
@@ -82,6 +82,21 @@ export async function checkNoticeAnalysis({ config, accounts, admin, requestApi,
     'be11_missing_model_explained');
   if (process.env.NOTICE_BROWSER_SMOKE === '1') {
     const { checkWorkspaceInBrowser } = await import('./smoke_workspace_browser.mjs');
-    await checkWorkspaceInBrowser({ apiPort, dbOrigin: config.origin, owner, notice, runWorker, check });
+    // 이 격리 DB에서만 공개 표지를 준비하고 같은 수집본의 표시 권한 회수까지 검사한다.
+    const referenceDisplay = async allowed => {
+      const rows = result(await admin.from('source_registry').update({display_permission: allowed ? 'allowed' : 'denied'})
+        .in('id', ['law_eflaw','naver_news']).select('id'), 'workspace_reference_permissions');
+      check(rows.length === 2, 'workspace_reference_source_count');
+      if (allowed) result(await admin.rpc('publish_law_reference', {p_reference: {
+        contractVersion:'law-reference/v1', dataOrigin:'collected', asOf:date, observedAt:new Date().toISOString(),
+        title:'주택공급에 관한 규칙', lawId:'008243', mst:'99900002', promulgatedOn:'2025-01-01', effectiveOn:'2025-02-01',
+        articles:[{number:'21',branch:null,heading:'합성 모집공고 확인'}],
+      }}), 'workspace_synthetic_law_version');
+    };
+    try {
+      await checkWorkspaceInBrowser({ apiPort, dbOrigin: config.origin, owner, notice, runWorker, check, referenceDisplay });
+    } finally {
+      await referenceDisplay(false);
+    }
   }
 }

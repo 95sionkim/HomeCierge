@@ -28,6 +28,11 @@ const publicErrors = new Set([
   'invalid_search_input',
   'invalid_funding_input',
   'funding_not_found',
+  'invalid_legal_input',
+  'legal_evidence_not_found',
+  'invalid_news_input',
+  'news_snapshot_not_found',
+  'news_rate_limited',
   'invalid_run_input',
   'notice_source_restricted',
   'run_rate_limited',
@@ -170,7 +175,7 @@ export function onSessionChange(callback) {
   };
 }
 
-async function request(path, method = 'GET', body) {
+async function request(path, method = 'GET', body, signal) {
   const session = await currentSession();
   if (!identity(session)) throw apiError('authentication_required');
   let response, data;
@@ -181,6 +186,7 @@ async function request(path, method = 'GET', body) {
       body: body === undefined ? undefined : JSON.stringify(body),
       credentials: 'same-origin',
       cache: 'no-store',
+      signal,
     });
     data = await response.json();
   } catch {
@@ -209,6 +215,15 @@ export function searchNotices(conditions) {
 export function readFundingPlan(analysisId, snapshotId, modelNo, room) {
   if (!uuid.test(analysisId) || !uuid.test(snapshotId)) throw apiError('invalid_funding_input');
   return request('/api/v1/analyses/' + analysisId + '/funding-plan', 'POST', { snapshotId, modelNo, room });
+}
+
+export function readSnapshotReference(section, analysisId, snapshotId, signal) {
+  const law = section === 'law';
+  if ((!law && section !== 'news') || !uuid.test(analysisId) || !uuid.test(snapshotId))
+    throw apiError(law ? 'invalid_legal_input' : 'invalid_news_input');
+  const service = law ? 'legal-evidence' : 'regional-news';
+  return request(`/api/v1/analyses/${analysisId}/snapshots/${snapshotId}/${service}`,
+    law ? 'GET' : 'POST', undefined, signal);
 }
 
 const fundFields = 'id,kind,amountWon:amount_won::text,availableOn:available_on,certainty,updatedAt:updated_at';
