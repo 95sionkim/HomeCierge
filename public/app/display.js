@@ -101,6 +101,26 @@ export function reasonText(code) {
     housing_type_conflict: '출처 사이에 주택형 표기가 서로 다릅니다.',
     collection_request_regions_unverified: '수집한 지역의 범위를 확인해야 합니다.',
     collection_incomplete: '일부 수집 자료가 도착하지 않았습니다.',
+    collection_not_replayed: '해당 지역·계약월의 수집 기록이 없습니다.',
+    priority_region_unverified: '우선 지역의 법정동·읍·면을 확인할 수 없습니다.',
+    expansion_region_unverified: '확대할 구 또는 시·군의 소속을 확인할 수 없습니다.',
+    trade_region_membership_unverified: '거래가 어느 법정동·읍·면에 속하는지 확인해야 합니다.',
+    trade_complex_identity_unverified: '거래와 단지를 연결하는 근거가 부족합니다.',
+    trade_exclusive_area_binding_unverified: '거래의 전용면적과 주택형의 대응을 확인해야 합니다.',
+    trade_amount_unverified: '거래의 신고금액을 확인해야 합니다.',
+    trade_validity_unverified: '거래의 유효 여부를 확인해야 합니다.',
+    trade_kinds_unverified: '수집된 거래의 유형을 확인해야 합니다.',
+    straight_line_distance_unverified: '단지 좌표가 확인되지 않아 거리 순위를 정할 수 없습니다.',
+    straight_line_coordinate_conflict: '출처마다 단지 좌표가 달라 거리 순위를 정할 수 없습니다.',
+    straight_line_distance_tie: '직선거리가 같아 단지 순위를 정할 수 없습니다.',
+    room_model_conflict: '같은 호실이 서로 다른 주택형에 연결되어 있습니다.',
+    house_type_mismatch: '공고문과 API의 주택형 표기가 일치하지 않습니다.',
+    sale_price_unverified: '호실의 분양가를 확인할 수 없습니다.',
+    required_options_conflict: '필수 옵션 금액이 판본마다 다릅니다.',
+    sale_price_conflict: '호실 분양가가 판본마다 다릅니다.',
+    room_subtotal_unverified: '같은 판본에서 호실의 분양가와 필수 옵션을 함께 확인해야 합니다.',
+    document_origin_unverified: '금액 근거로 쓰인 문서의 출처를 확인해야 합니다.',
+    document_origin_conflict: '금액 근거로 쓰인 문서의 출처가 서로 일치하지 않습니다.',
     notice_selection_unverified: '공고와 선택 주택형이 일치하는지 현재 자료로 확인할 수 없습니다.',
     notice_feed_unavailable: '공고 또는 주택형 자료를 수집할 수 없습니다.',
     notice_source_restricted: '해당 출처의 이용 조건을 확인 중입니다.',
@@ -208,6 +228,15 @@ export function rangeLabel(range, short = true) {
   return range.start === range.end
     ? dateText(range.start, short)
     : `${dateText(range.start, short)} – ${dateText(range.end, short)}`;
+}
+
+export function supplyLabel(value) {
+  if (typeof value !== 'string' || value.length > 24 || !/^\d+(\.\d+)?$/.test(value)) return '면적 미확인';
+  const [whole, fraction = ''] = value.split('.');
+  const cents = BigInt(whole) * 100n + BigInt(fraction.slice(0, 2).padEnd(2, '0')) +
+    (Number(fraction[2] ?? 0) >= 5 ? 1n : 0n);
+  if (cents === 0n && /[1-9]/.test(value)) return '0.01㎡ 미만';
+  return (cents / 100n).toString() + '.' + (cents % 100n).toString().padStart(2, '0') + '㎡';
 }
 
 export function inRange(notice, date) {

@@ -120,6 +120,8 @@ for (const width of [1440, 390]) {
       const first = page.locator('button.notice-card').filter({ hasText: '합성 가람 아파트' });
       await first.waitFor();
       assert.equal(await page.locator('button.notice-card').count(), 3);
+      assert.ok((await first.locator('.card-identity').innerText()).includes('공고일 2026.10.30'));
+      assert.ok((await first.locator('.card-identity').innerText()).includes('9900000101'));
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       await page.getByRole('button', { name: '달력 보기' }).click();
       await page.locator('.big-calendar [data-date="2026-11-22"]').click();
@@ -184,11 +186,14 @@ test('more cards remain searchable and provisional prices stay distinct from con
     await page.locator('#notice-search').fill('합성 공고 15');
     assert.equal(await page.locator('.notice-card').count(), 1);
     await page.goto(origin + '/#sample/saved');
-    const table = page.getByRole('region', { name: '합성 비교 A 거래 통계' });
-    const sale = table.getByRole('row').filter({ hasText: '아파트 매매' });
+    const table = page.getByRole('region', { name: '아파트 매매 단지별 통계' });
+    const sale = table.getByRole('row').filter({ hasText: '합성 비교 A' });
     await sale.getByText('잠정', { exact: true }).waitFor();
-    assert.equal(await sale.getByRole('cell', { name: '5억 1,500만 원', exact: true }).count(), 3);
-    await table.getByRole('row').filter({ hasText: '입주권' }).getByText('미확인', { exact: true }).waitFor();
+    assert.equal(await sale.getByRole('cell', { name: '51,500', exact: true }).count(), 3);
+    await page.getByRole('button', { name: '입주권', exact: true }).click();
+    const rights = page.getByRole('region', { name: '입주권 단지별 통계' });
+    await rights.getByRole('row').filter({ hasText: '합성 비교 A' }).getByText('미확인', { exact: true }).waitFor();
+    assert.equal(await page.locator('.market-chart').count(), 0);
     await page.getByText('입주권 · 해당 범위 0건', { exact: true }).waitFor();
   } finally {
     await context.close();
@@ -248,6 +253,8 @@ test('a completed run opens each source independently, binds its snapshot and re
     },
   };
   let law = readLegalEvidence(legalContext, analysisId, snapshotId);
+  let conditionStatus = 403;
+  const comparisonFixture = JSON.parse(await readFile(new URL('../../public/app/assets/comparison-example.json', import.meta.url)));
   const ready = await readRegionalNews(
     { analysisId, snapshotId, status: 'ready', region: '서울특별시 광진구' },
     analysisId,
@@ -292,7 +299,9 @@ test('a completed run opens each source independently, binds its snapshot and re
         json: { analysisId, runId, snapshotId, status: 'finished', input: { kind: 'snapshot' } },
       });
     if (p === runPath + '/result')
-      return route.fulfill({ status: 403, json: { error: 'comparison_source_restricted' } });
+      return route.fulfill(conditionStatus === 200
+        ? { json: { analysisId, runId, snapshotId, result: comparisonFixture } }
+        : { status: conditionStatus, json: { error: conditionStatus === 403 ? 'comparison_source_restricted' : 'backend_unavailable' } });
     if (p === refPath + '/legal-evidence') return route.fulfill({ json: law });
     if (p === refPath + '/regional-news') {
       requests.push({ method: req.method(), body: req.postData(), auth: req.headers().authorization });
@@ -312,6 +321,10 @@ test('a completed run opens each source independently, binds its snapshot and re
     await p.getByText('이 결과에 사용된 출처의 표시 권한을 확인 중입니다.').waitFor();
     await p.getByRole('link', { name: '법령 근거' }).click();
     await p.getByText('합성 재공급 안내', { exact: true }).waitFor();
+    await p.locator('#analysis-conditions').click();
+    await p.locator('.condition-message').getByText('이 결과에 사용된 출처의 표시 권한을 확인 중입니다.').waitFor();
+    assert.equal(await p.locator('.condition-detail').count(), 0);
+    await p.locator('#analysis-conditions').click();
     assert.equal(
       await p.getByRole('link', { name: '당시 시행본 원문' }).getAttribute('href'),
       'https://www.law.go.kr/LSW/lsInfoP.do?lsiSeq=99900001&efYd=20250203',
@@ -331,6 +344,14 @@ test('a completed run opens each source independently, binds its snapshot and re
     await p.getByRole('link', { name: '지역 뉴스', exact: true }).click();
     await p.getByRole('button', { name: '지역 뉴스 보기' }).waitFor();
     assert.equal(requests.length, 0);
+    conditionStatus = 503;
+    await p.locator('#analysis-conditions').click();
+    await p.getByRole('button', { name: '조건 다시 조회' }).waitFor();
+    conditionStatus = 200;
+    await p.getByRole('button', { name: '조건 다시 조회' }).click();
+    await p.locator('.condition-detail').getByText('±5%', { exact: true }).waitFor();
+    await p.locator('#analysis-conditions').click();
+    conditionStatus = 403;
     await p.getByRole('button', { name: '지역 뉴스 보기' }).click();
     await p.getByRole('link', { name: '합성 기사 나' }).waitFor();
     assert.deepEqual(
@@ -421,3 +442,92 @@ for (const width of [1440, 390]) {
     }
   });
 }
+
+for (const width of [1440, 390]) {
+  test(`analysis context, exact amounts and keyboard navigation at ${width}px`, async () => {
+    const ctx = await browser.newContext({ viewport: { width, height: 844 } });
+    const sample = JSON.parse(await readFile(new URL('../../public/app/assets/comparison-example.json', import.meta.url)));
+    const stat = sample.comparables[0].tradeStats.sale;
+    Object.assign(stat, { minWon: '515000000', maxWon: '515000001', medianWon: '515000000.5', count: 2 });
+    await ctx.route('**/*', route => {
+      const url = new URL(route.request().url());
+      if (url.origin !== origin) return route.abort();
+      if (url.pathname.endsWith('/comparison-example.json')) return route.fulfill({ json: sample });
+      return route.continue();
+    });
+    try {
+      const p = await ctx.newPage();
+      await p.goto(origin + '/#notices');
+      const cards = p.getByRole('button', { name: '카드 보기' });
+      await cards.focus();
+      await cards.press('ArrowRight');
+      await p.locator('.big-calendar').waitFor();
+      assert.equal(await p.locator('[data-view=calendar]').evaluate(e => e === document.activeElement), true);
+      await p.goto(origin + '/#sample/saved');
+      const conditions = p.locator('#analysis-conditions');
+      if (width === 1440) {
+        await p.getByRole('button', { name: '메뉴 펼치기', exact: true }).click();
+        assert.equal(await p.locator('.rail-toggle').getAttribute('aria-expanded'), 'true');
+        await p.getByRole('button', { name: '메뉴 접기', exact: true }).click();
+      }
+      await conditions.click();
+      await p.locator('.condition-detail').getByText('±5%', { exact: true }).waitFor();
+      await conditions.click();
+      const sale = p.getByRole('region', { name: '아파트 매매 단지별 통계' });
+      await sale.getByRole('cell', { name: '51,500.00005', exact: true }).waitFor();
+      assert.equal(await p.locator('.notice-series strong').innerText(), '7억 1,000만 원');
+      assert.equal(await p.locator('.chart-series').count(), 2);
+      await p.getByLabel('101동 101호 필수 옵션 근거 · 공고문 8쪽', { exact: true }).click();
+      await p.locator('.price-panel details[open]').getByText('synthetic-v1', { exact: true }).waitFor();
+      await p.getByRole('button', { name: '아파트 매매' }).press('ArrowRight');
+      await p.getByRole('region', { name: '분양권 단지별 통계' }).waitFor();
+      assert.equal(await p.locator('.chart-series').last().locator('strong').innerText(), '4억 500만 원');
+      assert.equal(await p.locator('[data-trade-kind=presale_right]').evaluate(e => e === document.activeElement), true);
+      assert.equal(await p.locator('.price-panel details[open]').count(), 1);
+      await p.getByRole('link', {name: '비교 결과', exact:true}).press('ArrowRight');
+      await p.locator('.fund-total').waitFor();
+      assert.equal(await p.locator('.analysis-tabs a[aria-current]').evaluate(e => e === document.activeElement), true);
+      await p.goto(origin + '/#sample/9900000101/01');
+      await p.getByRole('heading', {name: '가격 비교를 보류했습니다'}).waitFor();
+      await p.getByRole('heading', {name: '다시 비교하려면'}).waitFor();
+      assert.equal(await p.locator('.market-chart').count(), 0);
+      assert.equal(await p.locator('.trade-summary .zero').count(), 0);
+      assert.equal(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    } finally { await ctx.close(); }
+  });
+}
+
+test('the comparison plots an exact shared domain and only labels a substantiated expansion', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const sample = JSON.parse(await readFile(new URL('../../public/app/assets/comparison-example.json', import.meta.url)));
+  const price = sample.noticePrice, stat = sample.comparables[0].tradeStats.sale;
+  Object.assign(price, { minWon: '9007199254740993', maxWon: '9007199254740994' });
+  Object.assign(stat, { minWon: '9007199254740992', medianWon: '9007199254740992.5', maxWon: '9007199254740993', count: 2 });
+  sample.appliedScope = 'expansion';
+  sample.regionDecision.priority.conclusion = 'normal_zero';
+  sample.regionDecision.expansion = {name:'합성구', conclusion:'candidates_found'};
+  await ctx.route('**/*', r => {
+    const url = new URL(r.request().url());
+    if (url.origin !== origin) return r.abort();
+    return url.pathname.endsWith('/comparison-example.json') ? r.fulfill({json:sample}) : r.continue();
+  });
+  try {
+    const page = await ctx.newPage();
+    await page.goto(origin + '/#sample/saved');
+    await page.locator('#analysis-conditions').getByText('합성구 · 확대', {exact:true}).waitFor();
+    assert.equal(await page.locator('.chart-series .series-track b').evaluate(e => e.style.left), '25%');
+    assert.equal(await page.locator('.notice-series .series-track i').evaluate(e => e.style.left), '50%');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    price.status = 'held';
+    sample.appliedScope = 'priority';
+    sample.regionDecision.priority.conclusion = 'held';
+    sample.regionDecision.priority.unresolvedRows = 1;
+    sample.regionDecision.expansion = null;
+    stat.maxWon = stat.minWon;
+    stat.medianWon = stat.minWon;
+    await page.reload();
+    await page.locator('#analysis-conditions').getByText('가람동 · 판정 보류', {exact:true}).waitFor();
+    assert.equal(await page.locator('.notice-series, .legend-notice, .notice-price-row').count(), 0);
+    assert.equal(await page.locator('.chart-series .series-track b').evaluate(e => e.style.left), '50%');
+  } finally { await ctx.close(); }
+});

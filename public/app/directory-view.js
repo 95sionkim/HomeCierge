@@ -6,6 +6,7 @@ import {
   scheduleBadge,
   rangesFor,
   rangeLabel,
+  publicationText,
   inRange,
   dateText,
   longDate,
@@ -60,7 +61,8 @@ function card(n, index, asOf) {
     <span class="card-top">${scheduleBadge(n.applicationStatus)}<span class="kind">${esc(kinds[n.kind] ?? '유형 미확인')}</span></span>
     <span class="card-title" role="heading" aria-level="3">${esc(noticeName(n))}</span>
     <span class="card-meta">${icon('map-pin')}${esc(n.regionName ?? '지역 미확인')}</span>
-    <span class="card-base"><span>${icon('calendar-days')} <strong>${esc(label)}</strong>${deadline ? ' <span class="deadline">오늘 마감</span>' : split ? ' <span class="fine muted">분리 접수</span>' : ''}</span>${icon('arrow-up-right')}</span>
+    <span class="card-identity"><span>공고일 ${esc(publicationText(n))}</span><span>공고 <span class="code">${esc(n.noticeNo)}</span></span></span>
+    <span class="card-base"><span>${icon('calendar-days')} <strong>${label === '일정 미확인' ? '접수일 미확인' : '접수 ' + esc(label)}</strong>${deadline ? ' <span class="deadline">오늘 마감</span>' : split ? ' <span class="fine muted">분리 접수</span>' : ''}</span>${icon('arrow-up-right')}</span>
   </button>`;
 }
 
@@ -186,18 +188,18 @@ export function directoryView(state) {
     ['unknown', '확인 필요'],
   ];
   if (state.includeClosed) filters.push(['closed', '접수 종료']);
-  const viewSelector = `<div class="segmented" role="group" aria-label="보기 방식">${[
+  const viewSelector = `<div class="segmented" role="group" data-choice-group aria-label="보기 방식">${[
     ['cards', 'layout-grid', '카드'],
     ['calendar', 'calendar-days', '달력'],
   ]
     .map(
       ([key, symbol, label]) =>
-        `<button type="button" data-view="${key}" aria-label="${label} 보기" aria-pressed="${key === state.view}">${icon(symbol)}<span>${label}</span></button>`,
+        `<button type="button" data-view="${key}" aria-label="${label} 보기" aria-pressed="${key === state.view}" tabindex="${key === state.view ? 0 : -1}">${icon(symbol)}<span>${label}</span></button>`,
     )
     .join('')}</div>`;
   const coverageIssue = d?.scopeIssues?.length || (d && d.coverage?.status !== 'complete');
   return `${hero(state)}<div class="columns"><section class="main-column" aria-labelledby="listing-title"><div class="section-top"><h2 id="listing-title">공고 목록${d ? `<small>${esc(d.counts?.listed ?? '—')}건</small>` : ''}</h2>${viewSelector}</div>
-    <div class="toolbar"><div class="filter-row" role="group" aria-label="접수 상태">${filters.map(([key, label]) => `<button class="filter" data-filter="${key}" aria-pressed="${state.filter === key}">${label}</button>`).join('')}</div></div>
+    <div class="toolbar"><div class="filter-row" role="group" data-choice-group aria-label="접수 상태">${filters.map(([key, label]) => `<button class="filter" data-filter="${key}" aria-pressed="${state.filter === key}" tabindex="${state.filter === key ? 0 : -1}">${label}</button>`).join('')}</div></div>
     <div class="utility-row"><label class="search-box">${icon('search')}<span class="sr-only">공고명, 지역 또는 공고번호 검색</span><input id="notice-search" type="search" placeholder="공고명, 지역 또는 공고번호" value="${esc(state.query)}" autocomplete="off"></label><label class="check-field"><input id="include-closed" type="checkbox"${state.includeClosed ? ' checked' : ''}>종료 공고 포함</label></div>
     ${state.dirError && d ? `<div class="scope-note">${icon('triangle-alert')}<div>목록 일부를 불러오지 못했습니다. ${esc(errorText(state.dirError))} <button type="button" class="text-button" data-action="reload">다시 조회</button></div></div>` : ''}
     ${d && state.directoryLoading && state.session ? `<p class="loading-more" role="status">공고 ${d.notices.length}건을 읽었습니다. 다음 목록을 불러오는 중입니다.</p>` : ''}
@@ -208,5 +210,5 @@ export function directoryView(state) {
 }
 
 export function homeView(state, history) {
-  return `${hero(state, true)}<section class="home-links" aria-label="워크스페이스 바로가기"><a class="panel home-link" href="#notices">${icon('calendar-days')}<strong>오늘의 청약</strong><span>공고 일정과 주택형을 살펴보세요.</span></a><a class="panel home-link" href="#analyses">${icon('folder-open')}<strong>내 분석</strong><span>저장한 실행과 가격 근거를 확인하세요.</span></a></section><section class="full-section"><div class="section-top"><h2>${state.session ? '최근 분석' : '예시 분석'}</h2><a class="text-button" href="#analyses">전체 보기 ${icon('arrow-right')}</a></div>${history}</section>`;
+  return `${hero(state, true)}<section class="home-links" aria-label="워크스페이스 바로가기"><a class="panel home-link" href="#search">${icon('sliders-horizontal')}<strong>맞춤 공고 찾기</strong><span>지역과 예산에 맞는 호실을 찾습니다.</span>${icon('arrow-right')}</a><a class="panel home-link" href="#analyses">${icon('folder-open')}<strong>내 분석 이어보기</strong><span>저장한 공고의 가격과 근거를 다시 확인합니다.</span>${icon('arrow-right')}</a></section><section class="full-section"><div class="section-top"><h2>${state.session ? '최근 분석' : '예시 분석'}</h2><a class="text-button" href="#analyses">전체 보기 ${icon('arrow-right')}</a></div>${history}</section>`;
 }

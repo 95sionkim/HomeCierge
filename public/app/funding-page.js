@@ -51,13 +51,13 @@ function timeline(plan, scenario) {
     ${plan.subtotalHoldReasons.length ? `<p class="hold-note">${esc(reasons(plan.subtotalHoldReasons))}</p>` : ''}
     <div class="component-grid">${plan.components.map(sourceAmount).join('')}</div>
     <section class="planning-box schedule-box"><div class="box-heading">${icon('calendar-days')}<h2>날짜별 납부와 부족액</h2></div>
-    <div class="scenario-switch" role="group" aria-label="자금 계산 시나리오">${[
+    <div class="scenario-switch" role="group" data-choice-group aria-label="자금 계산 시나리오">${[
       ['confirmedOnly', '확정 자금만'],
       ['includingExpected', '예상 자금 포함'],
     ]
       .map(
         ([key, label]) =>
-          `<button data-fund-scenario="${key}" aria-pressed="${scenario === key}">${label}</button>`,
+          `<button data-fund-scenario="${key}" aria-pressed="${scenario === key}" tabindex="${scenario === key ? 0 : -1}">${label}</button>`,
       )
       .join('')}</div>
     ${

@@ -9,152 +9,139 @@ import {
   todayKst,
   errorText,
   rangeLabel,
+  supplyLabel,
 } from './display.js';
 import { emptyState } from './directory-view.js';
+import { evidence } from './planning-fields.js';
+import { marketView, noticeRange, priceLabel, tradeNames } from './trade-comparison.js';
 
-const tradeNames = { sale: '아파트 매매', presale_right: '분양권', occupancy_right: '입주권' };
-const descriptions = {
-  complete: '필요한 근거를 확인했습니다.',
-  partial: '확인된 항목과 보류 항목이 함께 있습니다.',
-  unavailable: '비교에 필요한 근거를 확인 중입니다.',
-};
-
-function sourcePages(evidence) {
-  const rows = Array.isArray(evidence) ? evidence : [];
-  const labels = [
-    ...new Set(rows.filter((x) => Number.isInteger(x?.page) && x.page > 0).map((x) => x.page)),
-  ].sort((a, b) => a - b);
-  return labels.length ? '공고문 ' + labels.join('·') + '쪽' : '문서 쪽수 미확인';
-}
-function priceRange(p) {
-  if (p?.status !== 'confirmed') return '—';
-  if (p.won !== null && p.won !== undefined) return won(p.won);
-  if (p.minWon && p.maxWon)
-    return p.minWon === p.maxWon ? won(p.minWon) : `${won(p.minWon)} – ${won(p.maxWon)}`;
-  return '—';
-}
 function readableReasons(values) {
-  return [...new Set((values ?? []).map((c) => reasonText(c)).filter(Boolean))];
+  return [...new Set((values ?? []).map(reasonText).filter(Boolean))];
 }
+
+function scopeLabel(data) {
+  const { priority, expansion } = data?.regionDecision ?? {};
+  if (data?.appliedScope === 'expansion' && priority?.conclusion === 'normal_zero' &&
+      priority.collectionStatus === 'complete' && priority.screeningStatus === 'complete' &&
+      priority.unresolvedRows === 0 && expansion?.name)
+    return { name: expansion.name, detail: (priority.name || '우선 지역') + '에서 정상 0건 확인 후 확대', expanded: true };
+  if (priority?.name) {
+    const pending = data?.appliedScope === 'expansion' || priority.conclusion === 'held' || expansion?.conclusion === 'held';
+    return { name: priority.name, detail: pending ? '지역 판정 보류' : '우선 지역', pending };
+  }
+  return { name: '범위 미판정', detail: '' };
+}
+
+export function analysisConditionBar(data, input, open, lookup = null) {
+  const target = data?.target;
+  const notice = target?.noticeNo || input?.noticeNo;
+  const model = target?.houseType || (input?.modelNo ? '모델 ' + input.modelNo : '주택형 미확인');
+  const scope = scopeLabel(data);
+  const c = data?.conditions;
+  const period = c?.period?.status === 'confirmed' ? rangeLabel(c.period, false) : '기간 미확인';
+  const area = target?.supplyArea?.status === 'confirmed' ? supplyLabel(target.supplyArea.m2) : '면적 미확인';
+  const kinds = (c?.tradeKinds ?? []).map(k => tradeNames[k]).filter(Boolean).join(' · ');
+  const cell = (label, value, cls = '') => `<span class="condition-item ${cls}"><small>${label}</small><strong>${esc(value)}</strong></span>`;
+  if (!data) {
+    const known = notice ? cell('공고 번호', notice) + cell('주택형', model) :
+      cell('분석 입력', input?.kind === 'synthetic' ? '합성 분석' : '저장된 수집본');
+    const note = lookup?.error ? errorText(lookup.error) : lookup?.loading ? '분석 조건을 불러오고 있습니다.' :
+      lookup ? '펼치면 이 결과에 적용한 비교 조건을 조회합니다.' : '현재 확인할 수 있는 비교 조건이 없습니다.';
+    return `<details class="condition-bar"${open ? ' open' : ''}><summary id="analysis-conditions">
+      <span class="condition-key">${icon('sliders-horizontal')}분석 조건</span>${known}${icon('chevron-down', 'condition-chevron')}</summary>
+      <div class="condition-message" role="status">${esc(note)}${lookup?.error && lookup.error.code !== 'comparison_source_restricted' ? '<button type="button" class="text-button" data-action="reload-conditions">조건 다시 조회</button>' : ''}</div></details>`;
+  }
+  return `<details class="condition-bar"${open ? ' open' : ''}><summary id="analysis-conditions">
+    <span class="condition-key">${icon('sliders-horizontal')}분석 조건</span>
+    ${cell('공고 번호', notice || '미확인', 'condition-notice')}${cell('주택형', model, 'condition-model')}${cell('비교 범위', scope.name + (scope.expanded ? ' · 확대' : scope.pending ? ' · 판정 보류' : ''), 'condition-scope')}${cell('계약 기간', period, 'condition-period')}${cell('공급면적', area, 'condition-area')}${icon('chevron-down', 'condition-chevron')}</summary>
+    <dl class="condition-detail">
+      ${[['공고 번호', notice || '미확인'], ['주택형', model], ['지역', [scope.name, scope.detail].filter(Boolean).join(' · ')], ['계약 기간', period], ['공급면적', area], ['면적 허용 범위', c?.area?.tolerancePercent != null ? '±' + c.area.tolerancePercent + '%' : '미확인'], ['거래 유형', kinds || '미확인']].map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}
+    </dl></details>`;
+}
+
 function priceView(data) {
   const p = data.noticePrice ?? {};
-  const confirmed = p.confirmedRooms ?? [],
-    held = p.heldRooms ?? [];
-  return `<section class="panel" aria-label="공고 호실 가격"><div class="aside-head"><h2>호실별 공고 가격</h2>${p.status === 'confirmed' ? badge('verified', 'circle-check', '근거 확인') : badge('unknown', 'circle-pause', '판정 보류')}</div>
-    <p class="muted small">${p.scope === 'selected_room' ? '선택한 호실 소계' : '확인된 호실 소계'}</p><p class="big-price">${esc(priceRange(p))}</p>
-    <p class="narrative">분양가와 해당 호실의 필수 옵션을 합한 금액입니다.</p>
-    ${confirmed.length ? `<div class="table-scroll"><table class="data-table"><thead><tr><th>호실</th><th>분양가</th><th>필수 옵션</th><th>소계</th></tr></thead><tbody>${confirmed.map((r) => `<tr><td>${esc(r.room)}</td><td>${esc(won(r.salePriceWon))}<small>${esc(sourcePages(r.evidence?.salePrice))}</small></td><td>${esc(won(r.requiredOptionsWon))}<small>${esc(sourcePages(r.evidence?.requiredOptions))}</small></td><td>${esc(won(r.subtotalWon))}</td></tr>`).join('')}</tbody></table></div>` : ''}
-    ${held.map((r) => `<div class="state-box">${icon('circle-pause')}<div><strong>${esc(r.room)} · 소계 보류</strong><p>${esc(readableReasons(r.reasons).join(' ') || '호실별 금액 근거를 확인 중입니다.')}</p></div></div>`).join('')}
-    ${p.status !== 'confirmed' ? `<p class="narrative">${esc(readableReasons(p.reasons).join(' ') || '같은 문서 판본에서 분양가와 필수 옵션을 확인한 뒤 표시합니다.')}</p>` : ''}
-  </section>`;
-}
-function tradeStatsRow(kind, label, candidate) {
-  const statistic = candidate.tradeStats?.[kind];
-  const available = statistic?.status === 'confirmed' || statistic?.status === 'provisional';
-  const tag =
-    statistic?.status === 'confirmed'
-      ? badge('verified', 'circle-check', '확정')
-      : statistic?.status === 'provisional'
-        ? badge('partial', 'circle-pause', '잠정')
-        : badge('unknown', 'circle-help', '미확인');
-  return `<tr><th scope="row">${label}</th><td>${tag}${statistic?.smallSample ? '<small>소표본</small>' : ''}</td><td>${available && Number.isInteger(statistic.count) ? statistic.count + '건' : '—'}</td>
-    ${['minWon', 'medianWon', 'maxWon'].map((key) => `<td>${available ? esc(won(statistic[key])) : '—'}</td>`).join('')}</tr>`;
+  const range = noticeRange(p);
+  const confirmed = p.confirmedRooms ?? [], held = p.heldRooms ?? [];
+  const label = p.scope === 'selected_room' ? (p.room || '선택한 호실') + ' 소계' :
+    range ? (confirmed.length > 1 ? '호실별 소계 범위' : '호실 소계') + ' · ' + confirmed.length + '개 호실 확인' : '호실 소계 미확인';
+  return `<section class="panel price-panel" aria-label="공고 호실 가격">
+    <div class="panel-title">${icon('building-2')}<h2>호실별 공고 가격</h2></div>
+    <div class="price-highlight${range ? '' : ' price-unverified'}"><span>${esc(label)}</span><strong class="big-price">${esc(priceLabel(range))}</strong>
+    <p>각 호실의 분양가와 필수 옵션을 더한 금액입니다. 세금·등기 비용은 별도입니다.</p></div>
+    ${confirmed.map(r => `<div class="room-breakdown"><h3>${esc(r.room)}${badge('verified', 'circle-check', '소계 확인')}</h3>
+      <dl>${[['분양가', r.salePriceWon, r.evidence?.salePrice], ['필수 옵션', r.requiredOptionsWon, r.evidence?.requiredOptions]].map(([label, value, refs]) => `<div><dt>${label}</dt><dd><strong>${esc(won(value))}</strong>${evidence(refs, r.room + ' ' + label + ' 근거') || '<small>문서 쪽수 미확인</small>'}</dd></div>`).join('')}
+      <div class="subtotal-line"><dt>소계</dt><dd>${esc(won(r.subtotalWon))}</dd></div></dl></div>`).join('')}
+    ${held.map(r => `<div class="held-room">${icon('circle-pause')}<div><strong>${esc(r.room)} · 소계 보류</strong><p>${esc(readableReasons(r.reasons).join(' ') || '같은 판본에서 호실의 두 금액을 확인해야 합니다.')}</p></div></div>`).join('')}
+    ${!range && !held.length ? `<p class="narrative">${esc(readableReasons(p.reasons).join(' ') || '같은 판본에서 호실별 분양가와 필수 옵션을 확인해야 합니다.')}</p>` : ''}
+    </section>`;
 }
 
-function candidateTable(c) {
-  return `<div class="detail-block"><h3>${esc(c.name ?? '단지명 미확인')}</h3><p class="muted small">공급면적 ${esc(c.supplyAreaM2 ? c.supplyAreaM2 + '㎡' : '—')}</p><div class="trade-scroll" tabindex="0" role="region" aria-label="${esc(c.name ?? '비교 단지')} 거래 통계"><table class="data-table trade-table"><thead><tr><th scope="col">거래 유형</th><th scope="col">확인 상태</th><th scope="col">건수</th><th scope="col">최저</th><th scope="col">중위</th><th scope="col">최고</th></tr></thead><tbody>${Object.entries(
-    tradeNames,
-  )
-    .map(([k, label]) => tradeStatsRow(k, label, c))
-    .join('')}</tbody></table></div></div>`;
-}
-
-function ownReferences(data) {
-  const own = data.targetReferences ?? [];
-  return own.length
-    ? `<section class="panel"><div class="aside-head"><h2>대상 단지 자체 거래</h2></div><p class="narrative">선택한 공고 단지에서 확인한 참고 거래입니다.</p>${own.map(candidateTable).join('')}</section>`
-    : '';
-}
-
-function tradesView(data) {
-  const comparables = data.comparables ?? [];
-  const verifiedZero = Object.entries(tradeNames).filter(([key]) => {
-    const scope = data.tradeKinds?.[key];
-    return (
-      scope?.conclusion === 'normal_zero' &&
-      scope.collectionStatus === 'complete' &&
-      scope.unresolvedRows === 0
-    );
-  });
-  const zeroSummary = verifiedZero.length
-    ? `<div class="trade-summary">${verifiedZero.map(([, label]) => badge('zero', 'circle-minus', label + ' · 해당 범위 0건')).join('')}</div>`
-    : '';
-  if (!comparables.length) {
-    const allZero = verifiedZero.length === Object.keys(tradeNames).length;
-    return `<section class="panel"><div class="aside-head"><h2>주변 실거래</h2>${allZero ? badge('zero', 'circle-minus', '정상 0건') : badge('unknown', 'circle-pause', '확인 필요')}</div><p class="narrative">${allZero ? '확인한 조건과 지역에서 비교 가능한 거래가 0건입니다.' : '현재 자료로 비교 가격을 산출할 수 없습니다.'}</p>${zeroSummary}</section>`;
-  }
-  const hasProvisional = comparables.some((c) =>
-    Object.values(c.tradeStats ?? {}).some((t) => t?.status === 'provisional'),
-  );
-  return `<section class="panel"><div class="aside-head"><h2>주변 실거래</h2><span class="small muted">${comparables.length}개 단지</span></div>
-    ${hasProvisional ? `<div class="scope-note">${icon('circle-pause')}<span>잠정 통계에는 근거를 확인한 거래만 포함합니다. 아직 확인 중인 거래에 따라 값과 순위가 달라질 수 있습니다.</span></div>` : ''}
-    ${comparables.map(candidateTable).join('')}
-    ${zeroSummary}<p class="trade-note">매매는 거래가격, 분양권과 입주권은 신고된 권리 거래금액입니다. 1~2건은 소표본으로 표시합니다.</p></section>`;
-}
-function relations(data) {
-  const t = data.target ?? {},
-    c = data.conditions ?? {},
-    r = data.regionDecision ?? {};
-  const rows = [
-    ['주택형', t.houseType ?? '—'],
-    [
-      '공급면적',
-      t.supplyArea?.status === 'confirmed' && t.supplyArea?.m2 ? t.supplyArea.m2 + '㎡' : '확인 필요',
-    ],
-    ['계약 기간', c.period?.status === 'confirmed' ? rangeLabel(c.period, false) : '확인 필요'],
-    ['우선 지역', r.priority?.name ?? '확인 필요'],
-    [
-      '확대 지역',
-      r.expansion?.name ?? (r.reasonCode === 'priority_candidates_found' ? '확대 없음' : '미판정'),
-    ],
-  ];
-  return `<section class="panel"><div class="aside-head"><h2>적용 조건</h2></div><ul class="detail-list">${rows.map(([k, v]) => `<li><span>${k}</span><strong>${esc(v)}</strong></li>`).join('')}</ul></section>`;
-}
 function evidenceView(data) {
-  const refs = [
-    ...(data.target?.supplyArea?.evidence ?? []),
-    ...(data.noticePrice?.confirmedRooms ?? []).flatMap((r) => [
-      ...(r.evidence?.salePrice ?? []),
-      ...(r.evidence?.requiredOptions ?? []),
-    ]),
-  ];
-  const sources = new Map(),
-    count = data.collections?.length ?? 0;
-  for (const r of refs) {
-    if (!r?.document || !r.version || !Number.isInteger(r.page)) continue;
-    const key = r.document + '\n' + r.version;
-    if (!sources.has(key)) sources.set(key, { ...r, pages: new Set() });
-    sources.get(key).pages.add(r.page);
-  }
-  return `<section class="panel"><div class="aside-head"><h2>${icon('file-text')}자료 근거</h2></div>
-    <p class="small muted">${data.dataOrigin === 'synthetic' ? '합성 자료로 계산한 예시입니다.' : '이번 분석에서 사용한 수집 기록입니다.'}</p><p class="small muted">분석 기준일 ${esc(dateText(data.conditions?.asOf))}</p>
-    ${sources.size ? `<ul class="source-list">${[...sources.values()].map((r) => `<li>공고문 ${[...r.pages].sort((a, b) => a - b).join('·')}쪽<small>판본 <span class="code">${esc(r.version)}</span></small></li>`).join('')}</ul>` : '<p class="narrative">호실 가격과 면적을 확인할 문서 근거가 없습니다.</p>'}
-    ${count ? `<p class="small muted">실거래 수집 범위 ${count}개</p>` : ''}</section>`;
+  const target = data.target;
+  const supply = target?.supplyArea;
+  const records = data.collections ?? [];
+  const feed = { apt_trade: '아파트 매매', apt_rights: '분양·입주권' };
+  const states = {
+    complete: ['verified', 'circle-check', '수집 완료'], empty: ['zero', 'circle-minus', '정상 0건'],
+    partial: ['partial', 'circle-pause', '일부 수집'], failed: ['failed', 'triangle-alert', '조회 실패'],
+  };
+  return `<section class="panel result-evidence"><div class="panel-title">${icon('file-text')}<h2>자료 근거</h2></div>
+    <dl><div><dt>공급면적</dt><dd>${supply?.status === 'confirmed' ? `<strong>${esc(supplyLabel(supply.m2))}</strong>${evidence(supply.evidence, '공급면적 근거')}` : '근거 미확인'}</dd></div>
+    <div><dt>분석 기준일</dt><dd>${esc(dateText(data.conditions?.asOf))}</dd></div>
+    </dl>${records.length ? `<details class="collection-disclosure"><summary>${icon('database')}실거래 수집 기록 ${records.length}개${icon('chevron-down')}</summary><ul>${records.map(record => {
+      const status = states[record.status] || ['unknown', 'circle-help', '미확인'];
+      const observed = dateText(todayKst(record.collectedAt ?? null));
+      return `<li><div><strong>${esc(feed[record.source] || '출처 미확인')}</strong>${badge(...status)}</div><small>계약월 ${esc(record.month)} · 지역 ${esc(record.requestRegionCode)}${observed === '—' ? '' : ' · ' + observed + ' 수집'}</small></li>`;
+    }).join('')}</ul></details>` : ''}</section>`;
 }
 
-export function comparisonView(data, title) {
+function holdPanel(data) {
+  const holds = data.holds ?? [];
+  if (!holds.length && data.completeness === 'complete') return '';
+  const subjects = {
+    collection: '요청한 지역·계약월의 거래 자료를 모두 확인하지 못했습니다.',
+    trade: '거래의 유효성 또는 단지 대응을 확인해야 합니다.',
+    selection: '선택한 분석 조건을 확인해야 합니다.',
+    ranking: '비교 단지의 순위를 확정할 수 없습니다.',
+  };
+  const reasons = [...new Set(holds.map(h => reasonText(h.reasonCode) || subjects[h.subject] ||
+    '비교에 필요한 근거 중 확인하지 못한 항목이 있습니다.'))];
+  const codes = new Set(holds.map(h => h.reasonCode));
+  const needed = [];
+  if (codes.has('target_supply_area_unverified') || codes.has('trade_supply_area_unverified'))
+    needed.push('해당 주택형의 전용면적과 주거공용면적을 확인할 수 있는 공급면적 자료');
+  if (codes.has('no_confirmed_room_subtotal') || codes.has('notice_room_price_unverified'))
+    needed.push('같은 회차·판본에서 같은 호실의 분양가와 필수 옵션을 확인할 수 있는 공고문');
+  if (codes.has('trade_link_unverified') || codes.has('comparison_evidence_unverified'))
+    needed.push('거래 당시의 단지와 주택형을 연결하는 자료');
+  if (holds.some(h => h.subject === 'collection')) needed.push('누락된 지역·계약월의 수집 자료');
+  if (codes.has('contract_period_unverified')) needed.push('양 끝 날짜가 확인된 계약 기간');
+  const kept = [];
+  if (data.target?.houseType) kept.push('선택 주택형 ' + data.target.houseType);
+  if (noticeRange(data.noticePrice)) kept.push('근거가 확인된 호실 소계');
+  if (data.target?.supplyArea?.status === 'confirmed') kept.push('확인된 공급면적');
+  if (data.comparables?.length) kept.push('근거가 확인된 거래 통계');
+  return `<section class="panel hold-panel"><div class="panel-title">${icon('circle-pause')}<h2>${data.completeness === 'unavailable' ? '가격 비교를 보류했습니다' : '일부 항목의 비교를 보류했습니다'}</h2></div>
+    <div class="hold-columns"><div><h3>확인하지 못한 항목</h3><ul>${(reasons.length ? reasons : ['현재 자료로 비교에 필요한 근거를 모두 확인할 수 없습니다.']).map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>
+    <div><h3>다시 비교하려면</h3><ul>${(needed.length ? needed : ['보류된 항목을 확인할 수 있는 수집 자료 또는 공고 근거']).map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>
+    ${kept.length ? `<div><h3>지금 확인할 수 있는 결과</h3><ul>${kept.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}</div></section>`;
+}
+
+export function comparisonView(data, title, tradeKind = 'sale') {
   if (!data || data.contractVersion !== 'comparison/v1')
-    return emptyState(
-      'circle-help',
-      '결과를 표시할 수 없습니다.',
-      '확인 가능한 분석 결과 형식이 필요합니다.',
-    );
-  const holds = readableReasons((data.holds ?? []).map((h) => h.reasonCode));
-  const completeness = data.completeness;
-  const label =
-    completeness === 'complete' ? '검산 완료' : completeness === 'partial' ? '일부 보류' : '비교 보류';
-  return `<section data-run-status="finished" data-result-status="${esc(completeness)}"><div class="section-header"><div class="tag-row">${badge(completeness === 'complete' ? 'verified' : completeness === 'partial' ? 'partial' : 'unknown', completeness === 'complete' ? 'shield-check' : 'circle-pause', label)}${data.dataOrigin === 'synthetic' ? badge('closed', 'layers', '합성 자료') : ''}</div><h1>${esc(data.target?.name || title || '분석 결과')}</h1><p>${esc(descriptions[completeness] ?? '분석 결과의 확인 상태를 살펴보세요.')}</p></div>
-    <div class="result-layout"><div class="result-stack">${holds.length ? `<section class="panel hold-panel"><h2>확인이 필요한 근거</h2><ul class="source-list">${holds.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></section>` : ''}${priceView(data)}${tradesView(data)}${ownReferences(data)}</div><aside class="result-stack">${relations(data)}${evidenceView(data)}</aside></div></section>`;
+    return emptyState('circle-help', '결과를 표시할 수 없습니다.', '확인 가능한 분석 결과 형식이 필요합니다.');
+  const complete = data.completeness === 'complete', partial = data.completeness === 'partial';
+  const scope = scopeLabel(data);
+  const verifiedScope = (data.appliedScope === 'priority' || scope.expanded) && scope.name !== '범위 미판정' &&
+    data.regionDecision?.[data.appliedScope]?.conclusion === 'candidates_found';
+  const summary = verifiedScope && data.comparables?.length
+    ? scope.name + '에서 비교 단지 ' + data.comparables.length + '곳을 확인했습니다.'
+    : complete ? '적용한 조건으로 가격과 거래 근거를 확인했습니다.' : partial ? '확인된 값과 근거가 부족한 항목을 함께 표시합니다.' : '저장된 분석에서 확인하지 못한 항목을 살펴보세요.';
+  return `<section data-run-status="finished" data-result-status="${esc(data.completeness)}">
+    <header class="section-header result-heading"><div><h1>${esc(data.target?.name || title || '분석 결과')}</h1><p>${esc(summary)}</p></div>
+    <div class="tag-row">${badge(complete ? 'verified' : partial ? 'partial' : 'unknown', complete ? 'shield-check' : 'circle-pause', complete ? '비교 검산 완료' : partial ? '일부 보류' : '비교 보류')}${data.dataOrigin === 'synthetic' ? badge('closed', 'layers', '합성 자료') : ''}</div></header>
+    ${holdPanel(data)}<div class="comparison-layout"><div id="market-view">${marketView(data, tradeKind)}</div><aside class="result-stack" aria-label="선택 공고의 금액과 근거">${priceView(data)}${evidenceView(data)}</aside></div></section>`;
 }
 
 export function sampleHeld(n, m, asOf) {
@@ -165,6 +152,8 @@ export function sampleHeld(n, m, asOf) {
     target: {
       name: n.title,
       noticeNo: n.noticeNo,
+      houseManageNo: n.houseManageNo,
+      edition: n.edition,
       modelNo: m.modelNo,
       houseType: m.houseType,
       supplyArea: null,
@@ -206,7 +195,7 @@ export function runView(state) {
       x.edition === run.input?.edition,
   );
   const title = n?.title ?? state.analyses?.find((x) => x.runId === run.runId)?.title ?? '청약 분석';
-  if (run.status === 'finished' && comparison) return comparisonView(comparison, title);
+  if (run.status === 'finished' && comparison) return comparisonView(comparison, title, state.tradeKind);
   const active = ['queued', 'running', 'retry_wait'].includes(run.status);
   const caption =
     {

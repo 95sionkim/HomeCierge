@@ -1,7 +1,8 @@
 import * as api from './client.js';
 import { esc, icon, dateText, todayKst, errorText, isoDate } from './display.js';
 import { directoryPanels, directoryView, homeView, emptyState } from './directory-view.js';
-import { comparisonView, runView, sampleHeld } from './result-view.js';
+import { analysisConditionBar, comparisonView, runView, sampleHeld } from './result-view.js';
+import { marketView, tradeNames } from './trade-comparison.js';
 import { frame, authDialog, noticeDialog, sourceDialog, accountDialog } from './dialogs.js';
 import { createSearchPage } from './search-page.js';
 import { createFundingPage } from './funding-page.js';
@@ -33,6 +34,10 @@ const state = {
   authPending: true,
   suspended: false,
   sessionProblem: null,
+  tradeKind: 'sale',
+  conditionsOpen: false,
+  conditionLookup: null,
+  railExpanded: false,
 };
 let epoch = 0,
   dirVersion = 0,
@@ -44,6 +49,7 @@ let dialogNotice = null,
   sendingStart = false,
   sessionSubscription;
 let demoDirectory, demoComparison;
+let analysisKey, resultLinkFocus;
 const searchPage = createSearchPage({ root, render, user: () => state.session, selectNotice: selectSearchNotice });
 const fundingPage = createFundingPage({ root, render });
 const referencePage = createReferencePage({ root, render });
@@ -81,6 +87,11 @@ function navigate(to) {
   else location.hash = to;
 }
 function resetPrivate() {
+  analysisKey = null;
+  state.conditionLookup = null;
+  resultLinkFocus = null;
+  state.conditionsOpen = false;
+  state.tradeKind = 'sale';
   searchPage.reset();
   fundingPage.reset();
   referencePage.reset();
@@ -349,19 +360,21 @@ function historyRail() {
   return `<section class="rail-history"><h2>${state.session ? '최근 분석' : '예시 분석'}</h2>${links.map((r) => `<a class="rail-history-link" href="${esc(r.href)}">${icon('file-text')}<span>${esc(r.title)}</span></a>`).join('') || '<p class="rail-empty">아직 분석이 없습니다.</p>'}</section>`;
 }
 function shell(body, route) {
-  const active = ['run', 'sample'].includes(route.key) ? 'analyses' : route.key;
+  const analysis = ['run', 'sample'].includes(route.key);
+  const active = analysis ? 'analyses' : route.key;
   const label = navs.find((n) => n[0] === active)?.[2] ?? '오늘의 청약';
   const nav = (mobile = false) =>
     navs
       .map(
         ([key, symbol, name]) =>
-          `<a href="#${key}" class="${mobile ? '' : 'nav-item '}${active === key ? 'active' : ''}"${active === key ? ' aria-current="page"' : ''}>${icon(symbol)}<span>${name}</span></a>`,
+          `<a href="#${key}" title="${name}" class="${mobile ? '' : 'nav-item '}${active === key ? 'active' : ''}"${active === key ? ' aria-current="page"' : ''}>${icon(symbol)}<span>${name}</span></a>`,
       )
       .join('');
   const mode = state.session ? '내 워크스페이스' : state.authPending ? '세션 확인 중' : '예시 둘러보기';
   const accountAction = `data-action="${state.session ? 'account' : 'auth'}"${state.authPending ? ' disabled aria-label="세션 확인 중"' : ''}`;
-  return `<div class="shell"><aside class="rail"><a class="wordmark rail-brand" href="#home" aria-label="HomeCierge 홈">HomeCierge</a><nav class="rail-menu" aria-label="주 메뉴">${nav()}</nav>${historyRail()}<div class="rail-bottom"><button class="nav-item" data-action="source" type="button">${icon('database')}자료 근거</button><button type="button" class="account-control" ${accountAction}><span class="account-symbol">${icon('user-round')}</span><span>${state.session ? '내 계정' : '게스트'}<small>${esc(state.session?.email ?? '예시 둘러보기')}</small></span>${icon('chevron-right')}</button></div></aside>
-    <div class="work"><header class="topbar"><div class="breadcrumb"><a href="#home" aria-label="홈">${icon('house')}</a>${icon('chevron-right')}<strong>${label}${route.key === 'run' || route.key === 'sample' ? ' · 분석 결과' : ''}</strong></div><a class="wordmark mobile-wordmark" href="#home">HomeCierge</a><div class="top-tools"><span class="mode-pill">${icon(state.session ? 'shield-check' : 'layers')}${mode}</span><button type="button" class="action compact ${state.session ? 'secondary' : 'primary'}" ${accountAction}>${state.session ? icon('user-round') + '내 계정' : '로그인 ' + icon('arrow-right')}</button></div></header><main id="main-content" tabindex="-1" class="content">${body}</main></div>
+  const railToggle = analysis ? `<button type="button" class="rail-toggle" data-action="toggle-rail" aria-controls="main-rail-nav" aria-expanded="${state.railExpanded}" aria-label="${state.railExpanded ? '메뉴 접기' : '메뉴 펼치기'}" title="${state.railExpanded ? '메뉴 접기' : '메뉴 펼치기'}">${icon('panel-left')}</button>` : '';
+  return `<div class="shell${analysis ? ' analysis-shell' + (state.railExpanded ? '' : ' rail-compact') : ''}"><aside class="rail">${railToggle}<a class="wordmark rail-brand" href="#home" aria-label="HomeCierge 홈">HomeCierge</a><nav class="rail-menu" id="main-rail-nav" aria-label="주 메뉴">${nav()}</nav>${historyRail()}<div class="rail-bottom"><button class="nav-item" data-action="source" type="button" aria-label="자료 근거" title="자료 근거">${icon('database')}<span>자료 근거</span></button><button type="button" class="account-control" title="${state.session ? '내 계정' : '로그인'}" ${accountAction}><span class="account-symbol">${icon('user-round')}</span><span>${state.session ? '내 계정' : '게스트'}<small>${esc(state.session?.email ?? '예시 둘러보기')}</small></span>${icon('chevron-right')}</button></div></aside>
+    <div class="work"><header class="topbar"><div class="breadcrumb">${analysis ? '<a class="wordmark compact-brand" href="#home">HomeCierge</a>' : ''}<a href="#home" aria-label="홈">${icon('house')}</a>${icon('chevron-right')}<strong>${label}${route.key === 'run' || route.key === 'sample' ? ' · 분석 결과' : ''}</strong></div><a class="wordmark mobile-wordmark" href="#home">HomeCierge</a><div class="top-tools"><span class="mode-pill">${icon(state.session ? 'shield-check' : 'layers')}${mode}</span><button type="button" class="action compact ${state.session ? 'secondary' : 'primary'}" ${accountAction}>${state.session ? icon('user-round') + '내 계정' : '로그인 ' + icon('arrow-right')}</button></div></header><main id="main-content" tabindex="-1" class="content">${body}</main></div>
     <nav aria-label="모바일 주 메뉴" class="mobile-nav">${nav(true)}<button ${accountAction}>${icon('user-round')}계정</button></nav></div>`;
 }
 function focusedControl(node) {
@@ -373,6 +386,8 @@ function focusedControl(node) {
     'data-notice',
     'data-filter',
     'data-view',
+    'data-fund-scenario',
+    'data-trade-kind',
     'data-date',
     'data-month',
     'href',
@@ -419,7 +434,7 @@ function render() {
             '<a class="action secondary" href="#notices">공고로 돌아가기</a>',
           )
         : state.sample
-          ? comparisonView(state.sample)
+          ? comparisonView(state.sample, null, state.tradeKind)
           : emptyState('loader-circle', '예시 결과를 불러오고 있습니다.');
   else body = directoryView(state);
   const comparison = route.key === 'run' ? state.comparison : route.key === 'sample' ? state.sample : null;
@@ -430,7 +445,9 @@ function render() {
       `<a href="${esc(base + (key === 'comparison' ? '' : '/' + key))}"${key === route.section ? ' aria-current="page"' : ''}>${label}</a>`).join('');
     if (isReference(route)) body = referencePage.view();
     else if (route.section === 'funding' && comparison && !state.runError) body = fundingPage.view();
-    body = `<nav class="analysis-tabs" aria-label="분석 보기">${tabs}</nav>` + body;
+    const lookup = route.key === 'run' && isReference(route) ? state.conditionLookup : null;
+    const conditions = analysisConditionBar(state.runError ? null : comparison || lookup?.data, state.run?.input, state.conditionsOpen, lookup);
+    body = `<div class="analysis-context">${conditions}<nav class="analysis-tabs" aria-label="분석 보기">${tabs}</nav></div>` + body;
   }
   root.innerHTML = shell(body, route);
   document.title =
@@ -441,6 +458,10 @@ function render() {
     const next = document.querySelector('#notice-search');
     next?.focus({ preventScroll: true });
     next?.setSelectionRange(searchFocus.start, searchFocus.end);
+  } else if (resultLinkFocus === location.hash && root.querySelector('.analysis-tabs')) {
+    resultLinkFocus = null;
+    if (focus === document.body || focus?.id === 'main-content' || focus?.closest('.analysis-tabs'))
+      defaultFocus('.analysis-tabs a[aria-current]');
   } else if (previousControl) defaultFocus(previousControl);
 }
 async function readRun(route, version = routeVersion) {
@@ -457,17 +478,13 @@ async function readRun(route, version = routeVersion) {
     if (r.status === 'finished' && isReference(route)) {
       if (!uuid.test(r.snapshotId)) throw new Error('unbound snapshot');
       const title = state.analyses.find(a => a.analysisId === r.analysisId)?.title;
+      state.conditionLookup = {};
       loadReference(route, title || (r.input?.noticeNo ? '공고 ' + r.input.noticeNo : ''), r.snapshotId);
+      if (state.conditionsOpen) void loadReferenceConditions();
     } else if (r.status === 'finished') {
       const data = await api.getResult(route.analysisId, route.runId);
       if (!valid()) return;
-      if (
-        data.analysisId !== route.analysisId ||
-        data.runId !== route.runId ||
-        data.snapshotId !== r.snapshotId
-      )
-        throw new Error('unbound result');
-      state.comparison = data.result;
+      state.comparison = boundComparison(data, route, r.snapshotId);
       if (route.section === 'funding') void loadFunding(route, data.result, r.snapshotId);
     } else if (['queued', 'running', 'retry_wait'].includes(r.status)) {
       pollTimer = setTimeout(() => void readRun(route, version), 4000);
@@ -476,6 +493,36 @@ async function readRun(route, version = routeVersion) {
     if (valid()) state.runError = error;
   }
   if (valid()) render();
+}
+function boundComparison(data, route, snapshotId) {
+  if (data.analysisId !== route.analysisId || data.runId !== route.runId ||
+      data.snapshotId !== snapshotId)
+    throw new Error('unbound result');
+  return data.result;
+}
+
+async function loadReferenceConditions() {
+  const route = readRoute();
+  const lookup = state.conditionLookup;
+  if (!isReference(route) || !state.session || state.suspended || !lookup || lookup.loading || lookup.data) return;
+  const snapshotId = state.run?.snapshotId;
+  if (!uuid.test(snapshotId)) return;
+  lookup.loading = true;
+  lookup.error = null;
+  render();
+  try {
+    const response = await api.getResult(route.analysisId, route.runId);
+    if (state.conditionLookup !== lookup) return;
+    const result = boundComparison(response, route, snapshotId);
+    if (result?.contractVersion !== 'comparison/v1') throw new Error('unsupported result');
+    const { target, conditions, regionDecision, appliedScope } = result;
+    lookup.data = { target, conditions, regionDecision, appliedScope };
+  } catch (error) {
+    if (state.conditionLookup !== lookup) return;
+    lookup.error = error;
+  }
+  lookup.loading = false;
+  render();
 }
 async function readSample(route, version) {
   try {
@@ -517,12 +564,21 @@ function loadFunding(route, result, snapshotId) {
 function routeChanged(focus = false) {
   const route = readRoute();
   const version = ++routeVersion;
+  const key = route.key === 'run' ? route.analysisId + '/' + route.runId :
+    route.key === 'sample' ? 'sample/' + (route.saved ? 'saved' : route.noticeNo + '/' + route.modelNo) : null;
+  if (key !== analysisKey) {
+    analysisKey = key;
+    state.conditionsOpen = false;
+    state.tradeKind = 'sale';
+  }
+  if (resultLinkFocus !== location.hash) resultLinkFocus = null;
   searchPage.reset();
   fundingPage.reset();
   referencePage.reset();
   clearTimeout(pollTimer);
   closeDialog();
   state.run = null;
+  state.conditionLookup = null;
   state.comparison = null;
   state.runError = null;
   state.sample = null;
@@ -534,7 +590,9 @@ function routeChanged(focus = false) {
   else if (route.key === 'run' && state.session && !state.suspended) void readRun(route, version);
   render();
   if (focus) {
-    document.querySelector('#main-content')?.focus({ preventScroll: true });
+    const main = document.querySelector('#main-content');
+    main?.classList.add('route-focus');
+    main?.focus({ preventScroll: true });
     window.scrollTo({ top: 0, behavior: 'instant' });
   }
 }
@@ -579,6 +637,20 @@ root.addEventListener('click', (event) => {
     if (!entry) return;
     dialogNotice = entry;
     openDialog(noticeDialog(entry, state.directory.dataOrigin === 'synthetic'));
+    return;
+  }
+  if (control.dataset.tradeKind && Object.hasOwn(tradeNames, control.dataset.tradeKind)) {
+    const data = readRoute().key === 'sample' ? state.sample : state.comparison;
+    const market = root.querySelector('#market-view');
+    if (!market || !data || state.suspended || state.sessionProblem || state.runError) return;
+    state.tradeKind = control.dataset.tradeKind;
+    market.innerHTML = marketView(data, state.tradeKind);
+    defaultFocus('[data-trade-kind="' + state.tradeKind + '"]');
+    return;
+  }
+  if (action === 'toggle-rail') {
+    state.railExpanded = !state.railExpanded;
+    render();
     return;
   }
   if (view) {
@@ -628,7 +700,8 @@ root.addEventListener('click', (event) => {
     state.visible += 12;
     render();
     document.querySelectorAll('.notice-card')[shown]?.focus();
-  } else if (action === 'reload') void loadDirectory();
+  } else if (action === 'reload-conditions') void loadReferenceConditions();
+  else if (action === 'reload') void loadDirectory();
   else if (action === 'reload-run') routeChanged();
   else if (action === 'reload-history') void loadHistory();
   else if (action === 'restore') void restore(true);
@@ -641,6 +714,30 @@ root.addEventListener('click', (event) => {
       ),
     );
 });
+root.addEventListener('toggle', event => {
+  if (!event.target.matches('.condition-bar') || !root.contains(event.target)) return;
+  state.conditionsOpen = event.target.open;
+  if (state.conditionsOpen && state.conditionLookup && !state.conditionLookup.error) void loadReferenceConditions();
+}, true);
+
+root.addEventListener('keydown', event => {
+  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey ||
+      !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  const group = event.target.closest('[data-choice-group], .analysis-tabs');
+  if (!group) return;
+  const items = [...group.querySelectorAll('button:not(:disabled), a[href]')];
+  const at = items.indexOf(event.target);
+  if (at < 0) return;
+  event.preventDefault();
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 :
+    (at + (event.key === 'ArrowRight' ? 1 : -1) + items.length) % items.length;
+  const item = items[next];
+  if (item === event.target) return;
+  if (item.matches('a')) resultLinkFocus = item.hash;
+  item.focus({ preventScroll: true });
+  item.click();
+});
+
 root.addEventListener('input', (event) => {
   if (event.target.id === 'notice-search') {
     state.query = event.target.value;
@@ -793,7 +890,9 @@ dialog.addEventListener('submit', async (event) => {
 });
 document.querySelector('.skip-link').addEventListener('click', (event) => {
   event.preventDefault();
-  document.querySelector('#main-content')?.focus();
+  const main = document.querySelector('#main-content');
+  main?.classList.remove('route-focus');
+  main?.focus();
 });
 window.addEventListener('hashchange', () => routeChanged(true));
 function suspendPrivate() {
