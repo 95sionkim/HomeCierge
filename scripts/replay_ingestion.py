@@ -23,14 +23,10 @@ def nonempty_strings(request, field):
     return values
 
 
-def ingest(request, fetch, *, evidence=(), data_origin):
-    """전송을 주입받아 같은 범위를 한 번씩 조회한다. 지역 확대·가격 비교 이전의 입력을 반환한다."""
-    if not isinstance(request, dict) or data_origin not in ('synthetic', 'collected'):
-        raise ValueError('요청 객체와 자료 출처 구분이 필요합니다.')
-    notice_source = request.get('noticeSource')
+def collect_notice_catalog(notice_source, target, fetch, *, page_size, evidence=(), review_documents=None):
+    """같은 두 번호로 공고와 주택형을 수집하고, 선택한 작업 경로에서 원문을 대조한다."""
     if notice_source not in ('applyhome_apt', 'applyhome_remainder'):
         raise ValueError('지원하는 청약홈 공고 출처를 지정하세요.')
-    target = request.get('target')
     target_fields = ('houseManageNo', 'noticeNo', 'edition')
     if not isinstance(target, dict) or any(
         not isinstance(target.get(key), str) or not target[key] or target[key] != target[key].strip()
@@ -38,6 +34,38 @@ def ingest(request, fetch, *, evidence=(), data_origin):
     ):
         raise ValueError('대상 공고의 주택관리번호·공고번호와 문서 대조 회차가 필요합니다.')
     target = {key: target[key] for key in target_fields}
+    if review_documents is not None and evidence:
+        raise ValueError('문서 자동 점검과 사전 입력 근거를 한 수집본에 섞을 수 없습니다.')
+    scope = {'cond[HOUSE_MANAGE_NO::EQ]': target['houseManageNo'],
+             'cond[PBLANC_NO::EQ]': target['noticeNo']}
+    notice = collect_pages(notice_source, scope, fetch, page_size=page_size)
+    models = collect_pages(notice_source + '_model', scope, fetch, page_size=page_size)
+    catalog = normalize_catalog(notice, models, target=target, evidence=evidence)
+    receipt = None
+    if review_documents is not None:
+        checked = review_documents(target, catalog)
+        if checked['evidence']:
+            catalog = normalize_catalog(notice, models, target=target, evidence=checked['evidence'])
+        referenced = {(d['id'], d['version']) for d in catalog['documents']}
+        for doc in checked.get('documentVersions', ()):
+            key = (doc['id'], doc['version'])
+            if key not in referenced:
+                catalog['documents'].append(doc)
+                referenced.add(key)
+        catalog['issues'].extend(checked['issues'])
+        receipt = checked.get('review')
+    collections = [
+        {key: collection[key] for key in ('source', 'scope', *COVERAGE_FIELDS, 'reasons')}
+        for collection in (notice, models)
+    ]
+    return catalog, collections, receipt
+
+
+def ingest(request, fetch, *, evidence=(), data_origin, review_documents=None):
+    """전송을 주입받아 같은 범위를 한 번씩 조회한다. 지역 확대·가격 비교 이전의 입력을 반환한다."""
+    if not isinstance(request, dict) or data_origin not in ('synthetic', 'collected'):
+        raise ValueError('요청 객체와 자료 출처 구분이 필요합니다.')
+    notice_source = request.get('noticeSource')
     regions = nonempty_strings(request, 'requestRegionCodes')
     if any(not re.fullmatch(r'[0-9]{5}', code) for code in regions):
         raise ValueError('국토교통부 요청 지역코드에는 5자리 LAWD_CD를 사용하세요.')
@@ -49,15 +77,9 @@ def ingest(request, fetch, *, evidence=(), data_origin):
         raise ValueError('pageSize는 양의 정수여야 합니다.')
     period = trade_period(request.get('asOf'), request.get('start'), request.get('end'))
 
-    notice_scope = {'cond[HOUSE_MANAGE_NO::EQ]': target['houseManageNo'],
-                    'cond[PBLANC_NO::EQ]': target['noticeNo']}
-    notice = collect_pages(notice_source, notice_scope, fetch, page_size=page_size)
-    models = collect_pages(notice_source + '_model', notice_scope, fetch, page_size=page_size)
-    catalog = normalize_catalog(notice, models, target=target, evidence=evidence)
-    catalog_collections = [
-        {key: collection[key] for key in ('source', 'scope', *COVERAGE_FIELDS, 'reasons')}
-        for collection in (notice, models)
-    ]
+    catalog, catalog_collections, _ = collect_notice_catalog(
+        notice_source, request.get('target'), fetch, page_size=page_size, evidence=evidence,
+        review_documents=review_documents)
 
     trade_batches = []
     months = period['months'] if period['status'] == 'confirmed' else ()
@@ -81,7 +103,7 @@ def ingest(request, fetch, *, evidence=(), data_origin):
                     for obs in batch['observations']
                 ]
                 trade_batches.append({'record': record, 'reasons': batch['reasons'], 'trades': trades})
-    return {'contractVersion': 'ingestion/v0', 'dataOrigin': data_origin, 'target': target,
+    return {'contractVersion': 'ingestion/v0', 'dataOrigin': data_origin, 'target': catalog['target'],
             'asOf': request['asOf'], 'period': period, 'requestRegionCodes': regions, 'tradeKinds': trade_kinds,
             'catalogCollections': catalog_collections, 'catalog': catalog, 'tradeBatches': trade_batches}
 

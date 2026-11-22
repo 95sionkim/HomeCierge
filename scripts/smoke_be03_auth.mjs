@@ -4,7 +4,7 @@
 // 같은 두 계정으로 로컬 HTTP 서버를 통해 수집본·실행·저장된 비교 결과를 검수한다.
 // node --import tsx scripts/smoke_be03_auth.mjs 로 실행한다.
 import { execFile, spawnSync } from 'node:child_process';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { isDeepStrictEqual, promisify } from 'node:util';
 import { createClient } from '@supabase/supabase-js';
@@ -365,6 +365,26 @@ async function checkUnavailableUpload(requestApi, account, token, step) {
   check(body?.error === 'not_found', `${step}_body`);
 }
 
+async function documentWorkerDigest(account, token, port) {
+  // 실제 문서 작업자와 같은 사용자 조회를 실행한다. 자식에는 서비스 키를 전달하지 않는다.
+  const program = [
+    'import hashlib, os, sys',
+    'sys.path.insert(0, "scripts")',
+    'from review_notice_documents import read_owned_upload',
+    'upload = read_owned_upload(sys.argv[1], sys.argv[2], os.environ["HOMECIERGE_USER_JWT"], int(sys.argv[3]))',
+    'print(hashlib.sha256(upload["content"]).hexdigest() if upload else "unavailable")',
+  ].join('\n');
+  try {
+    const { stdout } = await execFileAsync('python3', ['-c', program, account.analysisId, account.upload.id, String(port)], {
+      cwd: ROOT, encoding: 'utf8', timeout: 20_000, maxBuffer: 2048,
+      env: { ...PYTHON_ENV, HOMECIERGE_USER_JWT: token },
+    });
+    return stdout.trim();
+  } catch {
+    throw new SmokeFailure('document_worker_upload_read');
+  }
+}
+
 async function checkPublicFile(bucket, path, publishable) {
   const { data } = bucket.getPublicUrl(path);
   const reply = await fetch(data.publicUrl, { headers: { apikey: publishable } });
@@ -474,7 +494,7 @@ async function retryCleanup(cleanUp, failures) {
   }
 }
 
-async function run(config, capture, requestApi) {
+async function run(config, capture, requestApi, apiPort) {
   const admin = makeClient(config.origin, config.service);
   const userClient = () => makeClient(config.origin, config.publishable);
   const runId = randomUUID();
@@ -518,9 +538,16 @@ async function run(config, capture, requestApi) {
       await checkVisibility(UPLOAD_TABLE, 'id', account.upload.id, other.upload.id, account.client);
       await checkStorageIsolation(requestApi, account, other, pdf, config.publishable);
     }
+    const testedUpload = accounts[0];
+    check(await documentWorkerDigest(testedUpload, testedUpload.accessToken, apiPort) ===
+      createHash('sha256').update(pdf).digest('hex'), 'document_worker_own_pdf');
+    check(await documentWorkerDigest(testedUpload, accounts[1].accessToken, apiPort) === 'unavailable',
+      'document_worker_foreign_pdf');
     for (const [account, other] of pairs) {
       await checkUploadDeletion(requestApi, account, other, userClient);
     }
+    check(await documentWorkerDigest(testedUpload, testedUpload.accessToken, apiPort) === 'unavailable',
+      'document_worker_deleted_pdf');
     be04Started = true;
     const secondWorker = makeClient(config.origin, config.service);
     const savedComparison = await runBe04Smoke({ requestApi, admin, secondWorker, accounts, capture, config, check, result });
@@ -588,7 +615,7 @@ async function main() {
     check(address && typeof address === 'object', 'http_listen');
     const apiOrigin = `http://127.0.0.1:${address.port}`;
     const apiFetch = restrictFetch(fetchForSmoke, apiOrigin);
-    return await run(config, capture, (path, init) => apiFetch(new URL(path, apiOrigin), init));
+    return await run(config, capture, (path, init) => apiFetch(new URL(path, apiOrigin), init), address.port);
   } finally {
     if (server.listening) {
       const closed = once(server, 'close');

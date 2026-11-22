@@ -21,18 +21,21 @@ def snapshot_input(inputs):
     return input_snapshot
 
 
-def save_snapshot(user_id, analysis_id, capture_key, inputs, result, *, env, opener=None):
+def save_snapshot(user_id, analysis_id, capture_key, inputs, result, *, env, opener=None, retry_uncertain=False):
     """수집 작업의 고정 입력과 결과를 보낸다. 응답 유실 시 같은 키로 재시도한다."""
     client = WorkerRpc(env, opener)
     payload = {'p_user_id': str(UUID(str(user_id))), 'p_analysis_id': str(UUID(str(analysis_id))),
                'p_capture_key': str(UUID(str(capture_key))), 'p_input': snapshot_input(inputs), 'p_result': result}
-    try:
-        return str(UUID(client.post('save_ingestion_snapshot', payload, limit=128)))
-    except WorkerRpcError as exc:
-        if exc.status is not None:
-            raise RuntimeError(f'저장 RPC 실패 (HTTP {exc.status})') from None
-    except (ValueError, TypeError, AttributeError):
-        pass
+    attempts = 2 if retry_uncertain else 1
+    # 실조회는 다시 하면 조회 시점이 달라진다. 같은 조건·결과·키를 메모리에서 그대로 재전송한다.
+    for attempt in range(1, attempts + 1):
+        try:
+            return str(UUID(client.post('save_ingestion_snapshot', payload, limit=128)))
+        except WorkerRpcError as exc:
+            if exc.status is not None and (exc.status not in (502, 503, 504) or attempt == attempts):
+                raise RuntimeError(f'저장 RPC 실패 (HTTP {exc.status})') from None
+        except (ValueError, TypeError, AttributeError):
+            pass
     raise RuntimeError('저장 응답을 확인하지 못했습니다. 같은 수집 키로 재시도하세요.')
 
 

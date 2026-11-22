@@ -53,6 +53,15 @@ class SnapshotWriterTests(TestCase):
             self.save()
         self.opener.open.assert_not_called()
 
+    def test_live_capture_retries_uncertain_acknowledgement_with_identical_payload(self):
+        saved_id = str(uuid4())
+        self.opener.open.side_effect = [TimeoutError(), io.BytesIO(json.dumps(saved_id).encode())]
+        actual = save_snapshot(*self.ids, self.bundle['request'], self.result, env=self.env,
+                               opener=self.opener, retry_uncertain=True)
+        self.assertEqual(actual, saved_id)
+        first, second = self.opener.open.call_args_list
+        self.assertEqual(first.args[0].data, second.args[0].data)
+
     def test_conflict_and_unconfirmed_writes_return_bounded_diagnostics(self):
         self.opener.open.side_effect = HTTPError('http://localhost', 409, 'synthetic-detail', {},
                                                  io.BytesIO(b'synthetic-detail'))

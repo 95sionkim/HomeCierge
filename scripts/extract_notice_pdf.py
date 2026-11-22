@@ -7,10 +7,26 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# 과거 최초 공고번호도 본문에 있으므로 현재 공고를 지정하는 문장만 사용한다.
+IDENTITY_PATTERN = re.compile(r'본\s*(?:불법행위\s*재공급\s*)?입주자모집공고일은\s*'
+                              r'(\d{4})\.(\d{2})\.(\d{2}).{0,240}?'
+                              r'주택관리번호는\s*(\d{10})', re.S)
 
 
 def compact(value):
     return re.sub(r'\s+', '', value or '')
+
+
+def find_identities(text, page):
+    """한 페이지 텍스트에서 현재 공고의 번호·공고일을 함께 지정한 문장을 모두 찾는다."""
+    return [{'house_manage_no': match[4], 'notice_date': '-'.join(match.group(i) for i in (1, 2, 3)),
+             'page': page, 'quote': match.group(0)} for match in IDENTITY_PATTERN.finditer(text)]
+
+
+def table_record(page, table_index, table):
+    """PyMuPDF 표 하나를 셀 문자열과 셀 좌표로 옮긴다. 병합으로 가려진 셀은 None이다."""
+    return {'id': 'p%dt%d' % (page, table_index), 'bbox': list(table.bbox), 'rows': table.extract(),
+            'cell_bboxes': [[list(cell) if cell else None for cell in row.cells] for row in table.rows]}
 
 
 def extract(pdf_path):
@@ -23,23 +39,11 @@ def extract(pdf_path):
     with fitz.open(pdf_path) as document:
         for index, page in enumerate(document):
             text = page.get_text(sort=True)
-            tables = []
-            for table_index, table in enumerate(page.find_tables().tables):
-                tables.append({
-                    'id': 'p%dt%d' % (index + 1, table_index),
-                    'bbox': list(table.bbox), 'rows': table.extract(),
-                    'cell_bboxes': [[list(cell) if cell else None for cell in row.cells] for row in table.rows],
-                })
+            tables = [table_record(index + 1, table_index, table)
+                      for table_index, table in enumerate(page.find_tables().tables)]
             pages.append({'page': index + 1, 'width': page.rect.width, 'height': page.rect.height,
                           'text': text, 'tables': tables, 'text_character_count': len(compact(text))})
-            # 과거 최초 공고번호도 본문에 있으므로 현재 공고를 지정하는 문장만 사용한다.
-            pattern = (r'본\s*(?:불법행위\s*재공급\s*)?입주자모집공고일은\s*'
-                       r'(\d{4})\.(\d{2})\.(\d{2}).{0,240}?'
-                       r'주택관리번호는\s*(\d{10})')
-            for match in re.finditer(pattern, text, re.S):
-                identities.append({'house_manage_no': match[4],
-                                   'notice_date': '-'.join(match.group(i) for i in (1, 2, 3)),
-                                   'page': index + 1, 'quote': match.group(0)})
+            identities.extend(find_identities(text, index + 1))
     unique = {(x['house_manage_no'], x['notice_date']) for x in identities}
     return {
         'schema_version': 1, 'source_sha256': hashlib.sha256(raw).hexdigest(),
