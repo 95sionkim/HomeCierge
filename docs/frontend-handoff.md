@@ -5,13 +5,15 @@
 | 연결 대상을 정한다 | 주소·계약을 확인한다 |
 | --- | --- |
 | Supabase 개발 DB·Auth | `https://jcaelooqogosbzrfyrhe.supabase.co` |
-| Vercel Preview API | `https://homecierge-2a6shno3g-sions-projects-d18fe574.vercel.app` |
+| Vercel Preview API · 개발 브랜치 최신 배포 | `https://homecierge-api-git-codex-backend-b54136-sions-projects-d18fe574.vercel.app` |
 | 로컬 API | `npm run dev` → `http://127.0.0.1:3001` |
 | 타입 | [원격 DB에서 생성한 Database 타입](../src/db/database.types.ts) |
 
 로컬 API는 `.secrets/backend.env`의 `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `APP_ENV=development`, `ALLOWED_ORIGINS`를 읽는다. 현재 Vercel 허용 origin은 `http://localhost:3000`, `http://127.0.0.1:3000`, `http://localhost:5173`, `http://127.0.0.1:5173`이다. 화면의 실제 origin이 다르면 정확한 값으로 추가한다. 원격 키는 접근 권한이 있는 프로젝트 설정에서 전달받으며 채팅·Git에 붙여 넣지 않는다.
 
 Preview에는 Vercel 배포 보호가 켜져 있다. Vercel 로그인과 Supabase의 서비스 사용자 로그인은 별개이며, 별도 화면의 자동 API 호출에 배포 보호가 추가로 적용될 수 있다. 로컬 API로 먼저 연동하고 화면 배포 때 접근 방식을 함께 검수한다. 보호 우회 값을 화면 코드에 넣지 않는다.
+
+11월 22일 개발 브랜치의 `c325134`에서 공고일 기준 법령 조회를 추가했다. 응답이 `available`이면 모집공고일과 법령 시행일을 따로 표시하고 해당 판본의 원문을 연결한다. 격리된 Supabase에서 두 계정으로 로그인해 본인 분석은 200, 다른 계정의 분석은 404임을 확인했다. 법령 출처의 표시 권한을 회수한 뒤에는 같은 본인 분석에서 `source_restricted`와 빈 참조를 받았다. [법령 조회 계약과 실공고 예시](api/legal-evidence.md) · [인증 통합 검사](https://github.com/95sionkim/HomeCierge/actions/runs/44991331159)
 
 11월 22일 개발 브랜치의 `e2c916a`를 보호된 Preview에 배포했다. 공고 검색, 비공개 PDF, 분석 실행·비교와 함께 선택한 호실의 자금표를 조회할 수 있다. 팀 접근으로 `/api/health`는 200, 자금표 경로의 GET은 405와 `Allow: POST, OPTIONS`를 반환했다. 자금표 응답에는 `private, no-store`가 적용된다. [호실별 자금표와 계산 예](api/funding-plan.md) · [공고 검색 계약](api/notice-search.md)
 
@@ -88,7 +90,7 @@ const { data, error } = await supabase.rpc('decide_profile_change', {
 ## 4. 구현 전인 기능을 구분한다
 
 - 공고 문서 작업자가 처리한 수집본에서는 호실의 분양가·필수 옵션과 주택형 공급면적 각각의 확인 상태를 읽을 수 있다. 확인한 값은 문서 버전·페이지를, 보류한 값은 사유와 보완 경로를 표시한다. 지원 서식과 실제 검수 범위는 [공고 문서 작업자](api/notice-documents.md)에서 확인한다.
-- 현재 비교 작업자는 수집된 거래와 검수된 공급면적 근거를 사용한다. 실거래 공급면적 근거 자동 수집과 법령·뉴스·경로의 제품 API 연결은 후속 개발 범위다.
+- 현재 비교 작업자는 수집된 거래와 검수된 공급면적 근거를 사용한다. 실거래 공급면적 근거 자동 수집, 지역 뉴스와 출퇴근 경로 API 연결은 후속 개발 범위다.
 - 호실별 분양가·필수 옵션 원자료는 `result_snapshot.catalog`, 선택한 호실 또는 주택형의 확인 가격과 보류 사유는 `result.noticePrice`에서 읽는다. 빈 거래 목록의 의미는 `regionDecision`으로 확인한다.
 - 비공개 업로드 한 건은 삭제할 수 있다. 계정 전체, 파생 보고서와 백업 정리를 포함한 삭제 완료 화면은 후속 작업이다.
 - 실제 로그인 제공자, 화면 도메인, Production DB, 사용자 가치 검증과 59개 제품 수락 기준은 아직 별도 완료 조건이다.
