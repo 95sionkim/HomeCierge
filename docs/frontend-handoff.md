@@ -13,6 +13,8 @@
 
 Preview에는 Vercel 배포 보호가 켜져 있다. Vercel 로그인과 Supabase의 서비스 사용자 로그인은 별개이며, 별도 화면의 자동 API 호출에 배포 보호가 추가로 적용될 수 있다. 로컬 API로 먼저 연동하고 화면 배포 때 접근 방식을 함께 검수한다. 보호 우회 값을 화면 코드에 넣지 않는다.
 
+지역 뉴스는 개발 브랜치 `8f0f012`의 Preview에 배포했다. 현재 서울 개발 DB는 실제 뉴스 표시를 보류하므로, 화면 팀은 합성 응답으로 목록과 보류 상태를 연결할 수 있다. 격리된 Supabase에서 두 계정으로 로그인해 소유자의 검색결과 표시, 타인 조회 404, 출처 권한 회수 직후 같은 공고의 `source_restricted` 응답을 확인했다. 이 검사의 뉴스는 합성이며, 실제 네이버 검색 검수는 API 문서에 기록했다. [뉴스 조회 계약](api/regional-news.md) · [합성 응답 예시](../scripts/smoke_regional_news.mjs) · [인증 통합 검사](https://github.com/95sionkim/HomeCierge/actions/runs/44993607803)
+
 11월 22일 개발 브랜치의 `c325134`에서 공고일 기준 법령 조회를 추가했다. 응답이 `available`이면 모집공고일과 법령 시행일을 따로 표시하고 해당 판본의 원문을 연결한다. 격리된 Supabase에서 두 계정으로 로그인해 본인 분석은 200, 다른 계정의 분석은 404임을 확인했다. 법령 출처의 표시 권한을 회수한 뒤에는 같은 본인 분석에서 `source_restricted`와 빈 참조를 받았다. [법령 조회 계약과 실공고 예시](api/legal-evidence.md) · [인증 통합 검사](https://github.com/95sionkim/HomeCierge/actions/runs/44991331159)
 
 11월 22일 개발 브랜치의 `e2c916a`를 보호된 Preview에 배포했다. 공고 검색, 비공개 PDF, 분석 실행·비교와 함께 선택한 호실의 자금표를 조회할 수 있다. 팀 접근으로 `/api/health`는 200, 자금표 경로의 GET은 405와 `Allow: POST, OPTIONS`를 반환했다. 자금표 응답에는 `private, no-store`가 적용된다. [호실별 자금표와 계산 예](api/funding-plan.md) · [공고 검색 계약](api/notice-search.md)
