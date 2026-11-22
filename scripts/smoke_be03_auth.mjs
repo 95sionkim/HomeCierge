@@ -15,6 +15,7 @@ import { checkNoticeSearch } from './smoke_notice_search.mjs';
 import { checkFundingPlan } from './smoke_funding_plan.mjs';
 import { checkLegalEvidence } from './smoke_legal_evidence.mjs';
 import { checkRegionalNews, syntheticNewsFetch } from './smoke_regional_news.mjs';
+import { checkNoticeAnalysis } from './smoke_notice_analysis.mjs';
 import { checkBe04Cleanup, runBe04Smoke } from './smoke_be04_runs.mjs';
 
 const DEVELOPMENT_ORIGIN = 'https://jcaelooqogosbzrfyrhe.supabase.co';
@@ -542,6 +543,7 @@ async function run(config, capture, requestApi, apiPort) {
       await checkNoticeSearch({ config, accounts, admin, requestApi, check, result });
       await checkLegalEvidence({ config, accounts, admin, capture, requestApi, check, result });
       await checkRegionalNews({ config, accounts, admin, capture, requestApi, check, result });
+      await checkNoticeAnalysis({ config, accounts, admin, requestApi, check, result, userClient, login });
     }
     await checkFundingPlan({ accounts, admin, capture, requestApi, check, result });
     const pdf = makeSyntheticPdf();

@@ -94,7 +94,7 @@ def combine_reviews(reviews):
 
 
 def review_catalog_documents(target, catalog, *, official_index=None, read_upload=None,
-                             fetch=None, inspect=inspect_notice_pdf):
+                             fetch=None, inspect=inspect_notice_pdf, monotonic=None):
     """공식 상세 페이지를 대조하고 첨부 바이트는 이 호출 안에서 사용한다.
 
     review.paymentSchedules는 즉시 응답용이다. 항목의 status는 금액 점검 상태이며 일정의 구체성은
@@ -107,7 +107,7 @@ def review_catalog_documents(target, catalog, *, official_index=None, read_uploa
         raise ValueError('공식 출처 기록 목록이 필요합니다.')
     acquired = acquire_notice_pdf(target, url, fetch=fetch if fetch is not None else make_live_fetch(),
                                   upload=read_upload, official_index=official_index or (),
-                                  notice_date=reported_notice_date(catalog))
+                                  notice_date=reported_notice_date(catalog), monotonic=monotonic)
     reviews = []
     version_rows = []
     inspected = {}

@@ -2,6 +2,24 @@
 
 2026-11-22. 화면 프레임워크는 고정하지 않는다. [인프라 준비 상태](infrastructure.md)와 [PRD](prd/01-product-prd.md)를 함께 읽는다. 개발 DB와 보호된 Preview API가 생성됐다. 키·인증값은 실행 환경으로 전달한다.
 
+**첫 연결 범위는 로그인 → 오늘의 청약 목록 → 공고·주택형 선택 → 분석 진행·재조회다.** `today` 예시에는 오늘 마감·접수 예정·분리 접수 사이의 공고가 함께 있다. `confirmedEmpty`는 조사 범위의 정상 빈 목록이고, `delayed`는 이전 관측과 부분 수집이 겹친 사례다. [목록·선택 계약](api/notice-directory.md) · [디자인·개발용 합성 응답](../tests/fixtures/notice-directory-v1.json) · [진행 상태와 결과](api/analysis-runs.md)
+
+### 전달받은 화면을 API에 연결한다
+
+2026-11-22 전달본은 원 프로젝트의 `wireframe/homecierge-wireframe-handoff/`와 `HomeCierge-design_system/`에 있다. 와이어프레임 v0.1은 클릭 화면 14개와 상태를 포함한 캡처 18장을 제공한다. 디자인 시스템에는 컴포넌트 18개가 있다. 두 묶음의 `tokens.json`과 컴포넌트 타입 선언은 일치한다. 화면 팀은 독립 디자인 시스템의 토큰과 컴포넌트 문서를 기준으로 삼고, 클릭 동선은 와이어프레임의 `prototype/index.html`에서 확인한다.
+
+| 화면에서 할 일 | 지금 연결할 데이터와 남은 화면 작업 |
+| --- | --- |
+| S-01 채팅 홈에서 시작하거나 돌아온다 | 재로그인한 사용자의 분석 목록과 `latest_run_id`로 작업을 복원한다. 와이어프레임의 시작 카드는 공고명·번호·PDF 세 가지다. 추가로 요청한 **오늘의 청약**은 이 홈에서 예산 입력 없이 들어가는 진입점으로 제안한다. |
+| 오늘 접수 중·예정인 공고를 훑는다 | `GET /api/v1/notices`의 접수 구간·한국 기준일·관측 시각을 카드와 달력이 같이 쓴다. S-02는 이름이 같은 공고의 회차를 고르는 화면이다. 오늘 목록의 카드·달력, 로그인, 작은 화면의 배치는 추가 시안 범위다. |
+| S-02에서 회차를 구분하고 S-03에서 주택형을 고른다 | 공고 식별은 주택관리번호·공고번호·판본, 주택형 선택은 `models[].analysisInput`을 쓴다. 선택이 보류된 항목은 `selectionBlockers`를 안내한다. 해당 공고명의 과거 전체 회차 검색, PDF 동일 회차 표시, 호실 가격에는 각각 별도 조회와 근거가 필요하다. |
+| S-04·S-05에서 비교 범위·가격·보류를 표시한다 | `comparison/v1`의 `regionDecision`, `noticePrice`, `holds`, 수집 상태를 읽는다. 비교 보류 화면의 세 칸에 빠진 근거, 다시 비교할 조건, 계속 볼 수 있는 값을 채운다. 개별 작업 시각이 없으면 실제로 받은 실행 상태까지만 표시한다. [비교 응답](api/comparison-v1.md) |
+| S-06~08과 확인·근거 패널을 연다 | 뉴스는 출처 표시가 허용된 상태에서 제공한다. O-3의 공유 프로필 승인은 이번 분석의 조건 변경과 구분한다. O-5 원문은 접근 허용된 파일·판본·쪽으로만 연결한다. S-07 보고서 생성·내보내기는 후속 구현이다. [뉴스](api/regional-news.md) · [비공개 파일](api/ingestion-storage.md) |
+
+전달본은 1440px 데스크톱 예시이며 최소 너비는 1280px다. 본문은 Pretendard, 식별자는 Roboto Mono를 사용한다. `StatusBadge`는 확인됨·정상 0건·일부 수집·미확인·조회 실패·연결 보류를 아이콘과 낱말로 함께 구분한다. 값이 없으면 `—`를 표시하고, 확인한 수치에는 `SourceChip`으로 출처와 시각 또는 쪽을 연결한다. 예를 들어 접수 중으로 확인한 공고가 0개여도 `zeroStatus.open = indeterminate`이면 ‘일정 확인 필요’를 표시한다.
+
+시안의 12개 완료월과 예시 단지의 금액은 고정 화면 값이다. 서비스에서는 실행 기준일과 실제 조사 기간을 표시한다. 공급면적 기본 허용 범위는 ±5%이고, 같은 법정동·읍·면이 정상 0건일 때만 같은 구 또는 구 없는 시·군으로 확대한다. 호실 자금표에서 입금 시각을 모르면 같은 날 입금 전·후 부족액을 함께 보여준다. [제품 기준](prd/01-product-prd.md) · [자금표 계약](api/funding-plan.md)
+
 | 연결 대상을 정한다 | 주소·계약을 확인한다 |
 | --- | --- |
 | Supabase 개발 DB·Auth | `https://jcaelooqogosbzrfyrhe.supabase.co` |
@@ -30,11 +48,12 @@ Preview에는 Vercel 배포 보호가 켜져 있다. Vercel 로그인과 Supabas
 | `GET /api/health` | API 프로세스의 생존 확인 | 200. DB·로그인·분석 기능 완료를 보장하지 않음 |
 | `GET /api/ready` | 인증 후 사용자 권한으로 프로필 테이블 조회 | 200은 해당 DB 조회 성공. 미로그인 401, 설정·백엔드 실패 503 |
 | `GET /api/v1/me` | 인증한 사용자의 ID·프로필 조회 | `{ user: { id }, profile }`. 최초에는 `profile: null` 가능 |
+| `GET /api/v1/notices` | 지역·예산 입력 전 접수 중·예정 공고와 확인된 주택형을 조회 | 카드와 달력은 같은 접수 구간을 사용한다. 마지막 관측 시각, 일정 확인 필요, 다음 페이지를 표시한다. [목록 응답과 선택](api/notice-directory.md) |
 | `POST /api/v1/notices/search` | 희망 지역·예산과 선택 면적·입주월로 공고를 탐색 | 200이면 조건 충족·확인 필요 목록과 수집 범위를 표시. 최신 색인 준비 중은 503. [요청 및 응답](api/notice-search.md) |
 | `POST /api/v1/analyses/{analysisId}/funding-plan` | 해당 분석의 수집본·주택형·호실을 선택해 납부일별 자금과 부족액을 조회 | 확정 자금과 예상 포함 금액, 날짜를 알 수 없는 납부와 근거를 표시. [요청과 계산 예](api/funding-plan.md) |
 | `GET /api/v1/analyses/{analysisId}/snapshots/{snapshotId}/legal-evidence` | 본인 공고의 모집공고일에 시행된 「주택공급에 관한 규칙」을 조회 | 공고일·시행일·법제처 원문을 표시한다. 법령 판본과 개인 자격의 확인 상태를 구분한다. [상태별 표시와 예시](api/legal-evidence.md) |
 | `POST /api/v1/analyses/{analysisId}/snapshots/{snapshotId}/regional-news` | 사용자가 지역 뉴스 보기를 선택하면 공고 소재지로 최신순 검색 | 본문 없이 호출한다. 네이버 검색결과를 독립된 영역에서 원래 순서로 표시하고 기사별 원 출처·원문 링크, 검색 발췌, API 제공 시각, 지역 관련성 미확인을 안내한다. [상태와 표시 계약](api/regional-news.md) |
-| `POST /api/v1/analyses/{analysisId}/runs` | 자기 분석에서 수집 자료 준비를 접수 | 202와 조회 주소. 같은 키로 다른 입력을 보내면 409 |
+| `POST /api/v1/analyses/{analysisId}/runs` | 선택한 공고·주택형의 자료 수집이나 기존 수집본의 분석을 접수 | 목록에서 받은 `analysisInput`을 보내면 202와 조회 주소를 받는다. 같은 키로 다른 입력을 보내면 409 |
 | `GET /api/v1/analyses/{analysisId}/runs/{runId}` | 실행 상태를 다시 읽음 | 200. 자료가 준비되면 `snapshotId` 제공 |
 | `GET /api/v1/analyses/{analysisId}/runs/{runId}/result` | 선택한 주택형과 주변 실거래의 저장된 비교 결과를 읽음 | 200이면 완전성·가격 상태·보류 사유를 표시. 출처 표시 권한이 철회되면 403, 다른 계정이면 404, 저장된 결과가 없으면 409 |
 | `POST /api/v1/analyses/{analysisId}/runs/{runId}/cancel` | 해당 실행을 취소 | 200. 이미 준비 또는 실패로 끝났으면 409 |

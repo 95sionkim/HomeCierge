@@ -2,9 +2,20 @@ import { ApiError, isUuid, readBody, readJsonRequest } from './http-input.js';
 export { uuidPattern } from './http-input.js';
 const runStatuses = ['queued', 'running', 'retry_wait', 'finished', 'failed', 'cancelled'] as const;
 
-type AnalysisRunInput = { kind: 'snapshot'; snapshotId: string } | { kind: 'synthetic'; fixture: 'ingestion-v0' };
+type NoticeInput = {
+  kind: 'notice';
+  noticeSource: 'applyhome_apt' | 'applyhome_remainder';
+  houseManageNo: string;
+  noticeNo: string;
+  edition: string;
+  modelNo: string;
+};
+type AnalysisRunInput = NoticeInput | { kind: 'snapshot'; snapshotId: string } | { kind: 'synthetic'; fixture: 'ingestion-v0' };
 type RunStatus = typeof runStatuses[number];
-type RunFailureCode = 'run_internal_error' | 'run_deadline_exceeded';
+const noticeFailureCodes = [
+  'notice_selection_unverified', 'notice_feed_unavailable', 'notice_source_restricted', 'notice_capture_limit',
+] as const;
+type RunFailureCode = 'run_internal_error' | 'run_deadline_exceeded' | typeof noticeFailureCodes[number];
 export type AnalysisRunOperation =
   | { action: 'enqueue'; analysisId: string; idempotencyKey: string; input: AnalysisRunInput }
   | { action: 'get' | 'cancel'; analysisId: string; runId: string };
@@ -58,7 +69,17 @@ export function parseComparisonSnapshot(value: unknown, analysisId: string, runI
 export type ComparisonSnapshot = NonNullable<ReturnType<typeof parseComparisonSnapshot>>;
 
 function parseInput(value: unknown): AnalysisRunInput | null {
-  if (!isRecord(value) || Object.keys(value).length !== 2) return null;
+  if (!isRecord(value)) return null;
+  if (value.kind === 'notice') {
+    const { noticeSource, houseManageNo, noticeNo, edition, modelNo } = value;
+    if (Object.keys(value).length !== 6 || (noticeSource !== 'applyhome_apt' && noticeSource !== 'applyhome_remainder')
+      || typeof houseManageNo !== 'string' || !/^[0-9]{10}$/.test(houseManageNo)
+      || typeof noticeNo !== 'string' || !/^[0-9]{10}$/.test(noticeNo)
+      || typeof edition !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(edition)
+      || typeof modelNo !== 'string' || !/^[0-9]{1,20}$/.test(modelNo)) return null;
+    return { kind: 'notice', noticeSource, houseManageNo, noticeNo, edition, modelNo };
+  }
+  if (Object.keys(value).length !== 2) return null;
   if (value.kind === 'synthetic' && value.fixture === 'ingestion-v0') {
     return { kind: value.kind, fixture: value.fixture };
   }
@@ -96,6 +117,11 @@ function isTimestamp(value: unknown): value is string {
   return typeof value === 'string' && Number.isFinite(Date.parse(value));
 }
 
+function isRunFailure(code: unknown, input: AnalysisRunInput): code is RunFailureCode {
+  return code === 'run_internal_error' || code === 'run_deadline_exceeded'
+    || (input.kind === 'notice' && noticeFailureCodes.some(known => known === code));
+}
+
 export function parseAnalysisRun(value: unknown): AnalysisRun | null {
   if (!isRecord(value)) return null;
   const { runId, analysisId, status, attempt, submittedAt, finishedAt, snapshotId, errorCode } = value;
@@ -104,7 +130,7 @@ export function parseAnalysisRun(value: unknown): AnalysisRun | null {
     || typeof attempt !== 'number' || !Number.isSafeInteger(attempt) || attempt < 0
     || !isTimestamp(submittedAt) || (finishedAt !== null && !isTimestamp(finishedAt))
     || (snapshotId !== null && !isUuid(snapshotId))
-    || (errorCode !== null && errorCode !== 'run_internal_error' && errorCode !== 'run_deadline_exceeded')) {
+    || (errorCode !== null && !isRunFailure(errorCode, input))) {
     return null;
   }
   const terminal = status === 'finished' || status === 'failed' || status === 'cancelled';

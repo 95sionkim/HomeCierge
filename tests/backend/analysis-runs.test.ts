@@ -27,6 +27,8 @@ const auth = { Authorization: 'Bearer SYNTHETIC_TEST_TOKEN', Origin: env.ALLOWED
 const submitHeaders = { ...auth, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey };
 const syntheticInput = { kind: 'synthetic', fixture: 'ingestion-v0' };
 const snapshotInput = { kind: 'snapshot', snapshotId };
+const noticeInput = { kind: 'notice', noticeSource: 'applyhome_remainder', houseManageNo: '9900000001',
+  noticeNo: '9900000042', edition: '2026-11-21', modelNo: '01' };
 const queued = {
   runId, analysisId, status: 'queued', attempt: 0, submittedAt: '2026-11-21T00:00:00+00:00',
   finishedAt: null, input: syntheticInput, snapshotId: null, errorCode: null,
@@ -37,6 +39,30 @@ const cancelled = { ...queued, status: 'cancelled', finishedAt: '2026-11-21T00:0
 function request(path: string, init: RequestInit = {}) {
   return new Request(`https://api.invalid${path}`, init);
 }
+
+test('a new official notice run preserves the model and rejects a different selection in the RPC reply', async t => {
+  let response = Response.json({ ...queued, input: noticeInput });
+  const calls = mockRpc(t, () => response.clone());
+  const handle = createHandler({ env, createBackend, log: () => {} });
+  const submit = (input: unknown) => handle(enqueue(JSON.stringify({ input })));
+  const accepted = await submit(noticeInput);
+  assert.equal(accepted.status, 202);
+  assert.equal(accepted.headers.get('location'), runPath);
+  assert.deepEqual((await accepted.json()).input, noticeInput);
+  assert.deepEqual(calls[0]!.args, { p_analysis_id: analysisId, p_idempotency_key: idempotencyKey, p_input: noticeInput });
+  for (const wrong of [{ modelNo: '1' }, { noticeNo: '9900000043' }, { noticeSource: 'applyhome_apt' }]) {
+    response = Response.json({ ...queued, input: { ...noticeInput, ...wrong } });
+    assert.equal((await submit(noticeInput)).status, 503);
+  }
+  const before = calls.length;
+  for (const wrong of [{ modelNo: 1 }, { noticeNo: '' }, { edition: '../notice' }, { regionCode: '99999' },
+    { allowOfficialPdf: true }, { noticeSource: 'manual' }, { houseManageNo: '0001' }]) {
+    assert.equal((await submit({ ...noticeInput, ...wrong })).status, 400);
+  }
+  assert.equal(calls.length, before);
+  response = Response.json({ code: 'PT403', message: 'SYNTHETIC_INTERNAL' }, { status: 403 });
+  assert.equal((await (await submit(noticeInput)).json()).error, 'notice_source_restricted');
+});
 
 function enqueue(body = JSON.stringify({ input: syntheticInput }), headers: HeadersInit = submitHeaders) {
   return request(runsPath, { method: 'POST', headers, body });

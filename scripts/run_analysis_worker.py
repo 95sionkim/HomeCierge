@@ -11,6 +11,9 @@ from uuid import UUID
 
 from compare_trades import compare_snapshot
 from ingestion_pages import loads_source_json
+from notice_run_capture import (
+    CaptureStopped, NoticeRunFailure, NoticeWorkerConfigurationError, live_notice_transports, prepare_notice_comparison,
+)
 from replay_ingestion import replay
 from store_ingestion import snapshot_input
 from worker_rpc import WorkerRpc, WorkerRpcError, WorkerRpcResponseTooLarge
@@ -77,7 +80,60 @@ def lease_identity(job, expected_run_id):
         raise WorkerRpcError() from None
 
 
-def execute_lease(client, lease, selection, lease_seconds):
+def finish_comparison(client, lease, inputs, capture, comparison):
+    return client.post('finish_analysis_comparison', {
+        **lease, 'p_input': inputs, 'p_result': capture, 'p_comparison': comparison,
+    })
+
+
+def execute_notice_lease(client, lease, selection, lease_seconds, transports):
+    if transports is None:
+        raise NoticeWorkerConfigurationError('공고 실행을 처리하려면 --live 또는 공고 조회 전송이 필요합니다.')
+
+    def renew(seconds):
+        reply = client.post('renew_analysis_run', {**lease, 'p_lease_seconds': seconds})
+        if (not isinstance(reply, dict) or reply.get('runId') != lease['p_run_id']
+                or reply.get('status') != 'running' or type(reply.get('attempt')) is not int
+                or reply['attempt'] != lease['p_generation']):
+            raise WorkerRpcError()
+
+    try:
+        try:
+            work = client.post('read_comparison_work', lease, limit=MAX_COMPARISON_INPUT_BYTES)
+        except WorkerRpcResponseTooLarge:
+            raise NoticeRunFailure('notice_capture_limit', False) from None
+        inputs, capture, comparison = prepare_notice_comparison(
+            selection, work, generation=lease['p_generation'], transports=transports,
+            renew=renew, lease_seconds=lease_seconds,
+        )
+        return finish_comparison(client, lease, inputs, capture, comparison)
+    except CaptureStopped as exc:
+        if exc.rpc_error is not None:
+            # 갱신 응답이 유실된 경우도 새 RPC로 현재 세대의 상태를 쓰지 않는다.
+            raise exc.rpc_error from None
+        code, retryable = 'notice_capture_limit', False
+    except NoticeRunFailure as exc:
+        code, retryable = exc.code, exc.retryable
+    except WorkerRpcError as exc:
+        if exc.code in ('42501', 'PT403') or exc.status == 403:
+            code, retryable = 'notice_source_restricted', False
+        elif exc.code == 'PT422':
+            code, retryable = 'notice_selection_unverified', False
+        elif exc.code == '22023':
+            return client.post('fail_analysis_run', {**lease, 'p_retryable': False})
+        elif exc.status == 413:
+            code, retryable = 'notice_capture_limit', False
+        elif exc.status == 429:
+            code, retryable = 'notice_feed_unavailable', True
+        else:
+            # 완료 응답 유실 등 커밋 여부를 모르면 다른 쓰기를 시도하지 않는다.
+            raise
+    return client.post('fail_notice_analysis_run', {**lease, 'p_error_code': code, 'p_retryable': retryable})
+
+
+def execute_lease(client, lease, selection, lease_seconds, notice=None):
+    if isinstance(selection, dict) and selection.get('kind') == 'notice':
+        return execute_notice_lease(client, lease, selection, lease_seconds, notice)
     try:
         try:
             work = client.post('read_comparison_work', lease, limit=MAX_COMPARISON_INPUT_BYTES)
@@ -86,9 +142,7 @@ def execute_lease(client, lease, selection, lease_seconds):
             raise ValueError('비교 입력 크기를 확인하세요.') from None
         inputs, capture, comparison = prepare_comparison(selection, work)
         client.post('renew_analysis_run', {**lease, 'p_lease_seconds': lease_seconds})
-        return client.post('finish_analysis_comparison', {
-            **lease, 'p_input': inputs, 'p_result': capture, 'p_comparison': comparison,
-        })
+        return finish_comparison(client, lease, inputs, capture, comparison)
     except (AttributeError, KeyError, OSError, TypeError, ValueError):
         retryable = False
     except WorkerRpcError as exc:
@@ -98,7 +152,8 @@ def execute_lease(client, lease, selection, lease_seconds):
     return client.post('fail_analysis_run', {**lease, 'p_retryable': retryable})
 
 
-def run_once(client, *, lease_seconds=60, run_id=None):
+def run_once(client, *, lease_seconds=60, run_id=None, notice=None):
+    """큐 한 건을 처리한다. 공고 실행에만 주입 전송이나 전송 생성 함수를 사용한다."""
     if type(lease_seconds) is not int or not 1 <= lease_seconds <= 300:
         raise ValueError('임대 시간은 1~300초여야 합니다.')
     claim = {'p_lease_seconds': lease_seconds}
@@ -112,7 +167,7 @@ def run_once(client, *, lease_seconds=60, run_id=None):
     run_id = lease['p_run_id']
     selection = job.get('input')
     try:
-        reply = execute_lease(client, lease, selection, lease_seconds)
+        reply = execute_lease(client, lease, selection, lease_seconds, notice)
     except WorkerRpcError as exc:
         if exc.code in ('PT404', 'PT409'):
             return {'status': 'lease_lost', 'runId': run_id}
@@ -139,6 +194,7 @@ def main():
     mode.add_argument('--once', action='store_true', help='작업을 한 건까지 처리하고 종료 (기본)')
     mode.add_argument('--watch', action='store_true', help='중지할 때까지 개발 큐의 작업을 처리')
     mode.add_argument('--demo', action='store_true', help='고정 합성 공고 한 건의 비교 결과를 DB 없이 출력')
+    parser.add_argument('--live', action='store_true', help='선택한 공고에 청약홈·실거래·허용된 공식 PDF 조회를 사용')
     parser.add_argument('--run-id', type=UUID, help='지정한 실행 한 건만 인수')
     parser.add_argument('--lease-seconds', type=int, default=60, help='DB 임대 유효 시간, 기본 60초')
     args = parser.parse_args()
@@ -147,6 +203,8 @@ def main():
     if not 1 <= args.lease_seconds <= 300:
         parser.error('--lease-seconds는 1~300 범위여야 합니다.')
     if args.demo:
+        if args.live:
+            parser.error('--demo는 --live와 함께 사용할 수 없습니다.')
         work = {'conditions': {}, 'ingestion': None, 'evidence': None,
                 'selectionBindingIssue': None, 'useSyntheticFixture': True}
         _, _, comparison = prepare_comparison({'kind': 'synthetic', 'fixture': 'ingestion-v0'}, work)
@@ -156,9 +214,12 @@ def main():
         client = WorkerRpc(os.environ)
     except ValueError as exc:
         parser.exit(2, f'{exc}\n')
+    notice = live_notice_transports if args.live else None
     while True:
         try:
-            outcome = run_once(client, lease_seconds=args.lease_seconds, run_id=args.run_id)
+            outcome = run_once(client, lease_seconds=args.lease_seconds, run_id=args.run_id, notice=notice)
+        except NoticeWorkerConfigurationError as exc:
+            parser.exit(2, f'{exc}\n')
         except WorkerRpcError as exc:
             print(str(exc), file=sys.stderr, flush=True)
             if not args.watch:

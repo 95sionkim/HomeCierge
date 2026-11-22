@@ -79,6 +79,16 @@ class RegionCodes:
     def resolve(self, address):
         return self.match(address_tokens(address))[0]
 
+    def names(self):
+        """현존 코드별 공식 전체 명칭. 일반구는 상위 시를 포함한 경로를 그대로 쓴다."""
+        names = {}
+        for tokens, matches in self.codes.items():
+            name = ' '.join(tokens)
+            for code in matches:
+                if names.setdefault(code, name) != name:
+                    raise ValueError('한 시·군·구 코드에 서로 다른 공식 명칭이 있습니다.')
+        return {code: names[code] for code in self.active_codes}
+
     def match(self, tokens):
         # 일반구의 상위 시 또는 명칭이 겹치는 행에서 다른 범위로 내려가지 않는다.
         for length in range(min(len(tokens), self.max_depth), 0, -1):
@@ -105,7 +115,11 @@ class RegionCodes:
 
 def read_region_codes(path):
     """행정표준코드관리시스템의 법정동 코드 전체자료에서 현존 시·군·구를 읽는다."""
-    data = Path(path).read_bytes()
+    return read_region_codes_bytes(Path(path).read_bytes())
+
+
+def read_region_codes_bytes(data):
+    """압축을 푼 법정동 코드 전체자료 TXT의 바이트를 읽는다."""
     try:
         content = data.decode('utf-8-sig')
     except UnicodeDecodeError:
@@ -349,6 +363,7 @@ def public_models(catalog, allowed, reasons):
         if not numeric_identifier(model_no, 20):
             reasons.add('source_unverified')
             continue
+        house_type = public_text(model['houseType']['value'], 64)
         value = model['checkedSupplyArea']
         area_refs = public_refs(value['evidence'], allowed) if value['status'] == 'confirmed' else []
         if len(area_refs) > MAX_REFS:
@@ -358,7 +373,7 @@ def public_models(catalog, allowed, reasons):
         model_rooms = rooms[model_no]
         if not model_rooms or any(room['subtotalWon'] is None for room in model_rooms):
             reasons.add('price_unverified')
-        models.append({'modelNo': model_no, 'houseType': public_text(model['houseType']['value'], 64),
+        models.append({'modelNo': model_no, 'houseType': house_type,
                        'supplyAreaM2': value['m2'] if area_refs else None, 'areaEvidence': area_refs,
                        'rooms': model_rooms})
     return models
@@ -386,7 +401,7 @@ def inventory_complete(facts, rows, models, catalog, receipt):
                     and all(room['subtotalWon'] is not None for room in model['rooms']) for model in models))
 
 
-def enrich_notice(candidate, facts, source, fetch, regions, page_size, max_pages, review):
+def enrich_notice(candidate, facts, source, fetch, regions, page_size, max_pages, review, *, model_diagnostics):
     target = {key: candidate[key] for key in ('houseManageNo', 'noticeNo', 'edition')}
     matching = (target['houseManageNo'], target['noticeNo'])
     reasons = candidate['reasonCodes']
@@ -434,13 +449,23 @@ def enrich_notice(candidate, facts, source, fetch, regions, page_size, max_pages
                                                      review_documents=check_documents)
     except (OSError, ValueError):
         reasons.add('source_unverified')
+        if model_diagnostics:
+            reasons.add('detail_collection_incomplete')
         return
-    if 'notice_metadata_conflict' in reasons or catalog['notice']['status'] != 'reported':
+    if 'notice_metadata_conflict' in reasons:
+        return
+    if catalog['notice']['status'] != 'reported':
+        if model_diagnostics:
+            reasons.add('detail_collection_incomplete')
         return
     if not official:
         reasons.add('source_unverified')
-    candidate['models'] = public_models(catalog, official, reasons)
-    if candidate['models']:
+    models = candidate['models'] = public_models(catalog, official, reasons)
+    if model_diagnostics and (catalog['housingTypesStatus'] != 'reported'
+                              or len(models) != len(rows[source + '_model'])
+                              or any(model['houseType'] is None for model in models)):
+        reasons.add('model_unverified')
+    if models:
         candidate['sourceIds'].append(source + '_model')
     if any(model['areaEvidence'] or model['rooms'] for model in candidate['models']):
         candidate['sourceIds'].append(PDF_SOURCE)
@@ -477,8 +502,16 @@ def limit_index_details(index, details_in_priority_order):
 
 def build_notice_search_index(start, end, regions, fetch, *, data_origin='synthetic', observed_at=None,
                               page_size=100, max_pages=5, max_detail_notices=10, max_detail_pages=2,
-                              max_document_requests=20, document_fetch=None, document_inspect=None):
-    """두 공식 목록에서 시작하고, 기술 한도 안에서 같은 공고의 주택형과 공식 PDF를 점검한다."""
+                              max_document_requests=20, document_fetch=None, document_inspect=None,
+                              detail_active_only=False, details_require_complete_lists=False,
+                              model_diagnostics=False, list_diagnostics=None):
+    """두 공식 목록에서 시작하고, 기술 한도 안에서 같은 공고의 주택형과 공식 PDF를 점검한다.
+
+    detail_active_only는 관측일에 접수가 끝난 공고의 상세 조회를 생략한다. details_require_complete_lists는
+    두 목록 중 하나라도 완료·정상 빈 응답이 아니면 상세를 조회하지 않는다. 생략한 공고에는 상세 예산 사유를 남긴다.
+    model_diagnostics는 목록 화면에 필요한 주택형 미확인 사유를 추가한다.
+    list_diagnostics에는 게시 JSON 밖에서 확인할 출처별 건수·누락 사유만 기록한다.
+    """
     scope = publication_scope(start, end)
     if data_origin not in ('synthetic', 'collected'):
         raise ValueError('자료 출처를 확인하세요.')
@@ -497,19 +530,33 @@ def build_notice_search_index(start, end, regions, fetch, *, data_origin='synthe
         try:
             collection = collect_pages(source, scope, fetch, page_size=page_size, max_pages=max_pages)
         except (OSError, ValueError):
-            collection = {'status': 'failed', 'observations': []}
+            collection = {'status': 'failed', 'observations': [], 'reasons': ['list_read_failed']}
         status = collection['status']
+        reasons = set(collection['reasons'])
+        if collection.get('error'):
+            reasons.add(collection['error']['code'])
         seen = set()
         for observation in collection['observations']:
             row = observation['row']
             numbers = number_pair(row)
             publication = iso_date(row.get('RCRIT_PBLANC_DE'))
-            if numbers is None or numbers in seen or publication is None or not start <= publication <= end:
-                status = 'partial'
+            if numbers is None:
+                reasons.add('notice_identity_missing')
+            elif numbers in seen:
+                reasons.add('notice_identity_repeated')
+            if publication is None or not start <= publication <= end:
+                reasons.add('publication_scope_unverified')
             if numbers is not None:
                 seen.add(numbers)
                 groups[numbers].append((source, listing_facts(source, row, regions)))
+        if status == 'complete' and reasons:
+            status = 'partial'
         sources.append({'source': source, 'status': status})
+        if list_diagnostics is not None:
+            list_diagnostics[source] = {'reportedTotalCount': collection.get('reportedTotalCount'),
+                                        'rowsReceived': len(collection['observations']),
+                                        'missingPageCount': len(collection.get('missingPages', ())),
+                                        'reasonCodes': sorted(reasons)}
 
     candidates, queued = [], []
     for (house, notice), group in sorted(groups.items()):
@@ -531,14 +578,18 @@ def build_notice_search_index(start, end, regions, fetch, *, data_origin='synthe
         for entry in sources:
             if entry['source'] in omitted_sources:
                 entry['status'] = 'partial'
+                if list_diagnostics is not None:
+                    list_diagnostics[entry['source']]['reasonCodes'].append('notice_limit_reached')
         candidates = [candidate for candidate in candidates if id(candidate) not in omitted]
         queued = [item for item in queued if id(item[0]) not in omitted]
+    statuses = {entry['status'] for entry in sources}
+    lists_complete = statuses <= {'complete', 'empty'}
 
     remaining_requests = max_document_requests
     detailed = []
-    for position, (candidate, (source, facts)) in enumerate(
-            sorted(queued, key=lambda item: search_priority(item[0], today))):
-        if position >= max_detail_notices:
+    for candidate, (source, facts) in sorted(queued, key=lambda item: search_priority(item[0], today)):
+        if (len(detailed) >= max_detail_notices or (details_require_complete_lists and not lists_complete)
+                or (detail_active_only and search_priority(candidate, today)[0] == 3)):
             candidate['reasonCodes'].add('detail_budget_exhausted')
             continue
 
@@ -558,15 +609,15 @@ def build_notice_search_index(start, end, regions, fetch, *, data_origin='synthe
                 return {'evidence': [], 'issues': [], 'review': {'documents': []}}
             return review_catalog_documents(target, catalog, fetch=bounded_document, **options)
 
-        enrich_notice(candidate, facts, source, fetch, regions, page_size, max_detail_pages, review)
+        enrich_notice(candidate, facts, source, fetch, regions, page_size, max_detail_pages, review,
+                      model_diagnostics=model_diagnostics)
         detailed.append(candidate)
 
     for candidate in candidates:
         if not candidate['inventoryComplete']:
             candidate['reasonCodes'].add('inventory_incomplete')
         candidate['reasonCodes'] = sorted(candidate['reasonCodes'])
-    statuses = {entry['status'] for entry in sources}
-    coverage = ('complete' if statuses <= {'complete', 'empty'} else
+    coverage = ('complete' if lists_complete else
                 'unavailable' if statuses == {'failed'} else 'partial')
     index = {'contractVersion': CONTRACT_VERSION, 'dataOrigin': data_origin, 'observedAt': observed_at,
              'publicationWindow': {'start': start, 'end': end},

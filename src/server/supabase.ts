@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { createClient, StorageApiError } from '@supabase/supabase-js';
 import type { Database } from '../db/database.types.js';
 import { ApiError } from './http-input.js';
@@ -7,6 +8,11 @@ import type { Backend, BackendConfig } from './handler.js';
 
 const uploadBucket = 'analysis-uploads';
 const backendTimeoutMs = 8000;
+const noticeConflicts = [
+  'notice_index_not_ready', 'notice_not_found', 'notice_source_conflict', 'notice_kind_unsupported',
+  'notice_edition_mismatch', 'notice_edition_unverified', 'notice_model_not_found', 'notice_model_unverified',
+  'notice_region_unverified', 'analysis_notice_selection_conflict',
+] as const;
 
 export function createBackend(config: BackendConfig): Backend {
   const baseUrl = `${config.url.trim().replace(/\/+$/, '')}/`;
@@ -49,6 +55,14 @@ export function createBackend(config: BackendConfig): Backend {
           ...args, p_run_id: operation.runId,
         });
       const { data, error } = await rpc.abortSignal(signal);
+      if (operation.action === 'enqueue' && operation.input.kind === 'notice' && error) {
+        if (error.code === 'PT403') throw new ApiError('notice_source_restricted');
+        if (error.code === '42501' && error.message === 'authentication_required') throw new ApiError('authentication_required');
+        if (error.code === 'PT409') {
+          const cause = noticeConflicts.find(code => code === error.message);
+          if (cause) throw new ApiError(cause);
+        }
+      }
       if (error?.code === 'PT404') throw new ApiError('run_not_found');
       if (error?.code === 'PT409') throw new ApiError('run_conflict');
       if (error?.code === '22023') throw new ApiError('invalid_run_input');
@@ -59,18 +73,16 @@ export function createBackend(config: BackendConfig): Backend {
       if (!run || run.analysisId !== operation.analysisId) throw new Error('invalid_run_response');
       let matches: boolean;
       if (operation.action === 'enqueue') {
-        const input = operation.input;
-        matches = input.kind === 'snapshot'
-          ? run.input.kind === 'snapshot' && run.input.snapshotId === input.snapshotId
-          : run.input.kind === 'synthetic' && run.input.fixture === input.fixture;
+        matches = isDeepStrictEqual(run.input, operation.input);
       } else {
         matches = run.runId === operation.runId && (operation.action !== 'cancel' || run.status === 'cancelled');
       }
       if (!matches) throw new Error('invalid_run_response');
       return run;
     },
-    async getNoticeSearchIndex(signal) {
-      const { data, error } = await client.rpc('read_notice_search_index').abortSignal(signal);
+    async getNoticeSearchIndex(signal, purpose) {
+      const rpc = purpose === 'directory' ? 'read_notice_directory_index' : 'read_notice_search_index';
+      const { data, error } = await client.rpc(rpc).abortSignal(signal);
       if (error?.code === '42501' && error.message === 'notice_search_authentication_required') {
         throw new ApiError('authentication_required');
       }

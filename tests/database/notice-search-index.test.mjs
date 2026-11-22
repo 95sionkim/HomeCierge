@@ -33,6 +33,7 @@ async function as(role, userId = '', anonymous = false) {
 const publish = (index) => db.query('select public.publish_notice_search_index($1)',
   [index === null ? null : JSON.stringify(index)]);
 const read = async () => (await db.query('select public.read_notice_search_index() as value')).rows[0].value;
+const directory = async () => (await db.query('select public.read_notice_directory_index() as value')).rows[0].value;
 
 function fixture(observedAt = new Date()) {
   const today = koreaDate.format(observedAt);
@@ -82,6 +83,7 @@ before(async () => {
 beforeEach(async () => {
   await db.exec('reset role');
   await db.exec('delete from private.notice_search_index');
+  await db.exec('delete from private.notice_directory_publication');
   await db.query(`insert into public.source_registry(id,display_name,storage_permission,reuse_permission,display_permission)
     select id,'합성 출처','allowed','allowed','allowed' from unnest($1::text[]) as source(id)
     on conflict (id) do update set storage_permission = 'allowed', reuse_permission = 'allowed',
@@ -89,6 +91,85 @@ beforeEach(async () => {
 });
 
 after(async () => { await db?.close(); });
+
+test('a directory refresh is atomic with its region names and preserves previously reviewed search prices', async () => {
+  const full = fixture(new Date(Date.now() - 3000));
+  const index = structuredClone(full);
+  index.observedAt = new Date().toISOString();
+  const item = index.notices[0];
+  item.title = '합성 갱신 공고';
+  item.sourceIds = [feeds[0], 'applyhome_apt_model'];
+  item.inventoryComplete = false;
+  item.models = [{ ...item.models[0], supplyAreaM2: null, areaEvidence: [], rooms: [] }];
+  const names = { '99990': '합성시', '99999': '합성시 가람구' };
+  const put = (value, labels = names) => db.query('select public.publish_notice_directory($1,$2)',
+    [JSON.stringify(value), JSON.stringify(labels)]);
+  await as('service_role');
+  await publish(full);
+  await put(index);
+  await put(index);
+  await assert.rejects(put(index, { ...names, '99999': '합성 새이름구' }), conflict);
+  await assert.rejects(put({ ...index, observedAt: full.observedAt }), conflict);
+  await assert.rejects(put(index, { '99999': '합성시 가람구' }), invalid);
+  await assert.rejects(put(index, { ...names, '99999': 99999 }), invalid);
+  await assert.rejects(put(full), invalid);
+  await assert.rejects(put({ ...index, coverage: { status: 'partial', sources: [
+    { source: feeds[0], status: 'partial' }, { source: feeds[1], status: 'empty' },
+  ] } }), invalid);
+  await as('authenticated', users.verified);
+  await assert.rejects(put(index), forbidden);
+  const browsed = await directory();
+  assert.deepEqual(browsed.regionNames, names);
+  assert.equal(browsed.notices[0].title, item.title);
+  assert.deepEqual(await read(), full);
+});
+
+test('directory reads share timelines but only return permitted model identities', async () => {
+  await as('authenticated', users.verified);
+  assert.equal(await directory(), null);
+  const index = fixture();
+  await as('service_role');
+  await publish(index);
+  await db.exec("update public.source_registry set display_permission='denied' where id='applyhome_notice_pdf'");
+  await as('authenticated', users.verified);
+  await assert.rejects(read(), restricted);
+  const published = await directory();
+  const item = published.notices[0];
+  assert.equal(published.observedAt, index.observedAt);
+  assert.deepEqual(item.application, index.notices[0].application);
+  assert.deepEqual(item.models, [{ modelNo: '01', houseType: '084.0000A', supplyAreaM2: null, areaEvidence: [], rooms: [] }]);
+  assert.deepEqual(item.sourceIds, [feeds[0], 'applyhome_apt_model']);
+  assert.equal(item.inventoryComplete, false);
+  assert.equal(item.moveIn, null);
+  assert.doesNotMatch(JSON.stringify(published), /sha256|720000000|101동|110\.1234/u);
+  await as('service_role');
+  await db.exec("update public.source_registry set storage_permission='unknown' where id='applyhome_apt_model'");
+  await as('authenticated', users.second);
+  const hidden = (await directory()).notices[0];
+  assert.deepEqual(hidden.models, []);
+  assert.deepEqual(hidden.sourceIds, [feeds[0]]);
+  assert.deepEqual(hidden.reasonCodes, ['source_restricted']);
+  await as('service_role');
+  await db.exec("update public.source_registry set retention_days=7 where id='mois_legal_region_codes'");
+  await as('authenticated', users.second);
+  await assert.rejects(directory(), restricted);
+});
+
+test('directory checks confirmed login independently and expires the shared publication', async () => {
+  await as('anon');
+  await assert.rejects(directory(), forbidden);
+  for (const user of [users.unconfirmed, users.deleted, users.banned, users.anonymous]) {
+    await as('authenticated', user);
+    await assert.rejects(directory(), forbidden);
+  }
+  await as('service_role');
+  await assert.rejects(directory(), forbidden);
+  await db.exec('reset role');
+  const stale = fixture(new Date(Date.now() - 74 * hourMs));
+  await db.query('insert into private.notice_search_index (index_value) values ($1)', [JSON.stringify(stale)]);
+  await as('authenticated', users.verified);
+  assert.equal(await directory(), null);
+});
 
 test('only verified authenticated users can read the same published catalog', async () => {
   const index = fixture();

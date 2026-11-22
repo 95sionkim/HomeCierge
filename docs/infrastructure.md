@@ -126,6 +126,8 @@ BE-09에서 서울 개발 DB에 [법령 참조 마이그레이션](../supabase/m
 
 BE-10에서 서울 개발 DB에 [지역 뉴스 조회 마이그레이션](../supabase/migrations/20261122062325_analysis_regional_news.sql)을 적용하고 생성된 사용자 RPC 타입을 대조했다. 사용자별 조회 제한은 분 단위 시각과 횟수만 기록한다. 개발 DB의 `naver_news` 표시 권한은 미등록이어서 실제 공고에서도 외부 호출을 보류한다. 화면 팀이 해당 서비스의 NAVER Application 등록과 검색결과의 출처 표시를 확인한 뒤 환경별로 활성화한다. [API 계약과 실호출 검수](api/regional-news.md)
 
+BE-11에서 서울 개발 DB에 [오늘 공고 목록](../supabase/migrations/20261122065700_notice_directory.sql)과 [선택 공고의 분석 실행](../supabase/migrations/20261122071230_notice_analysis_runs.sql)을 적용하고, [기간 미확인 결과의 주택형 검사](../supabase/migrations/20261122071514_notice_run_held_model.sql)를 추가했다. 세 SQL 파일의 SHA-256을 원격 마이그레이션과 대조했고 DB에서 TypeScript 타입을 다시 생성했다. 개발 DB의 인증 사용자 역할에서 공식 공고 198건을 읽고 논산 공고의 주택형 01을 두 번 접수해 같은 실행 ID를 받았다. 지정한 실행의 인수와 보류 사유 재조회까지 확인한 뒤 시험 데이터를 롤백했다. 공식 매매·권리의 구조화 자료는 개발 레지스트리에 보관·재사용·표시 허용으로 등록했다. 공식 공고 PDF 사용은 출처별 확인이 남아 있다. [공식 실자료 검산](api/notice-directory.md) · [작업자와 화면의 호출 계약](api/analysis-runs.md)
+
 ## 6. 연결할 환경변수를 구분한다
 
 | 이름을 확인한다 | 설정 위치를 정한다 | 사용 목적을 설명한다 |

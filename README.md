@@ -13,6 +13,7 @@
 | [리뷰 보완 추적표](docs/prd/03-review-resolution.md) | 원 리뷰 14건의 발견과 당시 처리 상태 |
 | [DB·배포 준비](docs/infrastructure.md) | Supabase 스키마·권한, Vercel 환경 분리, 로컬 검사와 실제 연결 상태 |
 | [화면 팀 연결 계약](docs/frontend-handoff.md) | 사용자 인증, 데이터 접근, 프로필 승인과 구현 전 기능 |
+| [오늘 접수하는 청약 공고 목록](docs/api/notice-directory.md) | 예산 입력 전 공고 일정과 주택형을 살펴보고 한 주택형의 분석을 시작하는 흐름 |
 | [분석 결과 계약 v0](docs/api/analysis-result-v0.md) | 화면팀이 같은 요청의 정상 0개·부분 수집·출처 오류를 구별하는 스키마와 합성 응답 |
 | [공고·실거래 수집과 정규화](docs/api/ingestion-v0.md) | 한 공고의 주택형·호실 가격 근거와 지역·계약월별 거래를 합성 자료로 재생하는 방법 |
 | [분석별 저장·비공개 업로드](docs/api/ingestion-storage.md) | 같은 수집 키의 재시도, 저장한 근거 조회, 사용자 소유 PDF의 등록·삭제 순서 |

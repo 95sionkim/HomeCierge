@@ -30,7 +30,7 @@ function post(body: BodyInit = JSON.stringify(conditions), type = 'application/j
   } });
 }
 
-function installBackend(t: TestContext, read: () => Response, anonymous = false) {
+function installBackend(t: TestContext, read: () => Response, anonymous = false, rpc = 'read_notice_search_index') {
   const calls: string[] = [];
   t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init);
@@ -40,13 +40,43 @@ function installBackend(t: TestContext, read: () => Response, anonymous = false)
     assert.equal(request.headers.get('apikey'), env.SUPABASE_PUBLISHABLE_KEY);
     calls.push(pathname);
     if (pathname === '/auth/v1/user') return Response.json({ id: 'synthetic', is_anonymous: anonymous });
-    assert.equal(pathname, '/rest/v1/rpc/read_notice_search_index');
+    assert.equal(pathname, '/rest/v1/rpc/' + rpc);
     assert.equal(request.method, 'POST');
     assert.deepEqual(await request.json(), {});
     return read();
   });
   return { handle: createHandler({ env, createBackend, now, log: () => {} }), calls };
 }
+
+test('the notice directory accepts a signed-in GET without a budget or region and uses the Korea date', async t => {
+  const { handle, calls } = installBackend(t, () => Response.json(emptyIndex), false, 'read_notice_directory_index');
+  const url = 'https://api.invalid/api/v1/notices';
+  const headers = { Authorization: token, Origin: env.ALLOWED_ORIGINS };
+  assert.equal((await handle(new Request(url))).status, 401);
+  const preflight = await handle(new Request(url, { method: 'OPTIONS', headers }));
+  assert.equal(preflight.headers.get('access-control-allow-methods'), 'GET, OPTIONS');
+  assert.equal((await handle(new Request(url, { method: 'POST', headers }))).status, 405);
+  for (const query of ['?asOf=2080-01-01', '?budgetMaxWon=100', '?includeClosed=true&includeClosed=false']) {
+    const response = await handle(new Request(url + query, { headers }));
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).error, 'invalid_directory_input');
+  }
+  const response = await handle(new Request(url, { headers }));
+  assert.equal(response.status, 200);
+  const directory = await response.json();
+  assert.equal(directory.contractVersion, 'notice-directory/v1');
+  assert.equal(directory.asOf, '2026-11-22');
+  assert.equal(response.headers.get('cache-control'), 'private, no-store');
+  assert.equal(response.headers.get('vercel-cdn-cache-control'), 'no-store');
+  assert.equal(calls.filter(path => path.startsWith('/rest/')).length, 1);
+});
+
+test('a directory without a current publication never returns an empty successful list', async t => {
+  const { handle } = installBackend(t, () => Response.json(null), false, 'read_notice_directory_index');
+  const response = await handle(new Request('https://api.invalid/api/v1/notices', { headers: { Authorization: token } }));
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).error, 'search_index_not_ready');
+});
 
 test('search reads the published index using the authenticated caller and Korea calendar date', async t => {
   const { handle, calls } = installBackend(t, () => Response.json(emptyIndex));

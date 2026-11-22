@@ -72,7 +72,7 @@ class WorkerRpc:
                 try:
                     detail = json.loads(exc.read(2048))
                     if isinstance(detail, dict) and detail.get('code') in (
-                            'PT404', 'PT409', 'PT422', '22023', '23503', '23505', '42501'):
+                            'PT403', 'PT404', 'PT409', 'PT422', '22023', '23503', '23505', '42501'):
                         code = detail['code']
                 except (OSError, http.client.HTTPException, ValueError, TypeError):
                     pass

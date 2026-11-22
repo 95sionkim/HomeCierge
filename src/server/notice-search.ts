@@ -37,7 +37,7 @@ const maxRowsPerDetailGroup = 12;
 // 목록별 한도로 두 집계의 상세를 함께 제공한다. 512 KiB 중 나머지는 조건·범위·건수에 사용한다.
 const maxBytesPerList = 250 * 1024;
 
-type DateRange = { start: string; end: string };
+export type DateRange = { start: string; end: string };
 type AreaRange = { min: string; max: string; unit: 'm2' | 'pyeong' };
 export type NoticeSearchConditions = {
   regionCodes: string[];
@@ -47,9 +47,9 @@ export type NoticeSearchConditions = {
   includeClosed: boolean;
 };
 
-type CollectionSource = typeof collectionSources[number];
-type SourceId = typeof sourceIds[number];
-type ReasonCode = typeof reasonCodes[number];
+export type CollectionSource = typeof collectionSources[number];
+export type SourceId = typeof sourceIds[number];
+export type ReasonCode = typeof reasonCodes[number];
 type Coverage = {
   status: typeof coverageStatuses[number];
   sources: { source: CollectionSource; status: typeof sourceStatuses[number] }[];
@@ -59,7 +59,7 @@ type Room = { room: string; subtotalWon: string | null; priceEvidence: EvidenceR
 type Model = {
   modelNo: string; houseType: string | null; supplyAreaM2: string | null; areaEvidence: EvidenceRef[]; rooms: Room[];
 };
-type Notice = {
+export type Notice = {
   houseManageNo: string; noticeNo: string; edition: string; title: string | null;
   kind: typeof noticeKinds[number]; regionCode: string | null; parentRegionCode?: string;
   application: DateRange | null; applicationSegments?: DateRange[]; moveIn: DateRange | null;
@@ -240,7 +240,7 @@ function readNotice(value: unknown): Notice {
     ...(parentRegionCode !== null ? { parentRegionCode } : {}), ...(applicationSegments ? { applicationSegments } : {}) };
 }
 
-function readIndex(value: unknown): Index {
+export function readIndex(value: unknown): Index {
   indexAssert(hasShape(value, ['contractVersion', 'dataOrigin', 'observedAt', 'publicationWindow', 'coverage', 'notices'], ['regionCodes']));
   const { contractVersion, dataOrigin, observedAt, coverage } = value;
   const publicationWindow = readRange(value.publicationWindow, isDate);
@@ -281,7 +281,7 @@ function readIndex(value: unknown): Index {
   return { dataOrigin, observedAt, publicationWindow, regionCodes, coverage: { status, sources }, notices };
 }
 
-type ApplicationStatus = 'open' | 'upcoming' | 'closed' | 'unknown';
+export type ApplicationStatus = 'open' | 'upcoming' | 'closed' | 'unknown';
 type ReviewRoom = Room & { reasonCodes: ReasonCode[] };
 type ModelResult = Omit<Model, 'rooms'> & {
   supplyAreaPyeong: string | null; matchedRooms: Room[]; needsReviewRooms: ReviewRoom[];
@@ -292,7 +292,7 @@ type NoticeResult = Omit<Notice, 'models'> & {
   truncation: { matchedRoomsOmitted: number; needsReviewRoomsOmitted: number; modelsWithoutRoomsOmitted: number };
 };
 
-function applicationStatus({ application, applicationSegments }: Notice, asOf: string): ApplicationStatus {
+export function applicationStatus({ application, applicationSegments }: Notice, asOf: string): ApplicationStatus {
   if (!application) return 'unknown';
   if (asOf < application.start) return 'upcoming';
   if (asOf > application.end) return 'closed';

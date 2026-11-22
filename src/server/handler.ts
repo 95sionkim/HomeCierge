@@ -4,6 +4,7 @@ import { koreaDate } from './public-fields.js';
 import { readLegalEvidence } from './legal-evidence.js';
 import { readRegionalNews } from './regional-news-request.js';
 import { parseNoticeSearchConditions, evaluateNoticeSearch } from './notice-search.js';
+import { evaluateNoticeDirectory, parseNoticeDirectoryQuery } from './notice-directory.js';
 import { readAnalysisRunOperation } from './analysis-runs.js';
 import type { AnalysisRun, AnalysisRunOperation, ComparisonSnapshot } from './analysis-runs.js';
 import { calculateFundingPlan } from './funding-plan.js';
@@ -21,7 +22,7 @@ export type Backend = {
     signal: AbortSignal;
   }) => Promise<ReadableStream<Uint8Array> | null>;
   runAnalysis: (operation: AnalysisRunOperation, signal: AbortSignal) => Promise<AnalysisRun>;
-  getNoticeSearchIndex: (signal: AbortSignal) => Promise<unknown>;
+  getNoticeSearchIndex: (signal: AbortSignal, purpose: 'directory' | 'search') => Promise<unknown>;
   getFundingInputs: (selection: FundingSelection, signal: AbortSignal) => Promise<unknown>;
   getLegalEvidence: (analysisId: string, snapshotId: string, signal: AbortSignal) => Promise<unknown>;
   prepareRegionalNews: (analysisId: string, snapshotId: string, signal: AbortSignal) => Promise<unknown>;
@@ -67,6 +68,7 @@ export function createHandler(deps: {
     const snapshotService = path.match(snapshotServicePath);
     const news = snapshotService?.[3] === 'regional-news';
     const search = path === '/api/v1/notices/search';
+    const directory = path === '/api/v1/notices';
     const enqueues = run !== null && !run[2];
     const method = search || funding || news || enqueues || run?.[3] === 'cancel' ? 'POST' : 'GET';
     const allowedMethods = `${method}, OPTIONS`;
@@ -76,7 +78,7 @@ export function createHandler(deps: {
       'X-Content-Type-Options': 'nosniff',
       'X-Request-Id': requestId,
     });
-    if (search || funding || snapshotService || upload || run?.[3] === 'result') {
+    if (search || directory || funding || snapshotService || upload || run?.[3] === 'result') {
       headers.set('Cache-Control', 'private, no-store');
       headers.set('Vary', 'Authorization, Origin');
       headers.set('Vercel-CDN-Cache-Control', 'no-store');
@@ -97,7 +99,7 @@ export function createHandler(deps: {
       return respond({ error: 'method_not_allowed', requestId }, 405);
     }
     if (path === '/api/health') return respond({ status: 'ok', service: 'homecierge-api', version: '0.1.0' }, 200);
-    if (!upload && !run && !search && !funding && !snapshotService && !['/api/v1/me','/api/ready'].includes(path)) return respond({ error: 'not_found', requestId }, 404);
+    if (!upload && !run && !search && !directory && !funding && !snapshotService && !['/api/v1/me','/api/ready'].includes(path)) return respond({ error: 'not_found', requestId }, 404);
 
     const authorization = request.headers.get('authorization');
     const match = authorization?.match(/^Bearer ([^\s]+)$/i);
@@ -134,16 +136,24 @@ export function createHandler(deps: {
         const inputs = await backend.getFundingInputs(selection, request.signal);
         return respond(calculateFundingPlan(inputs), 200);
       }
-      if (search) {
+      if (directory || search) {
+        const readPublishedIndex = async () => {
+          const index = await backend.getNoticeSearchIndex(request.signal, directory ? 'directory' : 'search');
+          if (index === null) throw new ApiError('search_index_not_ready');
+          if (typeof index !== 'object' || !('dataOrigin' in index) || index.dataOrigin !== 'collected') {
+            throw new Error('invalid_search_index');
+          }
+          return index;
+        };
+        const asOf = koreaDate.format(deps.now?.() ?? new Date());
+        if (directory) {
+          const options = parseNoticeDirectoryQuery(url.searchParams);
+          if (!options) throw new ApiError('invalid_directory_input');
+          return respond(evaluateNoticeDirectory(await readPublishedIndex(), options, asOf), 200);
+        }
         const conditions = parseNoticeSearchConditions(await readJsonRequest(request, 'invalid_search_input'));
         if (!conditions) throw new ApiError('invalid_search_input');
-        const index = await backend.getNoticeSearchIndex(request.signal);
-        if (index === null) throw new ApiError('search_index_not_ready');
-        if (typeof index !== 'object' || !('dataOrigin' in index) || index.dataOrigin !== 'collected') {
-          throw new Error('invalid_search_index');
-        }
-        const asOf = koreaDate.format(deps.now?.() ?? new Date());
-        return respond(evaluateNoticeSearch(index, conditions, asOf), 200);
+        return respond(evaluateNoticeSearch(await readPublishedIndex(), conditions, asOf), 200);
       }
       if (run) {
         const operation = await readAnalysisRunOperation(request, run[1], run[2], run[3] === 'cancel');
