@@ -31,6 +31,7 @@ Preview에는 Vercel 배포 보호가 켜져 있다. Vercel 로그인과 Supabas
 | `POST /api/v1/notices/search` | 희망 지역·예산과 선택 면적·입주월로 공고를 탐색 | 200이면 조건 충족·확인 필요 목록과 수집 범위를 표시. 최신 색인 준비 중은 503. [요청 및 응답](api/notice-search.md) |
 | `POST /api/v1/analyses/{analysisId}/funding-plan` | 해당 분석의 수집본·주택형·호실을 선택해 납부일별 자금과 부족액을 조회 | 확정 자금과 예상 포함 금액, 날짜를 알 수 없는 납부와 근거를 표시. [요청과 계산 예](api/funding-plan.md) |
 | `GET /api/v1/analyses/{analysisId}/snapshots/{snapshotId}/legal-evidence` | 본인 공고의 모집공고일에 시행된 「주택공급에 관한 규칙」을 조회 | 공고일·시행일·법제처 원문을 표시한다. 법령 판본과 개인 자격의 확인 상태를 구분한다. [상태별 표시와 예시](api/legal-evidence.md) |
+| `POST /api/v1/analyses/{analysisId}/snapshots/{snapshotId}/regional-news` | 사용자가 지역 뉴스 보기를 선택하면 공고 소재지로 최신순 검색 | 본문 없이 호출한다. 네이버 검색결과를 독립된 영역에서 원래 순서로 표시하고 기사별 원 출처·원문 링크, 검색 발췌, API 제공 시각, 지역 관련성 미확인을 안내한다. [상태와 표시 계약](api/regional-news.md) |
 | `POST /api/v1/analyses/{analysisId}/runs` | 자기 분석에서 수집 자료 준비를 접수 | 202와 조회 주소. 같은 키로 다른 입력을 보내면 409 |
 | `GET /api/v1/analyses/{analysisId}/runs/{runId}` | 실행 상태를 다시 읽음 | 200. 자료가 준비되면 `snapshotId` 제공 |
 | `GET /api/v1/analyses/{analysisId}/runs/{runId}/result` | 선택한 주택형과 주변 실거래의 저장된 비교 결과를 읽음 | 200이면 완전성·가격 상태·보류 사유를 표시. 출처 표시 권한이 철회되면 403, 다른 계정이면 404, 저장된 결과가 없으면 409 |
@@ -89,8 +90,9 @@ const { data, error } = await supabase.rpc('decide_profile_change', {
 
 ## 4. 구현 전인 기능을 구분한다
 
+- **진행 중인 청약 목록 페이지**는 B7 화면 통합 대상으로 등록했다. 로그인한 사용자가 예산 입력 전에도 오늘 접수 중인 공고를 열 수 있게 한다. 화면 착수 전 백엔드가 공고 일정과 범위를 받는 전용 조회 계약을 인계한다. 현재 `POST /api/v1/notices/search`는 지역·예산을 요구하는 맞춤 검색용이다. 카드·달력 시안과 검수 사례는 [개발 계획](development-plan.md#진행-중인-청약-목록-페이지를-준비한다)에서 확인한다.
 - 공고 문서 작업자가 처리한 수집본에서는 호실의 분양가·필수 옵션과 주택형 공급면적 각각의 확인 상태를 읽을 수 있다. 확인한 값은 문서 버전·페이지를, 보류한 값은 사유와 보완 경로를 표시한다. 지원 서식과 실제 검수 범위는 [공고 문서 작업자](api/notice-documents.md)에서 확인한다.
-- 현재 비교 작업자는 수집된 거래와 검수된 공급면적 근거를 사용한다. 실거래 공급면적 근거 자동 수집, 지역 뉴스와 출퇴근 경로 API 연결은 후속 개발 범위다.
+- 현재 비교 작업자는 수집된 거래와 검수된 공급면적 근거를 사용한다. 실거래 공급면적 근거 자동 수집과 출퇴근 경로 API 연결은 후속 개발 범위다.
 - 호실별 분양가·필수 옵션 원자료는 `result_snapshot.catalog`, 선택한 호실 또는 주택형의 확인 가격과 보류 사유는 `result.noticePrice`에서 읽는다. 빈 거래 목록의 의미는 `regionDecision`으로 확인한다.
 - 비공개 업로드 한 건은 삭제할 수 있다. 계정 전체, 파생 보고서와 백업 정리를 포함한 삭제 완료 화면은 후속 작업이다.
 - 실제 로그인 제공자, 화면 도메인, Production DB, 사용자 가치 검증과 59개 제품 수락 기준은 아직 별도 완료 조건이다.

@@ -20,6 +20,7 @@ const backend: Backend = {
   getNoticeSearchIndex: async () => { throw new Error('unexpected_search'); },
   getFundingInputs: async () => { throw new Error('unexpected_funding_read'); },
   getLegalEvidence: async () => { throw new Error('unexpected_legal_read'); },
+  prepareRegionalNews: async () => { throw new Error('unexpected_news_request'); },
   getComparison: async () => { throw new Error('unexpected_comparison_read'); },
 };
 const req = (path: string, headers: Record<string,string> = {}, method = 'GET') =>

@@ -214,10 +214,32 @@ class ProbeEntryPointTests(SyntheticEntryPoint):
         body = json.dumps({'fixture_kind': 'synthetic', 'total': 1, 'start': 1, 'display': 1, 'items': [{
             'title': '합성 기사', 'originallink': link, 'link': link, 'description': '합성 발췌',
             'pubDate': 'Fri, 20 Nov 2026 09:00:00 +0900'}]}, ensure_ascii=False)
-        run = self.probe('news_search', {'NAVER_API_CLIENT_ID': 'QAsynthNaverID01',
-                                         'NAVER_API_CLIENT_SECRET': 'QAsynthNaverSecret01'}, lambda r: respond(body))
-        self.assert_success(run, 1)
-        self.assertEqual((run['parsed']['items'][0]['originallink'], run['raw']), (link, body))
+        keys = {'NAVER_API_CLIENT_ID': 'QAsynthNaverID01', 'NAVER_API_CLIENT_SECRET': 'QAsynthNaverSecret01'}
+        self.responder = lambda request: respond(body)
+        result, raw, parsed = probe_apis.run_probe('news_search', SPECS['news_search'], keys, {})
+        self.assertEqual((result['status'], result['record_count']), ('success', 1))
+        self.assertEqual((parsed['items'][0]['originallink'], raw), (link, body))
+
+    def test_news_probe_reports_status_and_count_without_creating_evidence(self):
+        self.keys = {'NAVER_API_CLIENT_ID': 'nv5', 'NAVER_API_CLIENT_SECRET': 'ns7'}
+        link = 'https://news.example.invalid/article?doc=1'
+        success = {'fixture_kind': 'synthetic', 'total': 1, 'start': 1, 'display': 1, 'items': [{
+            'title': '합성 기사', 'originallink': link, 'link': link, 'description': '합성 발췌',
+            'pubDate': 'Fri, 20 Nov 2026 09:00:00 +0900'}]}
+        error = {'fixture_kind': 'synthetic', 'errorCode': '024',
+                 'detail': 'X-NCP-APIGW-API-KEY-ID: nv5\nX-NCP-APIGW-API-KEY: ns7'}
+        for body, http_status, status, count, expected_code in (
+                (success, 200, 'success', 1, 0), (error, 401, 'api_error', None, 1)):
+            with self.subTest(status=status):
+                self.responder = lambda request: respond(json.dumps(body), status=http_status)
+                code, outputs = self.run_main(probe_apis, ['--probe', 'news_search'])
+                self.assertEqual(code, expected_code)
+                self.assertFalse((self.tmp / 'api-evidence').exists())
+                self.assertEqual(set(outputs), {'stdout', 'stderr'})
+                self.assertEqual(json.loads(outputs['stdout']), {'status': status, 'record_count': count})
+                self.assertEqual(outputs['stderr'], '')
+                for credential in self.keys.values():
+                    self.assertNotIn(credential, decoded(outputs['stdout'] + outputs['stderr']))
 
     def test_short_law_oc_overlapping_text_is_redacted_only_in_detail_link(self):
         """짧은 OC가 호스트·target 값·JSON 키(law)와 같아도 상세링크의 OC 값만 가린다."""
@@ -318,11 +340,12 @@ class ProbeEntryPointTests(SyntheticEntryPoint):
         self.assert_no_context_leak(run['outputs'], ['ka9'])
         naver = json.dumps({'fixture_kind': 'synthetic', 'errorCode': '024',
                             'detail': 'X-NCP-APIGW-API-KEY-ID: nv5\nX-NCP-APIGW-API-KEY: ns7'})
-        run = self.probe('news_search', {'NAVER_API_CLIENT_ID': 'nv5', 'NAVER_API_CLIENT_SECRET': 'ns7'},
-                         lambda r: respond(naver, status=401))
+        keys = {'NAVER_API_CLIENT_ID': 'nv5', 'NAVER_API_CLIENT_SECRET': 'ns7'}
+        self.responder = lambda request: respond(naver, status=401)
+        result, raw, payload = probe_apis.run_probe('news_search', SPECS['news_search'], keys, {})
         self.assertEqual(self.calls[-1].get_header('X-ncp-apigw-api-key'), 'ns7')
-        self.assertEqual(run['result']['status'], 'api_error')
-        self.assert_no_context_leak(run['outputs'], ['nv5', 'ns7'])
+        self.assertEqual(result['status'], 'api_error')
+        self.assert_no_context_leak({'raw': raw, 'parsed': json.dumps(payload), 'result': json.dumps(result)}, ['nv5', 'ns7'])
 
     def test_error_paths_are_sanitized_without_breaking_result_keys(self):
         """전송 오류 문구와 HTTP 오류 본문의 반향을 가리되, 같은 이름의 결과 키(status)는 보존한다."""
@@ -364,6 +387,18 @@ class ImportEntryPointTests(SyntheticEntryPoint):
         code, outputs = self.run_main(import_api_response, ['--probe', 'apt_trade', '--input', str(source), '--label', 'qa_synthetic'])
         saved = lambda name: json.loads(next(v for k, v in outputs.items() if k.endswith('/' + name)))
         return code, outputs, saved('result.json'), saved('parsed.json')
+
+    def test_news_import_is_rejected_before_reading_the_source(self):
+        source = self.tmp / 'synthetic_news.json'
+        source.write_text('{"fixture_kind":"synthetic","total":0,"start":1,"display":0,"items":[]}', encoding='utf-8')
+        with mock.patch.object(Path, 'read_bytes', autospec=True, side_effect=Path.read_bytes) as read:
+            code, outputs = self.run_main(import_api_response, [
+                '--probe', 'news_search', '--input', str(source), '--label', 'qa_synthetic'])
+        self.assertEqual(code, 2)
+        read.assert_not_called()
+        self.assertFalse((self.tmp / 'api-evidence').exists())
+        self.assertEqual(set(outputs), {'stdout', 'stderr'})
+        self.assertNotIn(str(source), outputs['stderr'])
 
     def test_import_keeps_json_records_and_redacts_url_echo_for_key_matching_json_key(self):
         body = trade_json(trade_rows(5), 5, header={'requestUrl': TRADE_URL + '?serviceKey=item&pageNo=1'})

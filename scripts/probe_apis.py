@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""공식 API 실제 응답과 필드 충족도를 기록한다. 인증키는 출력하지 않는다."""
+"""공식 API 응답과 필드 충족도를 점검한다. 뉴스는 상태와 건수만 출력한다."""
 import argparse
 import hashlib
 import http.client
@@ -320,6 +320,13 @@ def main():
     result, raw, payload = run_probe(args.probe, probes[args.probe], keys, overrides)
     # 비밀값을 최종 산출 직전에 한 번 더 제거한다. 키·숫자를 보존하는 구조 단위 정제다.
     result = redact_structure(result, keys)
+    status = result['status']
+    count = result.get('record_count')
+    exit_code = 0 if status in {'success', 'success_empty'} else 1
+    if args.probe == 'news_search':
+        # 뉴스 응답은 진단 메모리에서만 사용한다.
+        print(json.dumps({'status': status, 'record_count': count}, ensure_ascii=False))
+        return exit_code
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
     directory = ROOT / 'api-evidence' / (stamp + '_' + args.probe)
     directory.mkdir(parents=True, exist_ok=False)
@@ -329,8 +336,8 @@ def main():
         (directory / ('response.' + result.get('format', 'txt'))).write_bytes(raw.encode('utf-8'))
     if payload is not None:
         (directory / 'parsed.json').write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n')
-    print(json.dumps({'status': result['status'], 'probe': args.probe, 'record_count': result.get('record_count'), 'evidence_directory': str(directory)}, ensure_ascii=False))
-    return 0 if result['status'] in {'success', 'success_empty'} else 1
+    print(json.dumps({'status': status, 'probe': args.probe, 'record_count': count, 'evidence_directory': str(directory)}, ensure_ascii=False))
+    return exit_code
 
 
 if __name__ == '__main__':

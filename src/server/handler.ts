@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { ApiError, isUuid, readJsonRequest, uuidPattern } from './http-input.js';
+import { ApiError, isUuid, readBody, readJsonRequest, uuidPattern } from './http-input.js';
 import { koreaDate } from './public-fields.js';
 import { readLegalEvidence } from './legal-evidence.js';
+import { readRegionalNews } from './regional-news-request.js';
 import { parseNoticeSearchConditions, evaluateNoticeSearch } from './notice-search.js';
 import { readAnalysisRunOperation } from './analysis-runs.js';
 import type { AnalysisRun, AnalysisRunOperation, ComparisonSnapshot } from './analysis-runs.js';
@@ -23,6 +24,7 @@ export type Backend = {
   getNoticeSearchIndex: (signal: AbortSignal) => Promise<unknown>;
   getFundingInputs: (selection: FundingSelection, signal: AbortSignal) => Promise<unknown>;
   getLegalEvidence: (analysisId: string, snapshotId: string, signal: AbortSignal) => Promise<unknown>;
+  prepareRegionalNews: (analysisId: string, snapshotId: string, signal: AbortSignal) => Promise<unknown>;
   getComparison: (analysisId: string, runId: string, signal: AbortSignal) => Promise<ComparisonSnapshot>;
 };
 export type BackendConfig = { url: string; key: string; token: string };
@@ -30,7 +32,7 @@ export type BackendConfig = { url: string; key: string; token: string };
 const uploadContentPath = new RegExp(`^/api/v1/analyses/(${uuidPattern})/uploads/(${uuidPattern})/content$`);
 const analysisRunPath = /^\/api\/v1\/analyses\/([^/]+)\/runs(?:\/([^/]+)(?:\/(cancel|result))?)?$/;
 const fundingPlanPath = /^\/api\/v1\/analyses\/([^/]+)\/funding-plan$/;
-const legalEvidencePath = /^\/api\/v1\/analyses\/([^/]+)\/snapshots\/([^/]+)\/legal-evidence$/;
+const snapshotServicePath = /^\/api\/v1\/analyses\/([^/]+)\/snapshots\/([^/]+)\/(legal-evidence|regional-news)$/;
 
 function readConfig(env: Environment, token: string): BackendConfig {
   const url = env.SUPABASE_URL;
@@ -52,6 +54,7 @@ export function createHandler(deps: {
   env: Environment;
   createBackend: (config: BackendConfig) => Backend;
   now?: () => Date;
+  newsFetch?: typeof fetch;
   log?: (event: { requestId: string; code: string }) => void;
 }) {
   return async (request: Request): Promise<Response> => {
@@ -61,10 +64,11 @@ export function createHandler(deps: {
     const upload = path.match(uploadContentPath);
     const run = path.match(analysisRunPath);
     const funding = path.match(fundingPlanPath);
-    const legal = path.match(legalEvidencePath);
+    const snapshotService = path.match(snapshotServicePath);
+    const news = snapshotService?.[3] === 'regional-news';
     const search = path === '/api/v1/notices/search';
     const enqueues = run !== null && !run[2];
-    const method = search || funding || enqueues || run?.[3] === 'cancel' ? 'POST' : 'GET';
+    const method = search || funding || news || enqueues || run?.[3] === 'cancel' ? 'POST' : 'GET';
     const allowedMethods = `${method}, OPTIONS`;
     const headers = new Headers({
       'Cache-Control': 'no-store',
@@ -72,7 +76,7 @@ export function createHandler(deps: {
       'X-Content-Type-Options': 'nosniff',
       'X-Request-Id': requestId,
     });
-    if (search || funding || legal || upload || run?.[3] === 'result') {
+    if (search || funding || snapshotService || upload || run?.[3] === 'result') {
       headers.set('Cache-Control', 'private, no-store');
       headers.set('Vary', 'Authorization, Origin');
       headers.set('Vercel-CDN-Cache-Control', 'no-store');
@@ -93,7 +97,7 @@ export function createHandler(deps: {
       return respond({ error: 'method_not_allowed', requestId }, 405);
     }
     if (path === '/api/health') return respond({ status: 'ok', service: 'homecierge-api', version: '0.1.0' }, 200);
-    if (!upload && !run && !search && !funding && !legal && !['/api/v1/me','/api/ready'].includes(path)) return respond({ error: 'not_found', requestId }, 404);
+    if (!upload && !run && !search && !funding && !snapshotService && !['/api/v1/me','/api/ready'].includes(path)) return respond({ error: 'not_found', requestId }, 404);
 
     const authorization = request.headers.get('authorization');
     const match = authorization?.match(/^Bearer ([^\s]+)$/i);
@@ -107,10 +111,21 @@ export function createHandler(deps: {
     try {
       const user = await backend.getUser();
       if (!user || user.isAnonymous) return respond({ error: 'authentication_required', requestId }, 401);
-      if (legal) {
-        if (!isUuid(legal[1]) || !isUuid(legal[2]) || url.search) throw new ApiError('invalid_legal_input');
-        const analysisId = legal[1].toLowerCase();
-        const snapshotId = legal[2].toLowerCase();
+      if (snapshotService) {
+        const [, analysis, snapshot] = snapshotService;
+        if (!isUuid(analysis) || !isUuid(snapshot) || url.search) {
+          throw new ApiError(news ? 'invalid_news_input' : 'invalid_legal_input');
+        }
+        const analysisId = analysis.toLowerCase();
+        const snapshotId = snapshot.toLowerCase();
+        if (news) {
+          if (await readBody(request, 0, 'invalid_news_input') === null) throw new ApiError('invalid_news_input');
+          const context = await backend.prepareRegionalNews(analysisId, snapshotId, request.signal);
+          return respond(await readRegionalNews(context, analysisId, snapshotId, {
+            clientId: deps.env.NAVER_API_CLIENT_ID, clientSecret: deps.env.NAVER_API_CLIENT_SECRET,
+            signal: request.signal, fetch: deps.newsFetch, now: deps.now,
+          }), 200);
+        }
         const context = await backend.getLegalEvidence(analysisId, snapshotId, request.signal);
         return respond(readLegalEvidence(context, analysisId, snapshotId), 200);
       }
@@ -156,7 +171,7 @@ export function createHandler(deps: {
       return respond({ user: { id: user.id }, profile }, 200);
     } catch (error) {
       if (error instanceof ApiError) {
-        if (error.code === 'run_rate_limited') {
+        if (error.code === 'run_rate_limited' || error.code === 'news_rate_limited') {
           headers.set('Retry-After', '60');
           if (origin) headers.set('Access-Control-Expose-Headers', 'Retry-After');
         }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""공식 브라우저 호출에서 저장한 실제 JSON/XML을 검증용 증거로 등록한다."""
+"""공식 브라우저 호출에서 저장한 실제 JSON/XML을 검증용 증거로 등록한다. 뉴스는 제외한다."""
 import argparse
 import hashlib
 import json
@@ -24,6 +24,8 @@ def main():
     parser.add_argument('--http-status', type=int)
     parser.add_argument('--app-id')
     args = parser.parse_args()
+    if args.probe == 'news_search':
+        parser.error('news_search 응답은 저장용으로 등록할 수 없습니다.')
     specs = json.loads((ROOT / 'docs/api/probes.json').read_text())['probes']
     if args.probe not in specs:
         parser.error('등록되지 않은 probe입니다.')

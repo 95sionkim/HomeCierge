@@ -803,6 +803,10 @@ export type Database = {
         Args: { p_analysis_id: string; p_run_id: string }
         Returns: Json
       }
+      prepare_analysis_regional_news: {
+        Args: { p_analysis_id: string; p_snapshot_id: string }
+        Returns: Json
+      }
       publish_law_reference: { Args: { p_reference: Json }; Returns: undefined }
       publish_notice_search_index: {
         Args: { p_index: Json }

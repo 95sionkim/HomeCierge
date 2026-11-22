@@ -14,6 +14,7 @@ import { createBackend } from '../src/server/supabase.ts';
 import { checkNoticeSearch } from './smoke_notice_search.mjs';
 import { checkFundingPlan } from './smoke_funding_plan.mjs';
 import { checkLegalEvidence } from './smoke_legal_evidence.mjs';
+import { checkRegionalNews, syntheticNewsFetch } from './smoke_regional_news.mjs';
 import { checkBe04Cleanup, runBe04Smoke } from './smoke_be04_runs.mjs';
 
 const DEVELOPMENT_ORIGIN = 'https://jcaelooqogosbzrfyrhe.supabase.co';
@@ -540,6 +541,7 @@ async function run(config, capture, requestApi, apiPort) {
     if (process.env.BE07_EPHEMERAL_SEARCH_FIXTURE === '1') {
       await checkNoticeSearch({ config, accounts, admin, requestApi, check, result });
       await checkLegalEvidence({ config, accounts, admin, capture, requestApi, check, result });
+      await checkRegionalNews({ config, accounts, admin, capture, requestApi, check, result });
     }
     await checkFundingPlan({ accounts, admin, capture, requestApi, check, result });
     const pdf = makeSyntheticPdf();
@@ -612,8 +614,10 @@ async function main() {
   // SDK 자체 진단에는 외부 본문이 실릴 수 있으므로 CLI는 정해진 검사명만 출력한다.
   console.warn = console.error = () => {};
   const server = createDevServer(createHandler({
-    env: { APP_ENV: 'development', SUPABASE_URL: config.origin, SUPABASE_PUBLISHABLE_KEY: config.publishable },
+    env: { APP_ENV: 'development', SUPABASE_URL: config.origin, SUPABASE_PUBLISHABLE_KEY: config.publishable,
+      NAVER_API_CLIENT_ID: 'TEST_ONLY_NEWS_CLIENT', NAVER_API_CLIENT_SECRET: 'TEST_ONLY_NEWS_SECRET' },
     createBackend,
+    newsFetch: syntheticNewsFetch,
     log: () => {},
   }));
   try {
@@ -643,13 +647,16 @@ try {
 }
 if (failures.length) {
   for (const step of failures) {
-    const stage = step.startsWith('be08_') ? 'BE-08' : step.startsWith('be07_') ? 'BE-07' : step.startsWith('be05_') ? 'BE-05' : step.startsWith('be04_') ? 'BE-04' : 'BE-03';
+    const number = /^be(04|05|07|08|09|10)_/.exec(step)?.[1] ?? '03';
+    const stage = 'BE-' + number;
     process.stderr.write(`${stage} smoke failed (${step})\n`);
   }
   process.exitCode = 1;
 } else {
   if (process.env.BE07_EPHEMERAL_SEARCH_FIXTURE === '1') {
     process.stdout.write('BE-07 smoke passed (two-user search, publication, budget, incomplete rooms, source revocation)\n');
+    process.stdout.write('BE-09 smoke passed (notice-date law version and owner isolation)\n');
+    process.stdout.write('BE-10 smoke passed (two-user regional news, synthetic provider, display permission)\n');
   }
   process.stdout.write('BE-03 smoke passed (Auth, /api/v1/me, RLS, capture, upload content API, Storage, cleanup)\n');
   process.stdout.write('BE-04 smoke passed (run API, RLS, scoped worker, claim and cancel races, recovery, cleanup)\n');

@@ -56,7 +56,7 @@ python3 scripts/probe_apis.py --probe applyhome_remainder --param 'cond[HOUSE_MA
 python3 scripts/probe_apis.py --probe apt_trade --param LAWD_CD=11215 --param DEAL_YMD=202610 --param numOfRows=5
 ```
 
-단일 조회는 진단용 한 페이지다. 전체 거래 수집 완료로 간주하지 않는다. 법령 본문을 MST로 조회할 때는 시행일 `efYd`가 함께 필요하며 과거 공고의 시점을 맞춰야 한다. ODsay·뉴스는 결과 보관 조건이 미확인인 상태이므로 현재 문서에서 바로 실행할 저장 명령을 제공하지 않는다. [데이터 관리](../data-handling.md) 참조.
+단일 조회는 진단용 한 페이지다. 전체 거래 수집 완료로 간주하지 않는다. 법령 본문을 MST로 조회할 때는 시행일 `efYd`가 함께 필요하며 과거 공고의 시점을 맞춰야 한다. 뉴스 진단은 결과를 저장하지 않고 상태와 건수만 출력한다. ODsay 결과의 보관 조건은 추가 확인이 필요하다. [데이터 관리](../data-handling.md) · [지역 뉴스 제품 API](regional-news.md)
 
 월별 수집은 먼저 계획을 확인한다.
 

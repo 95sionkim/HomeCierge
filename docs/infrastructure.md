@@ -124,6 +124,8 @@ BE-05 구현 커밋 `cad297e`의 보호된 Preview는 `READY`를 확인했다. �
 
 BE-09에서 서울 개발 DB에 [법령 참조 마이그레이션](../supabase/migrations/20261122055129_analysis_legal_evidence.sql)을 적용하고 타입을 다시 생성했다. 청약홈 APT·무순위 주택형의 구조화 자료와 법제처의 판본·조문 표지는 출처 확인 뒤 개발 레지스트리에 저장·재사용·표시 허용으로 등록했다. 청약홈 공고 PDF와 PDF에서만 얻은 호실별 납부 일정의 재사용 권리는 별도 확인이 남아 있다. 6월·9월 실제 공고의 법령은 각 공고일에 해당하는 서로 다른 시행본으로 등록됐다. [법령 조회와 검산](api/legal-evidence.md) · [출처별 이용 근거](api/be-09-source-evidence.md)
 
+BE-10에서 서울 개발 DB에 [지역 뉴스 조회 마이그레이션](../supabase/migrations/20261122062325_analysis_regional_news.sql)을 적용하고 생성된 사용자 RPC 타입을 대조했다. 사용자별 조회 제한은 분 단위 시각과 횟수만 기록한다. 개발 DB의 `naver_news` 표시 권한은 미등록이어서 실제 공고에서도 외부 호출을 보류한다. 화면 팀이 해당 서비스의 NAVER Application 등록과 검색결과의 출처 표시를 확인한 뒤 환경별로 활성화한다. [API 계약과 실호출 검수](api/regional-news.md)
+
 ## 6. 연결할 환경변수를 구분한다
 
 | 이름을 확인한다 | 설정 위치를 정한다 | 사용 목적을 설명한다 |
@@ -133,6 +135,7 @@ BE-09에서 서울 개발 DB에 [법령 참조 마이그레이션](../supabase/m
 | `APP_ENV` | 해당 환경 | `development`, `preview`, `production` 중 실제 환경 |
 | `ALLOWED_ORIGINS` | 해당 환경 | 화면 origin의 정확한 목록을 쉼표로 구분. 전체 와일드카드 금지 |
 | `SUPABASE_WORKER_KEY` | 수집 작업자 또는 격리된 통합 검사 프로세스 | 서버 전용 저장 및 시험 계정 관리에 사용 |
+| `NAVER_API_CLIENT_ID`, `NAVER_API_CLIENT_SECRET` | 지역 뉴스를 활성화하는 서버 환경 | 등록한 NAVER API HUB Application으로 뉴스 검색. 화면에서 사용하지 않음 |
 
 Preview/Development에 사용자 API용 네 변수를 등록했고 publishable key는 Vercel에서 암호화해 저장했다. Production에는 등록하지 않았다. 현재 허용 origin은 `localhost`·`127.0.0.1`의 3000·5173 포트다. 화면 팀은 프레임워크에 맞는 공개 환경변수 이름을 별도로 사용하며 관리 키를 넣지 않는다. 실제 화면 도메인이 정해진 뒤 Supabase Auth의 Site URL·리다이렉트 허용 목록과 API origin 목록을 함께 맞춘다.
 
