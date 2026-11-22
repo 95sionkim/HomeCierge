@@ -21,6 +21,8 @@
 | [API 실행 안내](docs/api/README.md) | 인증값 설정, 조회·수집 명령, 역사적 검증 재현 조건 |
 | [PDF 결합 검증](docs/api/pdf-supplement-validation.md) | 같은 회차 식별, 페이지 근거, 가격 구성 검수 |
 
+에이전트·제출 설계는 [에이전트 구성도](docs/agent-architecture.md)와 [Colab 재현·제출 계획](docs/colab-reproducibility.md)을 참고합니다. LLM·API·RAG·멀티에이전트·MCP의 역할과 채택 상태를 구분하고, Vercel·Supabase를 유지하면서 공통 코어를 Colab에서 직접 실행하는 경로를 계획합니다. 현재 노트북·공통 코어·제출 데이터 패키지는 미구현입니다.
+
 ## 바로 실행하기
 
 기본 테스트는 Python 표준 라이브러리만 사용합니다. API 키·네트워크·실제 응답 파일 없이 실행할 수 있습니다.
