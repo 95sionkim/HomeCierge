@@ -1,8 +1,17 @@
 // 인증 API는 요청 본문의 바이트 수를 제한하고 정해진 오류 코드만 반환한다.
+export const uuidPattern = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
+const uuid = new RegExp(`^${uuidPattern}$`);
+
+export function isUuid(value: unknown): value is string {
+  return typeof value === 'string' && uuid.test(value);
+}
+
 const errorStatuses = {
   authentication_required: 401,
   invalid_run_input: 400,
   invalid_search_input: 400,
+  invalid_funding_input: 400,
+  funding_not_found: 404,
   search_source_restricted: 403,
   search_index_not_ready: 503,
   comparison_source_restricted: 403,
@@ -22,7 +31,7 @@ export class ApiError extends Error {
   get status() { return errorStatuses[this.code]; }
 }
 
-type InputError = 'invalid_run_input' | 'invalid_search_input';
+type InputError = 'invalid_run_input' | 'invalid_search_input' | 'invalid_funding_input';
 
 export async function readBody(request: Request, limit: number, invalid: InputError): Promise<Uint8Array | null> {
   if (Number(request.headers.get('content-length')) > limit) return null;

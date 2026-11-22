@@ -49,6 +49,7 @@ Supabase는 서울 `ap-northeast-2`, API 실행 리전은 서울 `icn1`이다. V
 | `chats`, `chat_messages` | 계정별 대화·메시지 | 자기 대화 생성·제목 수정, 사용자 메시지 생성. assistant/system 생성 금지 |
 | `analyses` | 한 분석의 공고·주택형·조건·규칙 버전·상태 | 자기 초안 생성·조회. 완료 상태는 서버 작업만 변경 |
 | `funding_entries` | 분석별 보유/추가 자금·날짜·확정/예상 | 자기 분석에만 생성·수정·조회. 보유 자금은 분석당 한 행 |
+| `private.analysis_funding_schedule_snapshots` | 공고 수집본에 고정한 호실·항목별 납부 근거 | 작업자가 수집본과 함께 저장한다. 인증된 소유자는 출처 권한과 호실을 대조한 RPC를 통해 조회한다. |
 | `reports` | 결과·조건·출처·미확인·조회 시점의 버전별 스냅샷 | 자기 결과 조회. 생성·수정은 서버 작업 전용 |
 | `source_registry` | 저장·재사용·화면 표시·LLM·내보내기의 허용 상태 | 로그인 후 읽기. 허용 상태의 기본값은 `unknown` |
 | `notices`, `notice_documents`, `housing_types` | 공고·문서 버전·면적 종류·출처 페이지 | 로그인 후 읽기. 수집·검수 서버만 기록 |
@@ -117,6 +118,8 @@ BE-05 구현 커밋 `cad297e`의 보호된 Preview는 `READY`를 확인했다. �
 
 같은 커밋의 보호된 Vercel Preview는 `READY`였다. 팀 접근 없이 302, 보호를 통과한 `/api/health`는 200, 검색 주소의 GET은 405와 POST 허용 헤더를 확인했다. GitHub Actions가 새로 설치한 Supabase에서는 두 사용자가 로그인해 같은 공유 공고를 검색했고, 예산 1원 차이, 동시 게시 충돌, 일반 사용자의 게시 거부와 출처 표시 권한 철회를 확인했다. 합성 출처 권한 변경은 작업이 끝나면 폐기하는 이 로컬 스택에서 수행했다. [화면 팀 Preview 주소](frontend-handoff.md) · [Supabase 통합 검사](https://github.com/95sionkim/HomeCierge/actions/runs/44986319057) · [기본 검사](https://github.com/95sionkim/HomeCierge/actions/runs/44986319064)
 
+서울 개발 DB의 [자금표 마이그레이션](../supabase/migrations/20261122052921_analysis_funding_plan.sql)을 적용하고 공개 RPC 타입을 생성했다. 합성 자료를 쓴 롤백 검사에서 같은 수집 키의 재시도, 소유자 조회, 큰 원 단위 정수의 보존, 자금 수정 반영, 다른 사용자의 조회 거부를 확인했다. 현재 `applyhome_apt_model`, `applyhome_remainder_model`, `applyhome_notice_pdf`에는 공고 목록과 같은 저장·재사용·표시 허용 기록이 없어, 해당 자료에서 파생한 일정을 지속적으로 제공하려면 출처별 검수가 필요하다. [자금표 계약](api/funding-plan.md)
+
 ## 6. 연결할 환경변수를 구분한다
 
 | 이름을 확인한다 | 설정 위치를 정한다 | 사용 목적을 설명한다 |
@@ -133,7 +136,7 @@ Preview/Development에 사용자 API용 네 변수를 등록했고 publishable k
 
 Vercel 정적 출력은 `public/`로 제한하고 [.vercelignore](../.vercelignore)에서 비공개 증거·문서·로컬 인증 파일을 제외한다. 화면 팀의 결과물을 이 API 프로젝트에 합치는 것은 후속 통합 작업이며, 현재 별도 화면 배포에서도 호출할 수 있는 구조다.
 
-이번 Preview 배포는 허용한 소스 파일을 직접 업로드했다. 인프라 코드는 이 저장소에서 관리하며 Vercel의 Git 자동 배포는 아직 연결하지 않았다. 자동 배포 연결은 저장소·브랜치와 환경 구분을 확인한 뒤 별도로 진행한다. Preview의 Vercel 배포 보호는 CORS·Supabase 로그인과 별개다. 별도 화면에서의 교차 출처 호출은 로컬 API로 먼저 검수하고, 보호된 Preview 접근 방식은 화면 배포 시 함께 연결한다. 보호 우회 값을 브라우저 코드에 넣지 않는다.
+초기 Preview는 소스 파일을 직접 업로드했다. 11월 22일 Vercel 배포 이력에서는 개발 브랜치 커밋 `eeb2b62`가 Preview로, PR #1의 `main` 병합 커밋 `4a778c3`가 Production으로 자동 배포돼 각각 `READY`에 도달했다. 두 브랜치의 배포 대상은 다르다. Preview의 Vercel 배포 보호와 Supabase 사용자 인증은 각각 확인한다. 별도 화면의 교차 출처 호출은 로컬 API에서 먼저 검수한다. [PR #1 병합 기록](https://github.com/95sionkim/HomeCierge/pull/1) · [Vercel 배포 이력](https://vercel.com/sions-projects-d18fe574/homecierge-api/deployments)
 
 ## 7. 공식 문서를 확인한다
 

@@ -1,6 +1,6 @@
 # 분석 결과 계약 v0 (BE-01)
 
-2026-11-21. 화면팀·QA·후속 백엔드 작업이 같은 의미로 읽을 **분석 결과 응답의 기술 계약 v0**이다. 상태는 설계 제안(P)이다. 제품 구현, 수락 기준(A) 통과, 미정 결정(D)의 확정을 뜻하지 않는다. 제품 기준은 [PRD v1.1](../prd/01-product-prd.md)이고 단계 계획은 [전체 개발 계획](../development-plan.md) §3·5·8을 따른다.
+2026-11-21. 화면팀·QA·후속 백엔드 작업이 같은 의미로 읽을 **분석 결과 응답의 기술 계약 v0**이다. 상태는 설계 제안(P)이다. 제품 구현, 수락 기준(A) 통과, 미정 결정(D)의 확정을 뜻하지 않는다. 제품 기준은 [당시 PRD v1.1](https://github.com/95sionkim/HomeCierge/blob/4a778c3001e097b1965a963508b93e43937b56da/docs/prd/01-product-prd.md)이고 단계 계획은 [전체 개발 계획](../development-plan.md) §3·5·8을 따른다.
 
 - **기계 판독 기준은 하나다.** [JSON 스키마(draft-07)](analysis-result-v0.schema.json)가 필드·값·불변 조건의 기준이다. 이 문서는 의미와, 스키마로 검사할 수 없는 조건(§10)을 적는다. 둘이 다르면 스키마를 고치고 이 문서를 맞춘다.
 - **합성 예시**: [analysis-result-v0.json](../../tests/fixtures/analysis-result-v0.json)의 `normalZero`·`partialCollection`·`upstreamFailure`는 같은 요청의 세 결과이며 각각 루트 스키마를 따른다. 모든 값은 합성 자료다(`dataOrigin: "synthetic"`).

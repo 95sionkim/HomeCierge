@@ -1,6 +1,6 @@
 # HomeCierge 개발팀 운영 계획안
 
-`codex/backend-foundation`에서 Codex가 작업을 지시하고 최종 리뷰를 맡는다. 구현과 독립 검증은 담당 분야별 Claude Opus 5.5 에이전트가 맡는다. 첫 목표는 화면 없이 한 공고·한 주택형의 요청이 수집, 정규화, 저장, 비교, 결과 조회까지 이어지게 하는 것이다. 개발 순서와 제품 판단의 근거는 [전체 개발 계획](development-plan.md)과 [PRD v1.1](prd/01-product-prd.md)을 따른다.
+`codex/backend-foundation`에서 Codex가 작업을 지시하고 최종 리뷰를 맡는다. 구현과 독립 검증은 담당 분야별 Claude Opus 5.5 에이전트가 맡는다. 첫 목표는 화면 없이 한 공고·한 주택형의 요청이 수집, 정규화, 저장, 비교, 결과 조회까지 이어지게 하는 것이다. 개발 순서와 제품 판단의 근거는 [전체 개발 계획](development-plan.md)과 [현행 PRD](prd/01-product-prd.md)을 따른다.
 
 ## 누가 무엇을 맡는가
 

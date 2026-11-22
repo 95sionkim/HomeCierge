@@ -12,6 +12,7 @@ import { createDevServer } from '../dev/server.ts';
 import { createHandler } from '../src/server/handler.ts';
 import { createBackend } from '../src/server/supabase.ts';
 import { checkNoticeSearch } from './smoke_notice_search.mjs';
+import { checkFundingPlan } from './smoke_funding_plan.mjs';
 import { checkBe04Cleanup, runBe04Smoke } from './smoke_be04_runs.mjs';
 
 const DEVELOPMENT_ORIGIN = 'https://jcaelooqogosbzrfyrhe.supabase.co';
@@ -538,6 +539,7 @@ async function run(config, capture, requestApi, apiPort) {
     if (process.env.BE07_EPHEMERAL_SEARCH_FIXTURE === '1') {
       await checkNoticeSearch({ config, accounts, admin, requestApi, check, result });
     }
+    await checkFundingPlan({ accounts, admin, capture, requestApi, check, result });
     const pdf = makeSyntheticPdf();
     for (const [account, other] of pairs) {
       await checkVisibility(UPLOAD_TABLE, 'id', account.upload.id, other.upload.id, account.client);
@@ -639,7 +641,7 @@ try {
 }
 if (failures.length) {
   for (const step of failures) {
-    const stage = step.startsWith('be07_') ? 'BE-07' : step.startsWith('be05_') ? 'BE-05' : step.startsWith('be04_') ? 'BE-04' : 'BE-03';
+    const stage = step.startsWith('be08_') ? 'BE-08' : step.startsWith('be07_') ? 'BE-07' : step.startsWith('be05_') ? 'BE-05' : step.startsWith('be04_') ? 'BE-04' : 'BE-03';
     process.stderr.write(`${stage} smoke failed (${step})\n`);
   }
   process.exitCode = 1;
@@ -650,4 +652,5 @@ if (failures.length) {
   process.stdout.write('BE-03 smoke passed (Auth, /api/v1/me, RLS, capture, upload content API, Storage, cleanup)\n');
   process.stdout.write('BE-04 smoke passed (run API, RLS, scoped worker, claim and cancel races, recovery, cleanup)\n');
   process.stdout.write('BE-05 smoke passed (comparison, evidence holds, snapshot replay, two-user isolation, new session)\n');
+  process.stdout.write('BE-08 smoke passed (funding inputs, saved schedule, two-user isolation, recalculation)\n');
 }

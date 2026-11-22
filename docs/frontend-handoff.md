@@ -25,6 +25,7 @@ Preview에는 Vercel 배포 보호가 켜져 있다. Vercel 로그인과 Supabas
 | `GET /api/ready` | 인증 후 사용자 권한으로 프로필 테이블 조회 | 200은 해당 DB 조회 성공. 미로그인 401, 설정·백엔드 실패 503 |
 | `GET /api/v1/me` | 인증한 사용자의 ID·프로필 조회 | `{ user: { id }, profile }`. 최초에는 `profile: null` 가능 |
 | `POST /api/v1/notices/search` | 희망 지역·예산과 선택 면적·입주월로 공고를 탐색 | 200이면 조건 충족·확인 필요 목록과 수집 범위를 표시. 최신 색인 준비 중은 503. [요청 및 응답](api/notice-search.md) |
+| `POST /api/v1/analyses/{analysisId}/funding-plan` | 해당 분석의 수집본·주택형·호실을 선택해 납부일별 자금과 부족액을 조회 | 확정 자금과 예상 포함 금액, 날짜를 알 수 없는 납부와 근거를 표시. [요청과 계산 예](api/funding-plan.md) |
 | `POST /api/v1/analyses/{analysisId}/runs` | 자기 분석에서 수집 자료 준비를 접수 | 202와 조회 주소. 같은 키로 다른 입력을 보내면 409 |
 | `GET /api/v1/analyses/{analysisId}/runs/{runId}` | 실행 상태를 다시 읽음 | 200. 자료가 준비되면 `snapshotId` 제공 |
 | `GET /api/v1/analyses/{analysisId}/runs/{runId}/result` | 선택한 주택형과 주변 실거래의 저장된 비교 결과를 읽음 | 200이면 완전성·가격 상태·보류 사유를 표시. 출처 표시 권한이 철회되면 403, 다른 계정이면 404, 저장된 결과가 없으면 409 |
@@ -54,7 +55,7 @@ TypeScript 화면에서는 `createClient<Database>(url, publishableKey)`로 생�
 1. `user_profiles`에 로그인 사용자의 `user_id`만 넣어 빈 프로필을 최초 생성한다. 이미 있으면 기존 프로필을 조회한다.
 2. `chats` 생성 뒤 해당 ID로 사용자 메시지를 저장한다. `role: 'user'`만 클라이언트에서 생성 가능하다.
 3. 분석은 `analyses`에 자기 `chat_id`를 연결해 `draft`로 만든다. 다른 기기에서 로그인하면 본인의 분석을 읽고 `latest_run_id`가 있는 항목에 실행 조회 주소를 연결한다. `null`이면 실행 접수를 안내한다.
-4. 자금은 해당 `analysis_id`의 `funding_entries`에 저장한다. `current`는 분석당 하나이며 추가 자금은 `additional`, 상태는 `confirmed` 또는 `expected`다. 현재는 계산 결과를 생성하지 않는다.
+4. 자금은 해당 `analysis_id`의 `funding_entries`에 저장한다. `current`는 분석당 하나이며 추가 자금은 `additional`, 상태는 `confirmed` 또는 `expected`다. 저장 후 같은 분석의 자금표를 조회하면 수정한 금액이 반영된다. 자금 유입과 납부가 같은 날이고 입금 시각을 모르면 입금 전·후 부족액을 모두 표시한다. [호실별 자금표](api/funding-plan.md)
 5. `reports`는 서버가 기록한 스냅샷만 조회한다. 프로필 변경으로 이전 보고서를 조용히 덮어쓰지 않는다.
 6. 이전에 저장한 분석의 조회 조건과 수집 근거는 `analysis_input_snapshots`를 분석 ID로 조회해 표시한다. 비공개 PDF는 등록 시 받은 경로로 업로드하고, 사용자 API의 `/content` 경로로 다운로드한다. 삭제는 요청·객체 제거·완료 확인 순서로 진행한다. [스냅샷 조회와 파일 호출 예시](api/ingestion-storage.md)
 
@@ -84,7 +85,7 @@ const { data, error } = await supabase.rpc('decide_profile_change', {
 ## 4. 구현 전인 기능을 구분한다
 
 - 공고 문서 작업자가 처리한 수집본에서는 호실의 분양가·필수 옵션과 주택형 공급면적 각각의 확인 상태를 읽을 수 있다. 확인한 값은 문서 버전·페이지를, 보류한 값은 사유와 보완 경로를 표시한다. 지원 서식과 실제 검수 범위는 [공고 문서 작업자](api/notice-documents.md)에서 확인한다.
-- 현재 비교 작업자는 수집된 거래와 검수된 공급면적 근거를 사용한다. 실거래 공급면적 근거 자동 수집, 법령·뉴스·경로·자금 계산은 후속 개발 범위다.
+- 현재 비교 작업자는 수집된 거래와 검수된 공급면적 근거를 사용한다. 실거래 공급면적 근거 자동 수집과 법령·뉴스·경로의 제품 API 연결은 후속 개발 범위다.
 - 호실별 분양가·필수 옵션 원자료는 `result_snapshot.catalog`, 선택한 호실 또는 주택형의 확인 가격과 보류 사유는 `result.noticePrice`에서 읽는다. 빈 거래 목록의 의미는 `regionDecision`으로 확인한다.
 - 비공개 업로드 한 건은 삭제할 수 있다. 계정 전체, 파생 보고서와 백업 정리를 포함한 삭제 완료 화면은 후속 작업이다.
 - 실제 로그인 제공자, 화면 도메인, Production DB, 사용자 가치 검증과 59개 제품 수락 기준은 아직 별도 완료 조건이다.

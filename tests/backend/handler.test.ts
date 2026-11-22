@@ -18,6 +18,7 @@ const backend: Backend = {
   getUploadContent: async () => null,
   runAnalysis: async () => { throw new Error('unexpected_run_operation'); },
   getNoticeSearchIndex: async () => { throw new Error('unexpected_search'); },
+  getFundingInputs: async () => { throw new Error('unexpected_funding_read'); },
   getComparison: async () => { throw new Error('unexpected_comparison_read'); },
 };
 const req = (path: string, headers: Record<string,string> = {}, method = 'GET') =>

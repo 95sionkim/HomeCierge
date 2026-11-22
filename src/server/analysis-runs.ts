@@ -1,7 +1,5 @@
-import { ApiError, readBody, readJsonRequest } from './http-input.js';
-
-export const uuidPattern = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
-const uuid = new RegExp(`^${uuidPattern}$`);
+import { ApiError, isUuid, readBody, readJsonRequest } from './http-input.js';
+export { uuidPattern } from './http-input.js';
 const runStatuses = ['queued', 'running', 'retry_wait', 'finished', 'failed', 'cancelled'] as const;
 
 type AnalysisRunInput = { kind: 'snapshot'; snapshotId: string } | { kind: 'synthetic'; fixture: 'ingestion-v0' };
@@ -21,10 +19,6 @@ export type AnalysisRun = {
   snapshotId: string | null;
   errorCode: RunFailureCode | null;
 };
-
-function isUuid(value: unknown): value is string {
-  return typeof value === 'string' && uuid.test(value);
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);

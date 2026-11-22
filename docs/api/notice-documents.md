@@ -31,7 +31,7 @@ python3 scripts/review_notice_documents.py --live --request /path/to/selected-no
 
 공식 색인의 각 행에는 이전 공식 첨부의 `id`, `sha256`, `houseManageNo`, `noticeNo`, `edition`, `role`이 필요하다. 보관이 허용된 서버 기록 중 `source=official`, `originCheck=confirmed`이고 해시가 있는 행을 사용한다. 현재 첨부 목록 자체를 확인할 수 없어 정정 적용 여부가 미확인인 경우, 이전 판과 해시가 맞는 업로드도 단독으로 채택하지 않는다.
 
-주변 실거래까지 포함한 기존 수집본에 이 결과를 연결하려면 전체 BE-02 요청을 주고 `--save --owner-id … --analysis-id … --capture-key …`를 지정한다. BE-03 저장 RPC가 해당 출처의 보관 조건을 확인하며, 저장이 허용된 수집본의 `catalog`에 문서 버전과 값별 페이지가 함께 남는다. 실사용자 업로드에서 파생된 값의 영속 저장은 소유 파일과 파생 자료 삭제를 연결할 때까지 보류한다. [수집본 보관 조건](ingestion-storage.md)
+주변 실거래와 문서 점검 결과를 함께 저장하려면 전체 BE-02 요청에 `--save --owner-id … --analysis-id … --capture-key …`를 지정한다. 문서 점검에서 납부 일정 목록을 받으면 `save_funding_schedule_snapshot`이 같은 트랜잭션에서 BE-03 수집본과 해당 일정을 저장한다. 근거 버전과 값별 페이지는 `catalog`에서 확인한다. 출처 보관 조건을 충족해야 저장할 수 있고, 실사용자 업로드에서 파생된 값의 영속 저장은 소유 파일과 파생 자료 삭제를 연결할 때까지 보류한다. [수집본 보관 조건](ingestion-storage.md)
 
 저장 응답이 유실되면 작업자는 이미 읽은 조건·결과·수집 키를 그대로 한 번 다시 전송한다. 작업자가 종료된 뒤에는 소유자의 분석과 수집 키로 기존 스냅샷을 먼저 확인한다. 새로 실조회하면 수집 시각이 바뀌므로 새 수집 키를 사용한다. 사용자 화면에서 이 문서 작업을 직접 접수하는 경로는 공고 탐색과 함께 연결할 예정이다.
 
@@ -69,6 +69,6 @@ python3 scripts/review_notice_documents.py --live --request /path/to/selected-no
 
 즉시 조회 응답의 `documentReview.paymentSchedules[]`는 주택형·호실마다 분양대금(`sale_price`)과 필수 옵션(`required_options`)의 납부 방식을 각각 반환한다. `totalWon`은 그 항목의 확인 총액, `installments[]`는 계약금·중도금·잔금과 각 금액이다. 한 항목의 금액 합과 총액이 대조되고 해당 판본의 근거가 있을 때만 확인 처리한다.
 
-`status`가 `confirmed`인 일정에서도 날짜는 회차별로 확인한다. `timing.dateStatus`가 `exact`인 경우에만 `date`를 확정일로 사용할 수 있다. ‘계약 시’나 ‘입주 시’처럼 사건만 지정한 문구는 상대 시점으로 남긴다. `timing.text`와 `evidence`에서 판본과 페이지를 함께 확인한다. 서로 다른 판본의 계약금과 잔금을 합치지 않는다. 현재 저장된 `ingestion/v0` 스냅샷은 호실 소계·값 근거를 보관하며, 납부 일정은 문서 작업자의 즉시 응답에서 읽는다.
+`status`가 `confirmed`인 일정에서도 날짜는 회차별로 확인한다. `timing.dateStatus`가 `exact`인 경우에만 `date`를 확정일로 사용할 수 있다. ‘계약 시’나 ‘입주 시’처럼 사건만 지정한 문구는 상대 시점으로 남긴다. `timing.text`와 `evidence`에서 판본과 페이지를 함께 확인한다. 서로 다른 판본의 계약금과 잔금을 합치지 않는다. 문서 작업자의 `--save`는 호실별 금액과 근거를 담은 `ingestion/v0`와 검산한 일정을 함께 저장한다. 이전에 일정 없이 저장한 수집본은 자금표에서 납부 근거 미확보로 표시한다. [기초 자금표](funding-plan.md)
 
 9월 재공급 101동 402호에서는 분양대금의 계약금 122,202,000원과 잔금 1,099,818,000원, 필수 옵션의 계약금 2,178,000원과 잔금 19,602,000원을 원문과 대조했다. 9월 4쪽 분양대금 계약일은 1·3쪽의 날짜와 대조해 2026년 10월 23일로, 잔금 기한은 2026년 11월 30일로 확인했다. 5쪽 필수 옵션의 납부 시점은 계약 시·입주 시로 남겼다. 6월 재공급은 청약홈의 공식 첨부에서 두 호실의 분양대금·필수 옵션 일정 네 건을 확인했다. 분양대금 계약일은 모두 2026년 7월 1일, 잔금은 입주지정일이다. 2024년 최초 공고의 층별 공급가격표로는 개별 호실의 납부 일정을 구성하지 않았다. [청약홈 9월 재공급 상세](https://www.applyhome.co.kr/ai/aia/selectAPTRemndrLttotPblancDetailView.do?houseManageNo=2026930040&pblancNo=2026930040)

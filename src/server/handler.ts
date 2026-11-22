@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { ApiError, readJsonRequest } from './http-input.js';
+import { ApiError, readJsonRequest, uuidPattern } from './http-input.js';
 import { parseNoticeSearchConditions, evaluateNoticeSearch } from './notice-search.js';
-import { readAnalysisRunOperation, uuidPattern } from './analysis-runs.js';
+import { readAnalysisRunOperation } from './analysis-runs.js';
 import type { AnalysisRun, AnalysisRunOperation, ComparisonSnapshot } from './analysis-runs.js';
+import { calculateFundingPlan } from './funding-plan.js';
+import { readFundingSelection } from './funding-request.js';
+import type { FundingSelection } from './funding-request.js';
 
 export type Environment = Record<string, string | undefined>;
 export type Backend = {
@@ -16,6 +19,7 @@ export type Backend = {
   }) => Promise<ReadableStream<Uint8Array> | null>;
   runAnalysis: (operation: AnalysisRunOperation, signal: AbortSignal) => Promise<AnalysisRun>;
   getNoticeSearchIndex: (signal: AbortSignal) => Promise<unknown>;
+  getFundingInputs: (selection: FundingSelection, signal: AbortSignal) => Promise<unknown>;
   getComparison: (analysisId: string, runId: string, signal: AbortSignal) => Promise<ComparisonSnapshot>;
 };
 export type BackendConfig = { url: string; key: string; token: string };
@@ -23,6 +27,7 @@ export type BackendConfig = { url: string; key: string; token: string };
 const koreaDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' });
 const uploadContentPath = new RegExp(`^/api/v1/analyses/(${uuidPattern})/uploads/(${uuidPattern})/content$`);
 const analysisRunPath = /^\/api\/v1\/analyses\/([^/]+)\/runs(?:\/([^/]+)(?:\/(cancel|result))?)?$/;
+const fundingPlanPath = /^\/api\/v1\/analyses\/([^/]+)\/funding-plan$/;
 
 function readConfig(env: Environment, token: string): BackendConfig {
   const url = env.SUPABASE_URL;
@@ -51,9 +56,10 @@ export function createHandler(deps: {
     const path = new URL(request.url).pathname;
     const upload = path.match(uploadContentPath);
     const run = path.match(analysisRunPath);
+    const funding = path.match(fundingPlanPath);
     const search = path === '/api/v1/notices/search';
     const enqueues = run !== null && !run[2];
-    const method = search || enqueues || run?.[3] === 'cancel' ? 'POST' : 'GET';
+    const method = search || funding || enqueues || run?.[3] === 'cancel' ? 'POST' : 'GET';
     const allowedMethods = `${method}, OPTIONS`;
     const headers = new Headers({
       'Cache-Control': 'no-store',
@@ -61,7 +67,7 @@ export function createHandler(deps: {
       'X-Content-Type-Options': 'nosniff',
       'X-Request-Id': requestId,
     });
-    if (search || upload || run?.[3] === 'result') {
+    if (search || funding || upload || run?.[3] === 'result') {
       headers.set('Cache-Control', 'private, no-store');
       headers.set('Vary', 'Authorization, Origin');
       headers.set('Vercel-CDN-Cache-Control', 'no-store');
@@ -82,7 +88,7 @@ export function createHandler(deps: {
       return respond({ error: 'method_not_allowed', requestId }, 405);
     }
     if (path === '/api/health') return respond({ status: 'ok', service: 'homecierge-api', version: '0.1.0' }, 200);
-    if (!upload && !run && !search && !['/api/v1/me','/api/ready'].includes(path)) return respond({ error: 'not_found', requestId }, 404);
+    if (!upload && !run && !search && !funding && !['/api/v1/me','/api/ready'].includes(path)) return respond({ error: 'not_found', requestId }, 404);
 
     const authorization = request.headers.get('authorization');
     const match = authorization?.match(/^Bearer ([^\s]+)$/i);
@@ -96,6 +102,11 @@ export function createHandler(deps: {
     try {
       const user = await backend.getUser();
       if (!user || user.isAnonymous) return respond({ error: 'authentication_required', requestId }, 401);
+      if (funding) {
+        const selection = await readFundingSelection(request, funding[1]!);
+        const inputs = await backend.getFundingInputs(selection, request.signal);
+        return respond(calculateFundingPlan(inputs), 200);
+      }
       if (search) {
         const conditions = parseNoticeSearchConditions(await readJsonRequest(request, 'invalid_search_input'));
         if (!conditions) throw new ApiError('invalid_search_input');

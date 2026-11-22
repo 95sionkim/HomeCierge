@@ -79,9 +79,17 @@ def main():
         review = partial(review_catalog_documents, official_index=index, read_upload=read_upload)
         api = live_api_transport()
         if args.save:
-            result = ingest(inputs, api, data_origin='collected', review_documents=review)
+            payment_schedules = None
+
+            def review_for_save(target, catalog):
+                nonlocal payment_schedules
+                checked = review(target, catalog)
+                payment_schedules = (checked.get('review') or {}).get('paymentSchedules')
+                return checked
+
+            result = ingest(inputs, api, data_origin='collected', review_documents=review_for_save)
             saved = save_snapshot(args.owner_id, args.analysis_id, args.capture_key, inputs, result,
-                                  env=os.environ, retry_uncertain=True)
+                                  env=os.environ, retry_uncertain=True, payment_schedules=payment_schedules)
             output = {'snapshotId': saved}
         else:
             catalog, _, receipt = collect_notice_catalog(inputs.get('noticeSource'), inputs.get('target'), api,

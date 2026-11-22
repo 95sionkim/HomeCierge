@@ -807,6 +807,15 @@ export type Database = {
         Args: { p_index: Json }
         Returns: undefined
       }
+      read_analysis_funding_inputs: {
+        Args: {
+          p_analysis_id: string
+          p_model_no: string
+          p_room: string
+          p_snapshot_id: string
+        }
+        Returns: Json
+      }
       read_comparison_work: {
         Args: { p_generation: number; p_lease_token: string; p_run_id: string }
         Returns: Json
@@ -860,6 +869,17 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      save_funding_schedule_snapshot: {
+        Args: {
+          p_analysis_id: string
+          p_capture_key: string
+          p_input: Json
+          p_result: Json
+          p_schedules: Json
+          p_user_id: string
+        }
+        Returns: string
       }
       save_ingestion_snapshot: {
         Args: {

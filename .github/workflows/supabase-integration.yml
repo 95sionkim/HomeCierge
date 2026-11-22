@@ -45,7 +45,7 @@ jobs:
             docker ps -a --format 'table {{.Names}}\t{{.Status}}'
             exit 1
           fi
-      - name: Sign in two users and check files, analysis runs, saved comparisons and notice search
+      - name: Sign in two users and check files, analysis runs, comparisons, notice search and funding plans
         run: |
           umask 077
           local_status="$RUNNER_TEMP/homecierge-status.json"

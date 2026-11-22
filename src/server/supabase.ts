@@ -78,6 +78,21 @@ export function createBackend(config: BackendConfig): Backend {
       if (error) throw new Error('database_unavailable');
       return data;
     },
+    async getFundingInputs({ analysisId, snapshotId, modelNo, room }, signal) {
+      const { data, error } = await client.rpc('read_analysis_funding_inputs', {
+        p_analysis_id: analysisId, p_snapshot_id: snapshotId, p_model_no: modelNo, p_room: room,
+      }).abortSignal(signal);
+      if (error?.code === '42501' && error.message === 'funding_authentication_required') {
+        throw new ApiError('authentication_required');
+      }
+      if (error?.code === 'PT404') throw new ApiError('funding_not_found');
+      if (error?.code === '22023') throw new ApiError('invalid_funding_input');
+      if (error) throw new Error('database_unavailable');
+      if (!data || typeof data !== 'object' || Array.isArray(data)
+        || data.analysisId !== analysisId || data.snapshotId !== snapshotId
+        || data.modelNo !== modelNo || data.room !== room) throw new Error('invalid_funding_response');
+      return data;
+    },
     async getComparison(analysisId, runId, signal) {
       const { data, error } = await client.rpc('get_analysis_comparison', {
         p_analysis_id: analysisId, p_run_id: runId,
