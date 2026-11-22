@@ -6,6 +6,7 @@ import { marketView, tradeNames } from './trade-comparison.js';
 import { frame, authDialog, noticeDialog, sourceDialog, accountDialog } from './dialogs.js';
 import { createSearchPage } from './search-page.js';
 import { createFundingPage } from './funding-page.js';
+import { createCommutePage } from './commute-page.js';
 import { createReferencePage } from './reference-page.js';
 
 const root = document.querySelector('#app');
@@ -53,7 +54,8 @@ let analysisKey, resultLinkFocus;
 const searchPage = createSearchPage({ root, render, user: () => state.session, selectNotice: selectSearchNotice });
 const fundingPage = createFundingPage({ root, render });
 const referencePage = createReferencePage({ root, render });
-const resultSections = { comparison: '비교 결과', funding: '호실 자금표', law: '법령 근거', news: '지역 뉴스' };
+const commutePage = createCommutePage({ root, render });
+const resultSections = { comparison: '비교 결과', funding: '호실 자금표', law: '법령 근거', news: '지역 뉴스', commute: '출퇴근 경로' };
 const navs = [
   ['home', 'house', '홈'],
   ['notices', 'calendar-days', '오늘의 청약'],
@@ -66,7 +68,7 @@ function readRoute() {
   let section = 'comparison';
   const sectionAt = bits[0] === 'sample' && bits[1] === 'saved' ? 2 : 3;
   if (['run', 'sample'].includes(bits[0]) && bits.length === sectionAt + 1 &&
-      ['funding', 'law', 'news'].includes(bits.at(-1))) section = bits.pop();
+      ['funding', 'law', 'news', 'commute'].includes(bits.at(-1))) section = bits.pop();
   if (bits[0] === 'run' && bits.length === 3 && uuid.test(bits[1]) && uuid.test(bits[2]))
     return { key: 'run', analysisId: bits[1].toLowerCase(), runId: bits[2].toLowerCase(), section };
   if (bits[0] === 'sample' && bits.length === 2 && bits[1] === 'saved') return { key: 'sample', saved: true, section };
@@ -95,6 +97,7 @@ function resetPrivate() {
   searchPage.reset();
   fundingPage.reset();
   referencePage.reset();
+  commutePage.reset();
   ++epoch;
   ++dirVersion;
   ++historyVersion;
@@ -401,7 +404,7 @@ function render() {
   const focus = document.activeElement;
   const previousControl = focusedControl(focus);
   const searchFocus =
-    focus?.id === 'notice-search' ? { start: focus.selectionStart, end: focus.selectionEnd } : null;
+    ['notice-search','commute-destination'].includes(focus?.id) ? { id: focus.id, start: focus.selectionStart, end: focus.selectionEnd } : null;
   let body;
   if (state.suspended || state.sessionProblem)
     body = emptyState(
@@ -443,7 +446,8 @@ function render() {
     const base = route.section === 'comparison' ? location.hash : location.hash.slice(0, location.hash.lastIndexOf('/'));
     const tabs = Object.entries(resultSections).map(([key,label]) =>
       `<a href="${esc(base + (key === 'comparison' ? '' : '/' + key))}"${key === route.section ? ' aria-current="page"' : ''}>${label}</a>`).join('');
-    if (isReference(route)) body = referencePage.view();
+    if (route.section === 'commute') body = commutePage.view();
+    else if (isReference(route)) body = referencePage.view();
     else if (route.section === 'funding' && comparison && !state.runError) body = fundingPage.view();
     const lookup = route.key === 'run' && isReference(route) ? state.conditionLookup : null;
     const conditions = analysisConditionBar(state.runError ? null : comparison || lookup?.data, state.run?.input, state.conditionsOpen, lookup);
@@ -455,7 +459,7 @@ function render() {
       route.key
     ] ?? '오늘의 청약') + ' | HomeCierge';
   if (searchFocus) {
-    const next = document.querySelector('#notice-search');
+    const next = document.getElementById(searchFocus.id);
     next?.focus({ preventScroll: true });
     next?.setSelectionRange(searchFocus.start, searchFocus.end);
   } else if (resultLinkFocus === location.hash && root.querySelector('.analysis-tabs')) {
@@ -548,11 +552,12 @@ async function readSample(route, version) {
   }
 }
 function isReference(route) {
-  return route.section === 'law' || route.section === 'news';
+  return ['law', 'news', 'commute'].includes(route.section);
 }
 function loadReference(route, name, snapshotId) {
-  referencePage.enter({ section: route.section, guest: route.key === 'sample', saved: route.saved,
-    analysisId: route.analysisId, snapshotId, name });
+  const page = route.section === 'commute' ? commutePage : referencePage;
+  page.enter({ section: route.section, guest: route.key === 'sample', saved: route.saved,
+    ownerId: state.session?.id, analysisId: route.analysisId, snapshotId, name });
 }
 function loadFunding(route, result, snapshotId) {
   return fundingPage.enter({
@@ -575,6 +580,7 @@ function routeChanged(focus = false) {
   searchPage.reset();
   fundingPage.reset();
   referencePage.reset();
+  commutePage.reset();
   clearTimeout(pollTimer);
   closeDialog();
   state.run = null;

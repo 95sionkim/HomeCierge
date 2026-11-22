@@ -237,3 +237,36 @@
     gap: 10px 20px;
   }
 }
+
+/* 공고에 고정한 출발지와 사용자가 바꾸는 목적지를 한 경로로 읽는다. */
+.commute-form, .commute-confirm { margin-top: 18px; padding: clamp(18px, 3vw, 30px); }
+.commute-point { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 16px; position: relative; }
+.commute-point + .commute-point { margin-top: 18px; }
+.commute-point:first-child::before { content: ''; position: absolute; left: 6px; top: 16px; bottom: -24px; border-left: 2px dotted var(--border); }
+.route-dot { width: 14px; height: 14px; margin-top: 5px; background: var(--surface); border: 3px solid var(--primary); border-radius: 50%; }
+.route-dot.end { background: var(--primary); }
+.commute-point label, .commute-label { display:block; color: var(--muted); font-weight: 650; font-size: 13px; margin-bottom: 4px; }
+.commute-point strong { font-size: 18px; }
+.commute-point small { display: block; margin-top: 4px; color: var(--muted); font-size: 13px; }
+.commute-point input { width: 100%; max-width: 620px; min-height: 44px; padding: 9px 12px; background: var(--surface); border: 1px solid var(--input); border-radius: 8px; font: inherit; color: var(--foreground); }
+.commute-point input[readonly] { background: var(--soft); }
+.commute-actions { display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; margin: 18px 0 0 32px; }
+.commute-confirm h2, .commute-mode h3 { margin: 0; font-size: 19px; }
+.commute-confirm p, .commute-feedback, .commute-mode footer { color: var(--muted); }
+.commute-confirm .commute-actions { margin-left: 0; }
+.commute-feedback:empty { margin: 0; }
+.commute-results { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; margin-top: 20px; }
+.commute-mode { min-width: 0; display: flex; flex-direction: column; padding: clamp(16px, 2.5vw, 24px); }
+.commute-mode header, .commute-facts > div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.commute-time { margin: 12px 0; color: var(--primary); font-size: 16px; }
+.commute-time b { font: 500 clamp(30px, 4vw, 42px)/1.2 var(--mono); }
+.commute-facts { display: grid; gap: 6px; margin: 10px 0 16px; }
+.commute-facts dt, .commute-mode footer { color: var(--muted); font-size: 13px; }
+.commute-facts dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
+.commute-mode footer { margin-top: auto; border-top: 1px solid var(--line); padding-top: 12px; }
+.commute-hold { display: flex; gap: 8px; align-items: flex-start; padding-block: 12px; }
+.commute-hold .icon { flex: none; }
+@media(max-width: 650px) {
+  .commute-results { grid-template-columns: minmax(0,1fr); }
+  .commute-actions { margin-left: 0; }
+}

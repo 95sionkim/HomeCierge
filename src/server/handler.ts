@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { ApiError, isUuid, readBody, readJsonRequest, uuidPattern } from './http-input.js';
 import { koreaDate } from './public-fields.js';
+import { commuteDestination, readCommute } from './commute.js';
 import { readLegalEvidence } from './legal-evidence.js';
 import { readRegionalNews } from './regional-news-request.js';
 import { parseNoticeSearchConditions, evaluateNoticeSearch } from './notice-search.js';
@@ -25,6 +26,7 @@ export type Backend = {
   getNoticeSearchIndex: (signal: AbortSignal, purpose: 'directory' | 'search') => Promise<unknown>;
   getFundingInputs: (selection: FundingSelection, signal: AbortSignal) => Promise<unknown>;
   getLegalEvidence: (analysisId: string, snapshotId: string, signal: AbortSignal) => Promise<unknown>;
+  prepareCommute: (analysisId: string, snapshotId: string, signal: AbortSignal) => Promise<unknown>;
   prepareRegionalNews: (analysisId: string, snapshotId: string, signal: AbortSignal) => Promise<unknown>;
   getComparison: (analysisId: string, runId: string, signal: AbortSignal) => Promise<ComparisonSnapshot>;
 };
@@ -33,7 +35,7 @@ export type BackendConfig = { url: string; key: string; token: string };
 const uploadContentPath = new RegExp(`^/api/v1/analyses/(${uuidPattern})/uploads/(${uuidPattern})/content$`);
 const analysisRunPath = /^\/api\/v1\/analyses\/([^/]+)\/runs(?:\/([^/]+)(?:\/(cancel|result))?)?$/;
 const fundingPlanPath = /^\/api\/v1\/analyses\/([^/]+)\/funding-plan$/;
-const snapshotServicePath = /^\/api\/v1\/analyses\/([^/]+)\/snapshots\/([^/]+)\/(legal-evidence|regional-news)$/;
+const snapshotServicePath = /^\/api\/v1\/analyses\/([^/]+)\/snapshots\/([^/]+)\/(legal-evidence|regional-news|commute)$/;
 
 function readConfig(env: Environment, token: string): BackendConfig {
   const url = env.SUPABASE_URL;
@@ -58,6 +60,7 @@ export function createHandler(deps: {
   env: Environment;
   createBackend: (config: BackendConfig) => Backend;
   now?: () => Date;
+  commuteFetch?: typeof fetch;
   newsFetch?: typeof fetch;
   log?: (event: { requestId: string; code: string }) => void;
 }) {
@@ -69,12 +72,13 @@ export function createHandler(deps: {
     const run = path.match(analysisRunPath);
     const funding = path.match(fundingPlanPath);
     const snapshotService = path.match(snapshotServicePath);
+    const commute = snapshotService?.[3] === 'commute';
     const news = snapshotService?.[3] === 'regional-news';
     const search = path === '/api/v1/notices/search';
     const directory = path === '/api/v1/notices';
     const regions = path === '/api/v1/notices/regions';
     const enqueues = run !== null && !run[2];
-    const method = search || funding || news || enqueues || run?.[3] === 'cancel' ? 'POST' : 'GET';
+    const method = search || funding || news || commute || enqueues || run?.[3] === 'cancel' ? 'POST' : 'GET';
     const allowedMethods = `${method}, OPTIONS`;
     const headers = new Headers({
       'Cache-Control': 'no-store',
@@ -129,10 +133,19 @@ export function createHandler(deps: {
       if (snapshotService) {
         const [, analysis, snapshot] = snapshotService;
         if (!isUuid(analysis) || !isUuid(snapshot) || url.search) {
-          throw new ApiError(news ? 'invalid_news_input' : 'invalid_legal_input');
+          throw new ApiError(commute ? 'invalid_commute_input' : news ? 'invalid_news_input' : 'invalid_legal_input');
         }
         const analysisId = analysis.toLowerCase();
         const snapshotId = snapshot.toLowerCase();
+        if (commute) {
+          const destination = commuteDestination(await readJsonRequest(request, 'invalid_commute_input'));
+          if (!destination) throw new ApiError('invalid_commute_input');
+          const context = await backend.prepareCommute(analysisId, snapshotId, request.signal);
+          return respond(await readCommute(context, analysisId, snapshotId, destination, {
+            kakaoKey: deps.env.KAKAO_REST_API_KEY, odsayKey: deps.env.ODSAY_API_KEY,
+            signal: request.signal, fetch: deps.commuteFetch, now: deps.now,
+          }), 200);
+        }
         if (news) {
           if (await readBody(request, 0, 'invalid_news_input') === null) throw new ApiError('invalid_news_input');
           const context = await backend.prepareRegionalNews(analysisId, snapshotId, request.signal);
@@ -198,7 +211,7 @@ export function createHandler(deps: {
       return respond({ user: { id: user.id }, profile }, 200);
     } catch (error) {
       if (error instanceof ApiError) {
-        if (error.code === 'run_rate_limited' || error.code === 'news_rate_limited') {
+        if (error.code === 'run_rate_limited' || error.code === 'news_rate_limited' || error.code === 'commute_rate_limited') {
           headers.set('Retry-After', '60');
           if (origin) headers.set('Access-Control-Expose-Headers', 'Retry-After');
         }

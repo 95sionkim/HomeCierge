@@ -105,6 +105,16 @@ export function createBackend(config: BackendConfig): Backend {
         || data.modelNo !== modelNo || data.room !== room) throw new Error('invalid_funding_response');
       return data;
     },
+    async prepareCommute(analysisId, snapshotId, signal) {
+      const { data, error } = await client.rpc('prepare_analysis_commute', {
+        p_analysis_id: analysisId, p_snapshot_id: snapshotId,
+      }).abortSignal(signal);
+      if (error?.code === '42501' && error.message === 'commute_authentication_required') throw new ApiError('authentication_required');
+      if (error?.code === 'PT404') throw new ApiError('commute_snapshot_not_found');
+      if (error?.code === 'PT429') throw new ApiError('commute_rate_limited');
+      if (error) throw new Error('database_unavailable');
+      return data;
+    },
     async prepareRegionalNews(analysisId, snapshotId, signal) {
       const { data, error } = await client.rpc('prepare_analysis_regional_news', {
         p_analysis_id: analysisId, p_snapshot_id: snapshotId,

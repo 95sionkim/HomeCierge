@@ -30,6 +30,9 @@ const publicErrors = new Set([
   'funding_not_found',
   'invalid_legal_input',
   'legal_evidence_not_found',
+  'invalid_commute_input',
+  'commute_snapshot_not_found',
+  'commute_rate_limited',
   'invalid_news_input',
   'news_snapshot_not_found',
   'news_rate_limited',
@@ -224,6 +227,28 @@ export function readSnapshotReference(section, analysisId, snapshotId, signal) {
   const service = law ? 'legal-evidence' : 'regional-news';
   return request(`/api/v1/analyses/${analysisId}/snapshots/${snapshotId}/${service}`,
     law ? 'GET' : 'POST', undefined, signal);
+}
+
+export function queryCommute(analysisId, snapshotId, destination, signal) {
+  if (!uuid.test(analysisId) || !uuid.test(snapshotId)) throw apiError('invalid_commute_input');
+  return request(`/api/v1/analyses/${analysisId}/snapshots/${snapshotId}/commute`, 'POST', { destination }, signal);
+}
+
+export async function commuteProfile(ownerId, signal) {
+  const { data, error } = await (await client()).from('user_profiles').select('revision,commute_destination')
+    .eq('user_id', ownerId).abortSignal(signal).maybeSingle();
+  if (error) throw databaseError(error);
+  if (data && (!Number.isSafeInteger(data.revision) || data.revision < 0 ||
+      (data.commute_destination !== null && typeof data.commute_destination !== 'string'))) throw apiError('backend_unavailable');
+  return data ?? { revision: 0, commute_destination: null };
+}
+
+export async function confirmDestination(ownerId, revision, destination) {
+  const { error } = await (await client()).rpc('confirm_commute_destination', {
+    p_user_id: ownerId, p_base_revision: revision, p_destination: destination,
+  });
+  if (error?.code === '40001') throw apiError('profile_changed');
+  if (error) throw databaseError(error);
 }
 
 const fundFields = 'id,kind,amountWon:amount_won::text,availableOn:available_on,certainty,updatedAt:updated_at';

@@ -1,4 +1,5 @@
 // 선택 공고에서 확인한 행정구역으로 네이버 뉴스 검색 결과를 즉시 조회한다.
+import { readLimitedJson } from './provider-json.js';
 import { isIP } from 'node:net';
 import { isTimestamp } from './public-fields.js';
 
@@ -148,31 +149,6 @@ function readPage(value: unknown, credentials: string[]): Pick<RegionalNewsResul
   return { status: value.total === 0 ? 'empty' : 'available', items: validItems, omittedCount };
 }
 
-async function readLimitedJson(response: Response, signal: AbortSignal): Promise<unknown> {
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error('invalid_news_response');
-  const cancel = () => { void reader.cancel().catch(() => {}); };
-  signal.addEventListener('abort', cancel, { once: true });
-  const bytes = new Uint8Array(maxResponseBytes);
-  let length = 0;
-  try {
-    signal.throwIfAborted();
-    for (;;) {
-      const { value, done } = await reader.read();
-      signal.throwIfAborted();
-      if (done) break;
-      if (length + value.byteLength > bytes.length) throw new Error('invalid_news_response');
-      bytes.set(value, length);
-      length += value.byteLength;
-    }
-    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, length)));
-  } finally {
-    signal.removeEventListener('abort', cancel);
-    cancel();
-    reader.releaseLock();
-  }
-}
-
 export async function fetchRegionalNews(region: string, options: RegionalNewsOptions): Promise<RegionalNewsResult> {
   if (!isRegionalNewsRegion(region)) throw new TypeError('invalid_news_region');
   const base: RegionalNewsResult = {
@@ -203,7 +179,7 @@ export async function fetchRegionalNews(region: string, options: RegionalNewsOpt
       const status = !signal.aborted && !response.redirected && response.status === 429 ? 'rate_limited' : 'provider_unavailable';
       return { ...base, status, queriedAt };
     }
-    const page = await readLimitedJson(response, signal);
+    const page = await readLimitedJson(response, signal, maxResponseBytes);
     return { ...base, queriedAt, ...readPage(page, [clientId, clientSecret]) };
   } catch {
     return { ...base, queriedAt };

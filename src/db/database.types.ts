@@ -1,4 +1,3 @@
-// Supabase 개발 DB에서 생성한 타입. 재생성 절차: docs/infrastructure.md
 export type Json =
   | string
   | number
@@ -728,6 +727,14 @@ export type Database = {
         Args: { p_lease_seconds: number; p_run_id?: string }
         Returns: Json
       }
+      confirm_commute_destination: {
+        Args: {
+          p_base_revision: number
+          p_destination: string
+          p_user_id: string
+        }
+        Returns: undefined
+      }
       decide_profile_change: {
         Args: { decision: string; request_id: string }
         Returns: {
@@ -829,6 +836,10 @@ export type Database = {
       }
       get_analysis_run: {
         Args: { p_analysis_id: string; p_run_id: string }
+        Returns: Json
+      }
+      prepare_analysis_commute: {
+        Args: { p_analysis_id: string; p_snapshot_id: string }
         Returns: Json
       }
       prepare_analysis_regional_news: {

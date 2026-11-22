@@ -531,3 +531,74 @@ test('the comparison plots an exact shared domain and only labels a substantiate
     assert.equal(await page.locator('.chart-series .series-track b').evaluate(e => e.style.left), '50%');
   } finally { await ctx.close(); }
 });
+
+test('a mobile guest can inspect the fixed commute example without sending an address', async () => {
+  const page=await browser.newPage({viewport:{width:360,height:800}});
+  let requests=0;
+  page.on('request',req=>{if(new URL(req.url()).pathname.endsWith('/commute')) requests++;});
+  try {
+    await page.goto(origin+'/#sample/saved/commute');
+    await page.getByRole('button',{name:'예시 경로 보기'}).click();
+    await page.getByRole('region',{name:'수단별 경로 결과'}).waitFor();
+    assert.match(await page.locator('.commute-mode').first().innerText(),/시간 미제공/);
+    assert.equal(await page.locator('.commute-time b').first().innerText(),'38');
+    assert.ok(await page.locator('#commute-destination').getAttribute('readonly')!==null);
+    assert.equal(await page.getByRole('button',{name:'공유 목적지로 저장'}).count(),0);
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth));
+    await page.getByRole('link',{name:'지역 뉴스',exact:true}).click();
+    await page.getByRole('heading',{name:'지역 뉴스',exact:true}).waitFor();
+    assert.equal(await page.locator('.commute-mode').count(),0);
+    assert.equal(requests,0);
+  } finally { await page.close(); }
+});
+
+test('commute lookup, confirmed shared changes and cancellation have separate user actions', async () => {
+  const analysis='c1000000-0000-4000-8000-000000000001', run='c1000000-0000-4000-8000-000000000002';
+  const snapshot='c1000000-0000-4000-8000-000000000003', owner='c1000000-0000-4000-8000-000000000004';
+  const ctx=await browser.newContext();
+  await ctx.addInitScript(owner=>{
+    window.testProfile={revision:0,commute_destination:null};
+    window.confirmations=[];
+    const auth={getSession:async()=>({data:{session:{user:{id:owner,email:'reader@example.invalid'},access_token:'SYNTHETIC_USER'}}}),
+      onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}})};
+    const query={select(){return this;},eq(){return this;},not(){return this;},order(){return this;},abortSignal(){return this;},
+      limit:async()=>({data:[]}), maybeSingle:async()=>({data:window.testProfile})};
+    globalThis.supabase={createClient:()=>({auth,from:()=>query,rpc:async(name,args)=>{
+      window.confirmations.push({name,args});window.testProfile={revision:1,commute_destination:args.p_destination};
+      return {error:null};}})};
+  },owner);
+  let queries=0;
+  await ctx.route('**/api/v1/analyses/**',async route=>{
+    const path=new URL(route.request().url()).pathname;
+    if(path.endsWith('/commute')) {
+      queries++;
+      assert.deepEqual(route.request().postDataJSON(),{destination:'서울특별시 가람구 합성로 24'});
+      const empty={queriedAt:'2026-10-27T08:00:00Z',durationSeconds:null,distanceMeters:null,walkMinutes:null,walkMeters:null,kind:null};
+      await route.fulfill({json:{contractVersion:'commute/v1',analysisId:analysis,snapshotId:snapshot,
+        status:'ready',originAddress:'공고 합성로 10',transit:{...empty,source:'odsay_route',status:'provider_denied'},
+        driving:{...empty,source:'kakao_directions',status:'available',durationSeconds:600,distanceMeters:3000,kind:'car'}}});
+    } else if(path.endsWith(run)) await route.fulfill({json:{analysisId:analysis,runId:run,snapshotId:snapshot,status:'finished',input:{kind:'snapshot'}}});
+    else await route.fulfill({status:403,json:{error:'comparison_source_restricted'}});
+  });
+  try {
+    const p=await ctx.newPage(); p.setDefaultTimeout(5000);
+    await p.goto(`${origin}/#run/${analysis}/${run}/commute`);
+    const input=p.getByLabel('목적지 주소');
+    await input.fill('서울특별시 가람구 합성로 24');
+    await p.getByRole('button',{name:'경로 조회',exact:true}).click();
+    await p.getByText('제공자가 이 환경의 요청을 승인하지 않았습니다.').waitFor();
+    assert.equal(await p.locator('.commute-time b').innerText(),'10');
+    assert.equal(await p.evaluate(()=>window.confirmations.length),0);
+    await p.getByRole('button',{name:'공유 목적지로 저장'}).click(); await p.getByRole('button',{name:'취소',exact:true}).click();
+    assert.equal(await p.evaluate(()=>window.confirmations.length),0);
+    await p.getByRole('button',{name:'공유 목적지로 저장'}).click(); await p.getByRole('button',{name:'확인하고 반영'}).click();
+    await p.getByText('공유 목적지를 저장했습니다.').waitFor();
+    assert.deepEqual(await p.evaluate(()=>window.confirmations),[{name:'confirm_commute_destination',
+      args:{p_user_id:owner,p_base_revision:0,p_destination:'서울특별시 가람구 합성로 24'}}]);
+    await input.fill('변경로 10'); assert.equal(await p.locator('.commute-mode').count(),0);
+    await p.getByRole('link',{name:'법령 근거'}).click();
+    await p.getByRole('link',{name:'출퇴근 경로'}).click();
+    await p.waitForFunction(()=>document.querySelector('#commute-destination')?.value==='서울특별시 가람구 합성로 24');
+    assert.equal(queries,1);
+  } finally {await ctx.close();}
+});

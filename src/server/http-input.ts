@@ -27,6 +27,9 @@ const errorStatuses = {
   funding_not_found: 404,
   invalid_legal_input: 400,
   legal_evidence_not_found: 404,
+  invalid_commute_input: 400,
+  commute_snapshot_not_found: 404,
+  commute_rate_limited: 429,
   invalid_news_input: 400,
   news_snapshot_not_found: 404,
   news_rate_limited: 429,
@@ -49,7 +52,7 @@ export class ApiError extends Error {
   get status() { return errorStatuses[this.code]; }
 }
 
-type InputError = 'invalid_run_input' | 'invalid_search_input' | 'invalid_funding_input' | 'invalid_news_input';
+type InputError = 'invalid_run_input' | 'invalid_search_input' | 'invalid_funding_input' | 'invalid_news_input' | 'invalid_commute_input';
 
 export async function readBody(request: Request, limit: number, invalid: InputError): Promise<Uint8Array | null> {
   if (Number(request.headers.get('content-length')) > limit) return null;

@@ -544,6 +544,19 @@ async function run(config, capture, requestApi, apiPort) {
       await checkNoticeSearch({ config, accounts, admin, requestApi, check, result });
       await checkLegalEvidence({ config, accounts, admin, capture, requestApi, check, result });
       await checkRegionalNews({ config, accounts, admin, capture, requestApi, check, result });
+      // 실제 사용자 세션을 사용한다. 합성 수집본에서는 외부 교통 서비스 호출이 발생하지 않는다.
+      const [owner, peer] = accounts;
+      const path = `/api/v1/analyses/${owner.analysisId}/snapshots/${owner.snapshotId}/commute`;
+      const query = account => requestApi(path, {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + account.accessToken, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ destination: '합성시 가람로 20' }),
+      });
+      const own = await query(owner);
+      check(own.status === 200 && (await own.json()).status === 'synthetic_input', 'commute_synthetic_source');
+      const other = await query(peer);
+      check(other.status === 404, 'commute_other_account');
+      await other.body?.cancel();
       await checkNoticeAnalysis({ config, accounts, admin, requestApi, check, result, userClient, login, apiPort });
     }
     await checkFundingPlan({ accounts, admin, capture, requestApi, check, result });
