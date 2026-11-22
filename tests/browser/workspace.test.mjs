@@ -31,6 +31,27 @@ after(async () => {
   if (server?.listening) await new Promise((resolve) => server.close(resolve));
 });
 
+test('login becomes available after initial session restoration and keeps the email field open', async () => {
+  const context = await browser.newContext();
+  let releaseConfig;
+  const delayed = new Promise(resolve => { releaseConfig = resolve; });
+  await context.route('**/api/v1/client-config', async route => { await delayed; await route.continue(); });
+  try {
+    const page = await context.newPage();
+    await page.goto(origin + '/#notices');
+    const button = page.locator('.topbar [data-action="auth"]');
+    await page.getByText('세션 확인 중', { exact: true }).waitFor();
+    assert.ok(await button.isDisabled());
+    releaseConfig();
+    await button.click();
+    await page.locator('#auth-email').fill('synthetic@example.invalid');
+    assert.equal(await page.locator('dialog[open] #auth-email').inputValue(), 'synthetic@example.invalid');
+  } finally {
+    releaseConfig();
+    await context.close();
+  }
+});
+
 for (const width of [1440, 390]) {
   test('custom search and room funding at ' + width + 'px use the exact conditions and payment evidence', async () => {
     const context = await browser.newContext({ viewport: { width, height: 900 } });

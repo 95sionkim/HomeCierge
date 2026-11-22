@@ -234,18 +234,13 @@ export function createReferencePage({ root, render }) {
     request?.abort();
     context = request = data = error = null;
   }
-  function refresh() {
-    const keepFocus = document.activeElement?.id === 'ref-query-action';
-    render();
-    if (keepFocus) root.querySelector('#ref-query-action')?.focus({ preventScroll: true });
-  }
   async function load() {
     if (!context || request || document.hidden) return;
     const ctx = context,
       controller = new AbortController();
     request = controller;
     data = error = null;
-    refresh();
+    render();
     try {
       let value;
       if (ctx.guest) {
@@ -263,7 +258,7 @@ export function createReferencePage({ root, render }) {
     } finally {
       if (request === controller) {
         request = null;
-        refresh();
+        render();
       }
     }
   }
