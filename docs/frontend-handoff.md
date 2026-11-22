@@ -4,6 +4,14 @@
 
 **첫 연결 범위는 로그인 → 오늘의 청약 목록 → 공고·주택형 선택 → 분석 진행·재조회다.** `today` 예시에는 오늘 마감·접수 예정·분리 접수 사이의 공고가 함께 있다. `confirmedEmpty`는 조사 범위의 정상 빈 목록이고, `delayed`는 이전 관측과 부분 수집이 겹친 사례다. [목록·선택 계약](api/notice-directory.md) · [디자인·개발용 합성 응답](../tests/fixtures/notice-directory-v1.json) · [진행 상태와 결과](api/analysis-runs.md)
 
+## 오늘의 청약을 실행한다
+
+`npm ci`와 `npm run dev`로 [로컬 화면](http://127.0.0.1:3001/)을 엽니다. 처음 방문하면 합성 공고가 표시됩니다. 이메일로 로그인하면 청약홈의 관측 시각과 함께 공식 목록을 읽습니다. 카드와 달력은 같은 공고의 확인된 접수 구간을 사용합니다. 로그인한 상태에서 목록을 불러오지 못하면 다시 조회할 수 있습니다.
+
+주택형을 선택하고 분석 시작을 누르면 `start_notice_workspace(p_request_key, p_input)`가 사용자의 대화·분석·실행을 한 트랜잭션에 저장합니다. 같은 계정에서 재시도하면 처음 실행을 복원하고 선택이 거부되면 새 대화도 저장되지 않습니다. **내 분석**은 현재 계정의 최근 실행 30개를 보여줍니다. 진행·취소와 가격·비교 보류는 기존 실행 API 응답을 따릅니다.
+
+`GET /api/v1/client-config`는 해당 배포의 Supabase 주소와 publishable key를 돌려줍니다. 사용자 인증은 이메일과 비밀번호를 사용하며 이메일 확인이 켜진 프로젝트에서는 인증 메일을 거칩니다. 개발자가 호스팅 설정을 준비할 때는 사용할 개발 화면 주소를 Supabase Auth의 허용 리디렉션 URL에 등록합니다. 발행 전 검수 명령은 `npm run build`와 격리된 Supabase의 `NOTICE_BROWSER_SMOKE=1 BE07_EPHEMERAL_SEARCH_FIXTURE=1 npm run test:auth`입니다.
+
 11월 22일 개발 커밋 `aab6254`의 보호된 미리보기에서 상태 조회는 200, 사용자 세션이 없는 공고 목록 조회는 401 `authentication_required`와 `private, no-store`를 반환했다. 격리된 Supabase에서 두 계정으로 로그인해 목록 선택·분석 실행·소유자의 재로그인 후 결과 조회와 타인 조회 404를 확인했다. 이 인증 검사의 제공기관 응답은 합성이며, 논산 공고의 실제 수집과 저장 검수는 목록 계약에 기록했다. [인증 통합 검사](https://github.com/95sionkim/HomeCierge/actions/runs/44997598855) · [논산 공고 검산](api/notice-directory.md#수집한-범위와-근거를-읽는다)
 
 ### 전달받은 화면을 API에 연결한다
@@ -13,7 +21,7 @@
 | 화면에서 할 일 | 지금 연결할 데이터와 남은 화면 작업 |
 | --- | --- |
 | S-01 채팅 홈에서 시작하거나 돌아온다 | 재로그인한 사용자의 분석 목록과 `latest_run_id`로 작업을 복원한다. 와이어프레임의 시작 카드는 공고명·번호·PDF 세 가지다. 추가로 요청한 **오늘의 청약**은 이 홈에서 예산 입력 없이 들어가는 진입점으로 제안한다. |
-| 오늘 접수 중·예정인 공고를 훑는다 | `GET /api/v1/notices`의 접수 구간·한국 기준일·관측 시각을 카드와 달력이 같이 쓴다. S-02는 이름이 같은 공고의 회차를 고르는 화면이다. 오늘 목록의 카드·달력, 로그인, 작은 화면의 배치는 추가 시안 범위다. |
+| 오늘 접수 중·예정인 공고를 훑는다 | `GET /api/v1/notices`의 접수 구간·한국 기준일·관측 시각을 카드와 달력이 같이 쓴다. S-02는 이름이 같은 공고의 회차를 고르는 화면이다. 오늘 개발 화면은 이 공고 목록을 카드·달력으로 제공하고 로그인·작은 화면 배치까지 연결했다. |
 | S-02에서 회차를 구분하고 S-03에서 주택형을 고른다 | 공고 식별은 주택관리번호·공고번호·판본, 주택형 선택은 `models[].analysisInput`을 쓴다. 선택이 보류된 항목은 `selectionBlockers`를 안내한다. 해당 공고명의 과거 전체 회차 검색, PDF 동일 회차 표시, 호실 가격에는 각각 별도 조회와 근거가 필요하다. |
 | S-04·S-05에서 비교 범위·가격·보류를 표시한다 | `comparison/v1`의 `regionDecision`, `noticePrice`, `holds`, 수집 상태를 읽는다. 비교 보류 화면의 세 칸에 빠진 근거, 다시 비교할 조건, 계속 볼 수 있는 값을 채운다. 개별 작업 시각이 없으면 실제로 받은 실행 상태까지만 표시한다. [비교 응답](api/comparison-v1.md) |
 | S-06~08과 확인·근거 패널을 연다 | 뉴스는 출처 표시가 허용된 상태에서 제공한다. O-3의 공유 프로필 승인은 이번 분석의 조건 변경과 구분한다. O-5 원문은 접근 허용된 파일·판본·쪽으로만 연결한다. S-07 보고서 생성·내보내기는 후속 구현이다. [뉴스](api/regional-news.md) · [비공개 파일](api/ingestion-storage.md) |
@@ -29,7 +37,7 @@
 | 로컬 API | `npm run dev` → `http://127.0.0.1:3001` |
 | 타입 | [원격 DB에서 생성한 Database 타입](../src/db/database.types.ts) |
 
-로컬 API는 `.secrets/backend.env`의 `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `APP_ENV=development`, `ALLOWED_ORIGINS`를 읽는다. 현재 Vercel 허용 origin은 `http://localhost:3000`, `http://127.0.0.1:3000`, `http://localhost:5173`, `http://127.0.0.1:5173`이다. 화면의 실제 origin이 다르면 정확한 값으로 추가한다. 원격 키는 접근 권한이 있는 프로젝트 설정에서 전달받으며 채팅·Git에 붙여 넣지 않는다.
+로컬 API는 `.secrets/backend.env`의 `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `APP_ENV=development`, `ALLOWED_ORIGINS`를 읽는다. 현재 Vercel 허용 origin은 `http://localhost:3000`, `http://127.0.0.1:3000`, `http://localhost:5173`, `http://127.0.0.1:5173`이다. 같은 배포에서 제공하는 화면은 그 배포의 API를 호출한다. 별도 화면을 연결할 때는 정확한 origin을 추가한다. 원격 키는 접근 권한이 있는 프로젝트 설정에서 전달받으며 채팅·Git에 붙여 넣지 않는다.
 
 Preview에는 Vercel 배포 보호가 켜져 있다. Vercel 로그인과 Supabase의 서비스 사용자 로그인은 별개이며, 별도 화면의 자동 API 호출에 배포 보호가 추가로 적용될 수 있다. 로컬 API로 먼저 연동하고 화면 배포 때 접근 방식을 함께 검수한다. 보호 우회 값을 화면 코드에 넣지 않는다.
 
@@ -43,7 +51,7 @@ Preview에는 Vercel 배포 보호가 켜져 있다. Vercel 로그인과 Supabas
 
 ## 1. 인증과 API를 연결한다
 
-사용자는 Supabase Auth로 로그인하고 사용자 access token을 `Authorization: Bearer <access_token>` 헤더로 전달한다. API는 쿠키 기반 인증을 가정하지 않는다. 프레임워크별 로그인·세션 갱신·리다이렉트 화면과 로그인 수단은 화면 통합 단계에서 연결한다. 토큰·비밀번호는 채팅 내용이나 로그에 기록하지 않는다.
+사용자는 Supabase Auth로 로그인하고 사용자 access token을 `Authorization: Bearer <access_token>` 헤더로 전달한다. API는 쿠키 기반 인증을 가정하지 않는다. 개발 화면은 공식 브라우저 SDK로 이메일 로그인과 세션 갱신을 처리한다. 출시 환경의 인증 수단과 메일 설정은 운영 검수에서 확정한다. 토큰·비밀번호는 채팅 내용이나 로그에 기록하지 않는다.
 
 | 요청을 보낸다 | 의미를 구분한다 | 응답과 실패를 처리한다 |
 | --- | --- | --- |

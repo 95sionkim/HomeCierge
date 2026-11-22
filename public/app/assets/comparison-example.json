@@ -1,0 +1,425 @@
+{
+  "contractVersion": "comparison/v1",
+  "dataOrigin": "synthetic",
+  "completeness": "complete",
+  "appliedScope": "priority",
+  "comparables": [
+    {
+      "complexId": "comparison-a",
+      "name": "합성 비교 A",
+      "localityCode": "9999900100",
+      "supplyAreaM2": "112.50",
+      "areaDifferenceM2": "0.100",
+      "identityEvidence": {
+        "source": "synthetic-complex-register",
+        "reference": "comparison-a"
+      },
+      "regionEvidence": {
+        "source": "synthetic-region-register",
+        "reference": "garam"
+      },
+      "distance": {
+        "kind": "straight_line",
+        "status": "confirmed",
+        "meters": 1111.9508023353292,
+        "evidence": [
+          {
+            "source": "synthetic-coordinate-register",
+            "reference": "target-42"
+          },
+          {
+            "source": "synthetic-coordinate-register",
+            "reference": "comparison-a"
+          }
+        ]
+      },
+      "rank": 1,
+      "tradeStats": {
+        "sale": {
+          "status": "confirmed",
+          "priceMeaning": "sale_transaction_amount",
+          "count": 1,
+          "minWon": "515000000",
+          "maxWon": "515000000",
+          "medianWon": "515000000",
+          "smallSample": true,
+          "observations": [
+            {
+              "recordId": "col-apt_trade-99999-202610",
+              "source": "apt_trade",
+              "page": 1,
+              "position": 1,
+              "contractDate": "2026-10-20",
+              "exclusiveAreaM2": "84.00",
+              "floor": "7",
+              "buildYear": null,
+              "collectedAt": "2026-11-10T01:00:02Z",
+              "evidence": {
+                "source": "synthetic-area-register",
+                "reference": "comparison-a/84.00"
+              },
+              "won": "515000000"
+            }
+          ]
+        }
+      },
+      "characteristics": [],
+      "selectionReason": "area_difference_then_straight_line"
+    },
+    {
+      "complexId": "comparison-b",
+      "name": "합성 비교 B",
+      "localityCode": "9999900100",
+      "supplyAreaM2": "110.00",
+      "areaDifferenceM2": "2.400",
+      "identityEvidence": {
+        "source": "synthetic-complex-register",
+        "reference": "comparison-b"
+      },
+      "regionEvidence": {
+        "source": "synthetic-region-register",
+        "reference": "garam"
+      },
+      "distance": {
+        "kind": "straight_line",
+        "status": "confirmed",
+        "meters": 555.9754011676646,
+        "evidence": [
+          {
+            "source": "synthetic-coordinate-register",
+            "reference": "target-42"
+          },
+          {
+            "source": "synthetic-coordinate-register",
+            "reference": "comparison-b"
+          }
+        ]
+      },
+      "rank": 2,
+      "tradeStats": {
+        "presale_right": {
+          "status": "confirmed",
+          "priceMeaning": "reported_rights_transaction_amount",
+          "count": 1,
+          "minWon": "405000000",
+          "maxWon": "405000000",
+          "medianWon": "405000000",
+          "smallSample": true,
+          "observations": [
+            {
+              "recordId": "col-apt_rights-99999-202610",
+              "source": "apt_rights",
+              "page": 1,
+              "position": 1,
+              "contractDate": "2026-10-24",
+              "exclusiveAreaM2": "82.50",
+              "floor": "5",
+              "buildYear": null,
+              "collectedAt": "2026-11-10T01:00:01Z",
+              "evidence": {
+                "source": "synthetic-area-register",
+                "reference": "comparison-b/82.50"
+              },
+              "won": "405000000"
+            }
+          ]
+        },
+        "occupancy_right": {
+          "status": "confirmed",
+          "priceMeaning": "reported_rights_transaction_amount",
+          "count": 1,
+          "minWon": "486000000",
+          "maxWon": "486000000",
+          "medianWon": "486000000",
+          "smallSample": true,
+          "observations": [
+            {
+              "recordId": "col-apt_rights-99999-202610",
+              "source": "apt_rights",
+              "page": 1,
+              "position": 2,
+              "contractDate": "2026-10-26",
+              "exclusiveAreaM2": "82.50",
+              "floor": "5",
+              "buildYear": null,
+              "collectedAt": "2026-11-10T01:00:01Z",
+              "evidence": {
+                "source": "synthetic-area-register",
+                "reference": "comparison-b/82.50"
+              },
+              "won": "486000000"
+            }
+          ]
+        }
+      },
+      "characteristics": [],
+      "selectionReason": "area_difference_then_straight_line"
+    }
+  ],
+  "targetReferences": [],
+  "holds": [],
+  "exclusions": [
+    {
+      "reasonCode": "cancelled_trade",
+      "scope": "priority",
+      "subject": "trade",
+      "tradeKind": "sale",
+      "reference": {
+        "recordId": "col-apt_trade-99999-202610",
+        "source": "apt_trade",
+        "page": 1,
+        "position": 2
+      },
+      "complexId": null,
+      "localityCode": "9999900100"
+    },
+    {
+      "reasonCode": "outside_contract_period",
+      "scope": "priority",
+      "subject": "trade",
+      "tradeKind": "sale",
+      "reference": {
+        "recordId": "col-apt_trade-99999-202610",
+        "source": "apt_trade",
+        "page": 2,
+        "position": 1
+      },
+      "complexId": null,
+      "localityCode": "9999900100"
+    }
+  ],
+  "target": {
+    "houseManageNo": "9900000001",
+    "noticeNo": "9900000042",
+    "edition": "synthetic-edition-1",
+    "name": "합성 가람 아파트",
+    "modelNo": "01",
+    "houseType": "084.0000A",
+    "supplyArea": {
+      "status": "confirmed",
+      "basis": "supply",
+      "m2": "112.400",
+      "evidence": [
+        {
+          "document": "synthetic-notice-pdf",
+          "version": "synthetic-v1",
+          "page": 4,
+          "evidenceIndex": 4
+        }
+      ],
+      "reasons": []
+    },
+    "complexId": "target",
+    "noticeEvidence": {
+      "source": "applyhome_apt",
+      "page": 1,
+      "position": 1,
+      "address": "합성구 가람동",
+      "linkEvidence": {
+        "source": "synthetic-complex-register",
+        "reference": "target-42"
+      }
+    }
+  },
+  "noticePrice": {
+    "status": "confirmed",
+    "scope": "confirmed_rooms",
+    "basis": "sale_price_plus_required_options",
+    "room": null,
+    "won": null,
+    "minWon": "710000000",
+    "maxWon": "710000000",
+    "confirmedRooms": [
+      {
+        "room": "101동 101호",
+        "salePriceWon": "700000000",
+        "requiredOptionsWon": "10000000",
+        "subtotalWon": "710000000",
+        "evidence": {
+          "salePrice": [
+            {
+              "document": "synthetic-notice-pdf",
+              "version": "synthetic-v1",
+              "page": 7,
+              "evidenceIndex": 0
+            }
+          ],
+          "requiredOptions": [
+            {
+              "document": "synthetic-notice-pdf",
+              "version": "synthetic-v1",
+              "page": 8,
+              "evidenceIndex": 1
+            }
+          ]
+        }
+      }
+    ],
+    "heldRooms": [
+      {
+        "room": "101동 102호",
+        "reasons": [
+          "required_options_unverified"
+        ]
+      }
+    ],
+    "reasons": []
+  },
+  "regionDecision": {
+    "priority": {
+      "kind": "dong",
+      "code": "9999900100",
+      "name": "가람동",
+      "requestRegionCodes": [
+        "99999"
+      ],
+      "evidence": {
+        "source": "synthetic-region-register",
+        "reference": "garam"
+      },
+      "conclusion": "candidates_found",
+      "confirmedCandidateCount": 2,
+      "unresolvedRows": 0,
+      "collectionStatus": "complete",
+      "screeningStatus": "complete",
+      "tradeKinds": {
+        "sale": {
+          "conclusion": "candidates_found",
+          "confirmedCandidateCount": 1,
+          "unresolvedRows": 0,
+          "collectionStatus": "complete",
+          "recordIds": [
+            "col-apt_trade-99999-202610"
+          ],
+          "displayedCandidateCount": 1
+        },
+        "presale_right": {
+          "conclusion": "candidates_found",
+          "confirmedCandidateCount": 1,
+          "unresolvedRows": 0,
+          "collectionStatus": "complete",
+          "recordIds": [
+            "col-apt_rights-99999-202610"
+          ],
+          "displayedCandidateCount": 1
+        },
+        "occupancy_right": {
+          "conclusion": "candidates_found",
+          "confirmedCandidateCount": 1,
+          "unresolvedRows": 0,
+          "collectionStatus": "complete",
+          "recordIds": [
+            "col-apt_rights-99999-202610"
+          ],
+          "displayedCandidateCount": 1
+        }
+      }
+    },
+    "expansion": null,
+    "reasonCode": "priority_candidates_found"
+  },
+  "conditions": {
+    "asOf": "2026-11-10",
+    "period": {
+      "status": "confirmed",
+      "source": "user_confirmed",
+      "asOf": "2026-11-10",
+      "start": "2026-10-10",
+      "end": "2026-10-31",
+      "bounds": "inclusive",
+      "months": [
+        "202610"
+      ],
+      "inProgressMonth": null,
+      "decision": null
+    },
+    "area": {
+      "basis": "supply",
+      "tolerancePercent": "5",
+      "minM2": "106.780",
+      "maxM2": "118.020"
+    },
+    "tradeKinds": [
+      "sale",
+      "presale_right",
+      "occupancy_right"
+    ],
+    "maxComparables": 5,
+    "limitations": [
+      "reporting_delays",
+      "later_corrections_or_cancellations"
+    ]
+  },
+  "tradeKinds": {
+    "sale": {
+      "conclusion": "candidates_found",
+      "confirmedCandidateCount": 1,
+      "unresolvedRows": 0,
+      "collectionStatus": "complete",
+      "recordIds": [
+        "col-apt_trade-99999-202610"
+      ],
+      "displayedCandidateCount": 1
+    },
+    "presale_right": {
+      "conclusion": "candidates_found",
+      "confirmedCandidateCount": 1,
+      "unresolvedRows": 0,
+      "collectionStatus": "complete",
+      "recordIds": [
+        "col-apt_rights-99999-202610"
+      ],
+      "displayedCandidateCount": 1
+    },
+    "occupancy_right": {
+      "conclusion": "candidates_found",
+      "confirmedCandidateCount": 1,
+      "unresolvedRows": 0,
+      "collectionStatus": "complete",
+      "recordIds": [
+        "col-apt_rights-99999-202610"
+      ],
+      "displayedCandidateCount": 1
+    }
+  },
+  "collections": [
+    {
+      "recordId": "col-apt_trade-99999-202610",
+      "source": "apt_trade",
+      "tradeKinds": [
+        "sale"
+      ],
+      "requestRegionCode": "99999",
+      "month": "2026-10",
+      "status": "complete",
+      "reasons": [],
+      "reportedTotalCount": 3,
+      "rowsReceived": 3,
+      "pagesExpected": 2,
+      "totalCountChanged": false,
+      "missingPages": [],
+      "collectedAt": "2026-11-10T01:00:02Z",
+      "error": null
+    },
+    {
+      "recordId": "col-apt_rights-99999-202610",
+      "source": "apt_rights",
+      "tradeKinds": [
+        "presale_right",
+        "occupancy_right"
+      ],
+      "requestRegionCode": "99999",
+      "month": "2026-10",
+      "status": "complete",
+      "reasons": [],
+      "reportedTotalCount": 2,
+      "rowsReceived": 2,
+      "pagesExpected": 1,
+      "totalCountChanged": false,
+      "missingPages": [],
+      "collectedAt": "2026-11-10T01:00:01Z",
+      "error": null
+    }
+  ],
+  "rankingComplete": true
+}

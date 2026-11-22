@@ -5,6 +5,7 @@ import { pipeline } from 'node:stream/promises';
 import { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { createHandler } from '../src/server/handler.js';
 import { createBackend } from '../src/server/supabase.js';
+import { serveWorkspace } from './static.js';
 
 export function createDevServer(handle: (request: Request) => Promise<Response>) {
   return createServer(async (incoming, outgoing) => {
@@ -17,7 +18,9 @@ export function createDevServer(handle: (request: Request) => Promise<Response>)
         if (typeof value === 'string') headers.set(name, value);
         else if (value) for (const item of value) headers.append(name, item);
       }
-      const base = `http://127.0.0.1:${incoming.socket.localPort}`;
+      const port = incoming.socket.localPort;
+      const hostname = incoming.headers.host === `localhost:${port}` ? 'localhost' : '127.0.0.1';
+      const base = `http://${hostname}:${port}`;
       const init: RequestInit & { duplex?: 'half' } = {
         method: incoming.method, headers, signal: connection.signal,
       };
@@ -55,6 +58,7 @@ export function createDevServer(handle: (request: Request) => Promise<Response>)
 if (import.meta.main) {
   const port = Number(process.env.PORT ?? 3001);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('invalid_port');
-  const server = createDevServer(createHandler({ env: process.env, createBackend }));
-  server.listen(port, '127.0.0.1', () => console.info(`HomeCierge API: http://127.0.0.1:${port}`));
+  const api = createHandler({ env: process.env, createBackend });
+  const server = createDevServer(request => serveWorkspace(request, api));
+  server.listen(port, '127.0.0.1', () => console.info(`HomeCierge http://127.0.0.1:${port}`));
 }

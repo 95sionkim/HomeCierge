@@ -46,6 +46,7 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
+      - run: npm run test:web
       - uses: actions/setup-python@v7
         with:
           python-version: '3.13'

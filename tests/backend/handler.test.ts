@@ -264,3 +264,19 @@ test('download opening has a deadline while the opened stream follows the caller
   assert.equal(openingSignal.aborted, true);
   assert.equal((await pending).status, 503);
 });
+
+test('the same-origin app receives only a public Supabase configuration and can navigate from its own origin', async () => {
+  const handler = createHandler({ env: {...env, SUPABASE_WORKER_KEY:'test-only-server-value'}, createBackend:() => backend });
+  const path = '/api/v1/client-config';
+  const response = await handler(req(path, {Origin:'https://api.invalid'}));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {supabaseUrl:env.SUPABASE_URL, publishableKey:env.SUPABASE_PUBLISHABLE_KEY});
+  assert.equal(response.headers.get('cache-control'),'no-store');
+  assert.equal((await handler(req(path,{Origin:'https://third.invalid'}))).status,403);
+  assert.equal((await handler(req(path,{},'POST'))).status,405);
+  for (const patch of [{VERCEL_ENV:'production'}, {SUPABASE_PUBLISHABLE_KEY:'sb_secret_test'},
+    {SUPABASE_URL:'https://reader:password@wrong.invalid/'}, {SUPABASE_URL:'https://wrong.invalid/?token=test'}]) {
+    const closed = createHandler({ env: {...env,...patch}, createBackend: () => backend });
+    assert.equal((await closed(req(path))).status,503);
+  }
+});

@@ -20,6 +20,7 @@ export type Database = {
           chat_id: string
           conditions_snapshot: Json
           created_at: string
+          directory_request_key: string | null
           housing_type_id: string | null
           id: string
           latest_run_id: string | null
@@ -34,6 +35,7 @@ export type Database = {
           chat_id: string
           conditions_snapshot?: Json
           created_at?: string
+          directory_request_key?: string | null
           housing_type_id?: string | null
           id?: string
           latest_run_id?: string | null
@@ -48,6 +50,7 @@ export type Database = {
           chat_id?: string
           conditions_snapshot?: Json
           created_at?: string
+          directory_request_key?: string | null
           housing_type_id?: string | null
           id?: string
           latest_run_id?: string | null
@@ -914,6 +917,10 @@ export type Database = {
           p_user_id: string
         }
         Returns: string
+      }
+      start_notice_workspace: {
+        Args: { p_input: Json; p_request_key: string }
+        Returns: Json
       }
     }
     Enums: {

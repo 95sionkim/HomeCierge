@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 const exec = promisify(execFile);
 const root = new URL('../', import.meta.url);
 
-export async function checkNoticeAnalysis({ config, accounts, admin, requestApi, check, result, userClient, login }) {
+export async function checkNoticeAnalysis({ config, accounts, admin, requestApi, check, result, userClient, login, apiPort }) {
   check(['localhost', '127.0.0.1'].includes(new URL(config.origin).hostname), 'be11_ephemeral_database_required');
   const [owner, peer] = accounts;
   const now = new Date();
@@ -69,10 +69,19 @@ export async function checkNoticeAnalysis({ config, accounts, admin, requestApi,
     && snapshot.result.holds.length > 0 && snapshot.result.completeness !== 'complete', 'be11_explain_held_comparison');
   check((await requestApi(location + '/result', { headers: headers(peer) })).status === 404, 'be11_owner_result_only');
 
-  const second = await (await start(owner, randomUUID())).json();
+  const workspaceKey = randomUUID();
+  const open = () => owner.client.rpc('start_notice_workspace', { p_request_key: workspaceKey, p_input: selected });
+  const second = result(await open(), 'be11_workspace_created');
+  const retried = result(await open(), 'be11_workspace_recover');
+  check(retried.runId === second.runId && retried.analysisId === second.analysisId && second.analysisId !== id,
+    'be11_workspace_atomic_retry');
   check(second.status === 'queued' && second.runId !== run.runId, 'be11_new_selection_attempt');
   check((await runWorker(second.runId, 'missing')).status === 'failed', 'be11_missing_model_failed');
-  const missing = await (await requestApi(path + '/' + second.runId, { headers: headers(owner) })).json();
+  const missing = await (await requestApi('/api/v1/analyses/' + second.analysisId + '/runs/' + second.runId, { headers: headers(owner) })).json();
   check(missing.status === 'failed' && missing.errorCode === 'notice_selection_unverified' && missing.snapshotId === null,
     'be11_missing_model_explained');
+  if (process.env.NOTICE_BROWSER_SMOKE === '1') {
+    const { checkWorkspaceInBrowser } = await import('./smoke_workspace_browser.mjs');
+    await checkWorkspaceInBrowser({ apiPort, dbOrigin: config.origin, owner, notice, runWorker, check });
+  }
 }

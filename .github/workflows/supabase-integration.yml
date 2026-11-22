@@ -8,6 +8,7 @@ on:
       - 'api/**'
       - 'dev/**'
       - 'src/**'
+      - 'public/**'
       - 'scripts/**'
       - 'tests/fixtures/ingestion-v0.json'
       - 'tests/fixtures/comparison-evidence-v1.json'
@@ -55,7 +56,7 @@ jobs:
           SUPABASE_PUBLISHABLE_KEY=$(jq -er '.PUBLISHABLE_KEY' "$local_status")
           SUPABASE_WORKER_KEY=$(jq -er '.SECRET_KEY // .SERVICE_ROLE_KEY' "$local_status")
           export SUPABASE_URL SUPABASE_PUBLISHABLE_KEY SUPABASE_WORKER_KEY
-          BE07_EPHEMERAL_SEARCH_FIXTURE=1 npm run test:auth
+          NOTICE_BROWSER_SMOKE=1 BE07_EPHEMERAL_SEARCH_FIXTURE=1 npm run test:auth
       - name: Remove the test stack
         if: always()
         run: |

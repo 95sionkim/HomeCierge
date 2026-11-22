@@ -512,3 +512,43 @@ test('source revocation is checked at lease read, atomic save, reuse, and owner 
   assert.equal((await one(`select count(*)::int as n from public.ingestion_collections where snapshot_id=$1`,
     [saved.snapshotId])).n, 0);
 });
+
+test('directory start creates one owned workspace, reopens on retry, and isolates the same key between users', async () => {
+  const owner = await createAnalysis(), peer = await createAnalysis();
+  const index = listing(), input = choice(index), key = randomUUID();
+  const open = selected => rpc('start_notice_workspace', key, JSON.stringify(selected));
+  await as('service_role');
+  await publish(index);
+  await as('authenticated', owner.userId);
+  const run = await open(input);
+  assert.equal(run.status, 'queued');
+  assert.deepEqual(run.input, input);
+  assert.equal((await open(input)).runId, run.runId);
+  await assert.rejects(open({ ...input, modelNo: '02' }), { code: 'PT409' });
+  const workspace = await one('select latest_run_id, title from public.analyses where directory_request_key=$1', [key]);
+  assert.equal(workspace.latest_run_id, run.runId);
+  assert.match(workspace.title, /9900000042/);
+  assert.equal((await one('select count(*)::int as n from public.chats')).n, 2);
+  await as('authenticated', peer.userId);
+  assert.equal(await one('select id from public.analyses where id=$1', [run.analysisId]), undefined);
+  const peerRun = await open(input);
+  assert.notEqual(peerRun.analysisId, run.analysisId);
+  assert.notEqual(peerRun.runId, run.runId);
+});
+
+test('refused notice selection rolls back both drafts and requires a verified authenticated owner', async () => {
+  const owner = await createAnalysis(), unverified = await createAnalysis({}, false);
+  const index = listing(), input = choice(index);
+  const open = value => rpc('start_notice_workspace', randomUUID(), JSON.stringify(value));
+  await as('service_role');
+  await publish(index);
+  await as('anon');
+  await assert.rejects(open(input), forbidden);
+  await as('authenticated', unverified.userId);
+  await assert.rejects(open(input), forbidden);
+  await as('authenticated', owner.userId);
+  await assert.rejects(open({ kind: 'synthetic', fixture:'ingestion-v0' }), { code:'22023' });
+  await assert.rejects(open({ ...input, modelNo:'02' }), { code:'PT409' });
+  const counts = await one('select (select count(*)::int from public.chats) as chats, (select count(*)::int from public.analyses) as analyses');
+  assert.deepEqual(counts, { chats:1, analyses:1 });
+});

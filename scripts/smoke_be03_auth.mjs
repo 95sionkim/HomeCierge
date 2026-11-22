@@ -9,6 +9,7 @@ import { once } from 'node:events';
 import { isDeepStrictEqual, promisify } from 'node:util';
 import { createClient } from '@supabase/supabase-js';
 import { createDevServer } from '../dev/server.ts';
+import { serveWorkspace } from '../dev/static.ts';
 import { createHandler } from '../src/server/handler.ts';
 import { createBackend } from '../src/server/supabase.ts';
 import { checkNoticeSearch } from './smoke_notice_search.mjs';
@@ -543,7 +544,7 @@ async function run(config, capture, requestApi, apiPort) {
       await checkNoticeSearch({ config, accounts, admin, requestApi, check, result });
       await checkLegalEvidence({ config, accounts, admin, capture, requestApi, check, result });
       await checkRegionalNews({ config, accounts, admin, capture, requestApi, check, result });
-      await checkNoticeAnalysis({ config, accounts, admin, requestApi, check, result, userClient, login });
+      await checkNoticeAnalysis({ config, accounts, admin, requestApi, check, result, userClient, login, apiPort });
     }
     await checkFundingPlan({ accounts, admin, capture, requestApi, check, result });
     const pdf = makeSyntheticPdf();
@@ -615,13 +616,14 @@ async function main() {
   globalThis.fetch = restrictFetch(fetchForSmoke, config.origin);
   // SDK 자체 진단에는 외부 본문이 실릴 수 있으므로 CLI는 정해진 검사명만 출력한다.
   console.warn = console.error = () => {};
-  const server = createDevServer(createHandler({
+  const api = createHandler({
     env: { APP_ENV: 'development', SUPABASE_URL: config.origin, SUPABASE_PUBLISHABLE_KEY: config.publishable,
       NAVER_API_CLIENT_ID: 'TEST_ONLY_NEWS_CLIENT', NAVER_API_CLIENT_SECRET: 'TEST_ONLY_NEWS_SECRET' },
     createBackend,
     newsFetch: syntheticNewsFetch,
     log: () => {},
-  }));
+  });
+  const server = createDevServer(request => serveWorkspace(request, api));
   try {
     const listening = once(server, 'listening');
     server.listen(0, '127.0.0.1');
@@ -649,7 +651,7 @@ try {
 }
 if (failures.length) {
   for (const step of failures) {
-    const number = /^be(04|05|07|08|09|10)_/.exec(step)?.[1] ?? '03';
+    const number = /^be(04|05|07|08|09|10|11)_/.exec(step)?.[1] ?? '03';
     const stage = 'BE-' + number;
     process.stderr.write(`${stage} smoke failed (${step})\n`);
   }
@@ -658,6 +660,7 @@ if (failures.length) {
   if (process.env.BE07_EPHEMERAL_SEARCH_FIXTURE === '1') {
     process.stdout.write('BE-07 smoke passed (two-user search, publication, budget, incomplete rooms, source revocation)\n');
     process.stdout.write('BE-09 smoke passed (notice-date law version and owner isolation)\n');
+    if (process.env.NOTICE_BROWSER_SMOKE === '1') process.stdout.write('Browser smoke passed (login, directory, model, run, saved result and new session)\n');
     process.stdout.write('BE-10 smoke passed (two-user regional news, synthetic provider, display permission)\n');
   }
   process.stdout.write('BE-03 smoke passed (Auth, /api/v1/me, RLS, capture, upload content API, Storage, cleanup)\n');
