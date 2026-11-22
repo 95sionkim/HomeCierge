@@ -4,6 +4,8 @@
 
 **첫 연결 범위는 로그인 → 오늘의 청약 목록 → 공고·주택형 선택 → 분석 진행·재조회다.** `today` 예시에는 오늘 마감·접수 예정·분리 접수 사이의 공고가 함께 있다. `confirmedEmpty`는 조사 범위의 정상 빈 목록이고, `delayed`는 이전 관측과 부분 수집이 겹친 사례다. [목록·선택 계약](api/notice-directory.md) · [디자인·개발용 합성 응답](../tests/fixtures/notice-directory-v1.json) · [진행 상태와 결과](api/analysis-runs.md)
 
+11월 22일 개발 커밋 `aab6254`의 보호된 미리보기에서 상태 조회는 200, 사용자 세션이 없는 공고 목록 조회는 401 `authentication_required`와 `private, no-store`를 반환했다. 격리된 Supabase에서 두 계정으로 로그인해 목록 선택·분석 실행·소유자의 재로그인 후 결과 조회와 타인 조회 404를 확인했다. 이 인증 검사의 제공기관 응답은 합성이며, 논산 공고의 실제 수집과 저장 검수는 목록 계약에 기록했다. [인증 통합 검사](https://github.com/95sionkim/HomeCierge/actions/runs/44997598855) · [논산 공고 검산](api/notice-directory.md#수집한-범위와-근거를-읽는다)
+
 ### 전달받은 화면을 API에 연결한다
 
 2026-11-22 전달본은 원 프로젝트의 `wireframe/homecierge-wireframe-handoff/`와 `HomeCierge-design_system/`에 있다. 와이어프레임 v0.1은 클릭 화면 14개와 상태를 포함한 캡처 18장을 제공한다. 디자인 시스템에는 컴포넌트 18개가 있다. 두 묶음의 `tokens.json`과 컴포넌트 타입 선언은 일치한다. 화면 팀은 독립 디자인 시스템의 토큰과 컴포넌트 문서를 기준으로 삼고, 클릭 동선은 와이어프레임의 `prototype/index.html`에서 확인한다.
