@@ -46,6 +46,23 @@ def live_api_transport():
     return LiveProbeTransport(specs, {'DATA_GO_KR_SERVICE_KEY': key})
 
 
+def review_law_for_notice(catalog, *, publish):
+    """법령을 함께 요청한 경우, 완전 수집한 공고의 날짜만 외부 작업자에게 전달한다."""
+    from notice_pdf_fields import reported_notice_date
+    notice = catalog['notice']
+    collection = catalog['collections']['notice']
+    as_of = reported_notice_date(catalog)
+    if (notice.get('status') != 'reported' or not notice.get('evidence') or not as_of
+            or collection.get('status') != 'complete' or collection.get('declaredStatus') != 'complete'):
+        return {'status': 'held', 'reasonCodes': ['notice_date_unverified'], 'reference': None}
+    try:
+        from collect_law_evidence import collect_live_reference
+        return collect_live_reference(as_of, publish=publish)
+    except (OSError, ValueError, TypeError, RuntimeError):
+        # 보조 조회 장애가 앞서 확인·저장한 공고나 납부 일정의 성공을 바꾸지 않는다.
+        return {'status': 'held', 'reasonCodes': ['law_lookup_unavailable'], 'reference': None}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--live', action='store_true', required=True, help='명시한 범위의 외부 조회를 실행')
@@ -55,6 +72,7 @@ def main():
     parser.add_argument('--analysis-id', help='업로드 또는 저장 대상 분석 UUID')
     parser.add_argument('--api-port', type=int, default=3001, help='등록 파일 조회에 쓸 로컬 사용자 API 포트')
     parser.add_argument('--save', action='store_true', help='요청 범위의 거래까지 수집해 소유자 스냅샷으로 저장')
+    parser.add_argument('--with-law', action='store_true', help='확인한 공고일의 법령 판본도 조회하고, --save 시 게시')
     parser.add_argument('--owner-id', help='저장 대상 분석 소유자 UUID')
     parser.add_argument('--capture-key', help='저장 재시도에 재사용하는 수집 UUID')
     args = parser.parse_args()
@@ -91,10 +109,13 @@ def main():
             saved = save_snapshot(args.owner_id, args.analysis_id, args.capture_key, inputs, result,
                                   env=os.environ, retry_uncertain=True, payment_schedules=payment_schedules)
             output = {'snapshotId': saved}
+            catalog = result['catalog']
         else:
             catalog, _, receipt = collect_notice_catalog(inputs.get('noticeSource'), inputs.get('target'), api,
                                                          page_size=inputs.get('pageSize', 100), review_documents=review)
             output = {'documentReview': receipt, 'catalog': catalog}
+        if args.with_law:
+            output['lawReview'] = review_law_for_notice(catalog, publish=args.save)
         print(json.dumps(output, ensure_ascii=False, allow_nan=False))
     except (OSError, ValueError, TypeError, RuntimeError) as exc:
         # 경로·인증값·상류 응답과 PDF 내용은 오류 출력에 넣지 않는다.

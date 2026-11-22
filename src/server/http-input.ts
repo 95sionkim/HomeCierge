@@ -12,6 +12,8 @@ const errorStatuses = {
   invalid_search_input: 400,
   invalid_funding_input: 400,
   funding_not_found: 404,
+  invalid_legal_input: 400,
+  legal_evidence_not_found: 404,
   search_source_restricted: 403,
   search_index_not_ready: 503,
   comparison_source_restricted: 403,

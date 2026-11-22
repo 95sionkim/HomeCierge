@@ -28,6 +28,7 @@ Preview에는 Vercel 배포 보호가 켜져 있다. Vercel 로그인과 Supabas
 | `GET /api/v1/me` | 인증한 사용자의 ID·프로필 조회 | `{ user: { id }, profile }`. 최초에는 `profile: null` 가능 |
 | `POST /api/v1/notices/search` | 희망 지역·예산과 선택 면적·입주월로 공고를 탐색 | 200이면 조건 충족·확인 필요 목록과 수집 범위를 표시. 최신 색인 준비 중은 503. [요청 및 응답](api/notice-search.md) |
 | `POST /api/v1/analyses/{analysisId}/funding-plan` | 해당 분석의 수집본·주택형·호실을 선택해 납부일별 자금과 부족액을 조회 | 확정 자금과 예상 포함 금액, 날짜를 알 수 없는 납부와 근거를 표시. [요청과 계산 예](api/funding-plan.md) |
+| `GET /api/v1/analyses/{analysisId}/snapshots/{snapshotId}/legal-evidence` | 본인 공고의 모집공고일에 시행된 「주택공급에 관한 규칙」을 조회 | 공고일·시행일·법제처 원문을 표시한다. 법령 판본과 개인 자격의 확인 상태를 구분한다. [상태별 표시와 예시](api/legal-evidence.md) |
 | `POST /api/v1/analyses/{analysisId}/runs` | 자기 분석에서 수집 자료 준비를 접수 | 202와 조회 주소. 같은 키로 다른 입력을 보내면 409 |
 | `GET /api/v1/analyses/{analysisId}/runs/{runId}` | 실행 상태를 다시 읽음 | 200. 자료가 준비되면 `snapshotId` 제공 |
 | `GET /api/v1/analyses/{analysisId}/runs/{runId}/result` | 선택한 주택형과 주변 실거래의 저장된 비교 결과를 읽음 | 200이면 완전성·가격 상태·보류 사유를 표시. 출처 표시 권한이 철회되면 403, 다른 계정이면 404, 저장된 결과가 없으면 409 |

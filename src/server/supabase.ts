@@ -93,6 +93,18 @@ export function createBackend(config: BackendConfig): Backend {
         || data.modelNo !== modelNo || data.room !== room) throw new Error('invalid_funding_response');
       return data;
     },
+    async getLegalEvidence(analysisId, snapshotId, signal) {
+      const { data, error } = await client.rpc('read_analysis_legal_evidence', {
+        p_analysis_id: analysisId, p_snapshot_id: snapshotId,
+      }).abortSignal(signal);
+      if (error?.code === '42501' && error.message === 'legal_authentication_required') {
+        throw new ApiError('authentication_required');
+      }
+      if (error?.code === 'PT404') throw new ApiError('legal_evidence_not_found');
+      if (error?.code === '22023') throw new ApiError('invalid_legal_input');
+      if (error) throw new Error('database_unavailable');
+      return data;
+    },
     async getComparison(analysisId, runId, signal) {
       const { data, error } = await client.rpc('get_analysis_comparison', {
         p_analysis_id: analysisId, p_run_id: runId,

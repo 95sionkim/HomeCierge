@@ -1,3 +1,5 @@
+import { isDate, isPublicLabel, isTimestamp } from './public-fields.js';
+
 // 공개 공고 색인에서만 조건을 판정한다. 원응답과 사용자별 문서 근거는 이 계약에 없다.
 const collectionSources = ['applyhome_apt', 'applyhome_remainder'] as const;
 const sourceIds = [...collectionSources, 'applyhome_apt_model', 'applyhome_remainder_model', 'applyhome_notice_pdf'] as const;
@@ -20,11 +22,9 @@ const editionPattern = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
 const modelNumberPattern = /^[0-9]{1,20}$/;
 const officialDocumentPattern = /^applyhome:([0-9]{10}):([0-9]{10}):[0-9]{1,20}:[0-9]{1,20}$/;
 const digestPattern = /^sha256:[a-f0-9]{64}$/;
-const nonPublicLabelPattern = /\p{Cc}|\p{Cs}|:\/\/|\/\/[a-z0-9]|www\.|https?:|ftp:|file:|javascript:|data:|blob:|mailto:|tel:|analysis-uploads|upload[:/]|@/iu;
 const wonPattern = /^(?:0|[1-9][0-9]{0,19})$/;
 const positiveAreaPattern = /^(?:[1-9][0-9]*(?:\.[0-9]+)?|0\.[0-9]*[1-9][0-9]*)$/;
 const monthPattern = /^(?!0000)[0-9]{4}-(?:0[1-9]|1[0-2])$/;
-const timestampPattern = /^[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt](?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\.[0-9]{1,9})?(?:[Zz]|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$/;
 
 const pyeongM2Numerator = 400n;
 const pyeongM2Denominator = 121n;
@@ -81,12 +81,6 @@ function hasShape(value: unknown, required: readonly string[], optional: readonl
 
 function matches(value: unknown, pattern: RegExp): value is string {
   return typeof value === 'string' && pattern.test(value);
-}
-
-function isDate(value: unknown): value is string {
-  if (!matches(value, /^(?!0000)[0-9]{4}-[0-9]{2}-[0-9]{2}$/)) return false;
-  const time = Date.parse(`${value}T00:00:00Z`);
-  return Number.isFinite(time) && new Date(time).toISOString().slice(0, 10) === value;
 }
 
 function isMonth(value: unknown): value is string {
@@ -160,11 +154,6 @@ function readList<T>(value: unknown, maxLength: number, read: (value: unknown) =
 
 function assertUnique(keys: readonly string[]) {
   indexAssert(new Set(keys).size === keys.length);
-}
-
-function isPublicLabel(value: unknown, maxLength: number): value is string {
-  return typeof value === 'string' && value.length > 0 && value.length <= maxLength
-    && value === value.trim() && !nonPublicLabelPattern.test(value);
 }
 
 function readEvidence(value: unknown, houseManageNo: string, noticeNo: string): EvidenceRef {
@@ -256,7 +245,7 @@ function readIndex(value: unknown): Index {
   const { contractVersion, dataOrigin, observedAt, coverage } = value;
   const publicationWindow = readRange(value.publicationWindow, isDate);
   indexAssert(contractVersion === 'notice-search-index/v1' && isChoice(dataOrigins, dataOrigin)
-    && matches(observedAt, timestampPattern) && isDate(observedAt.slice(0, 10)) && Number.isFinite(Date.parse(observedAt))
+    && isTimestamp(observedAt)
     && publicationWindow && hasShape(coverage, ['status', 'sources']));
   const { status } = coverage;
   indexAssert(isChoice(coverageStatuses, status));

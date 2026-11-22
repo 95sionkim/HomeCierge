@@ -1,4 +1,5 @@
 import { isUuid } from './http-input.js';
+import { isDate } from './public-fields.js';
 
 const items = ['sale_price', 'required_options'] as const;
 const scheduleStatuses = ['available', 'unavailable', 'selection_unverified', 'source_restricted'] as const;
@@ -101,12 +102,6 @@ function matches(value: unknown, pattern: RegExp): value is string {
 
 function oneOf<T extends string>(value: unknown, choices: readonly T[]): value is T {
   return choices.some(choice => choice === value);
-}
-
-function isDate(value: unknown): value is string {
-  if (!matches(value, /^(?!0000)[0-9]{4}-[0-9]{2}-[0-9]{2}$/)) return false;
-  const time = Date.parse(`${value}T00:00:00Z`);
-  return Number.isFinite(time) && new Date(time).toISOString().slice(0, 10) === value;
 }
 
 function isLabel(value: unknown): value is string {

@@ -122,6 +122,8 @@ BE-05 구현 커밋 `cad297e`의 보호된 Preview는 `READY`를 확인했다. �
 
 구현 커밋 `e2c916a`는 개발 브랜치 Preview에서 `READY`였다. GitHub Actions의 격리 Supabase에서는 소유자가 Auth로 로그인해 선택한 호실 일정을 읽고 자금을 수정해 부족액을 다시 계산했다. 다른 계정이 같은 분석을 조회하면 404가 반환됐다. 날짜가 미정인 납부와 서로 다른 정정판의 호실 충돌은 합성 PDF부터 데이터베이스와 계산 응답까지 검수했다. [Supabase 통합 검사](https://github.com/95sionkim/HomeCierge/actions/runs/44989806440) · [기본 검사](https://github.com/95sionkim/HomeCierge/actions/runs/44989806473)
 
+BE-09에서 서울 개발 DB에 [법령 참조 마이그레이션](../supabase/migrations/20261122055129_analysis_legal_evidence.sql)을 적용하고 타입을 다시 생성했다. 청약홈 APT·무순위 주택형의 구조화 자료와 법제처의 판본·조문 표지는 출처 확인 뒤 개발 레지스트리에 저장·재사용·표시 허용으로 등록했다. 청약홈 공고 PDF와 PDF에서만 얻은 호실별 납부 일정의 재사용 권리는 별도 확인이 남아 있다. 6월·9월 실제 공고의 법령은 각 공고일에 해당하는 서로 다른 시행본으로 등록됐다. [법령 조회와 검산](api/legal-evidence.md) · [출처별 이용 근거](api/be-09-source-evidence.md)
+
 ## 6. 연결할 환경변수를 구분한다
 
 | 이름을 확인한다 | 설정 위치를 정한다 | 사용 목적을 설명한다 |
