@@ -269,6 +269,7 @@ export type Database = {
           id: string
           kind: string
           note: string | null
+          request_key: string | null
           updated_at: string
           user_id: string
         }
@@ -281,6 +282,7 @@ export type Database = {
           id?: string
           kind: string
           note?: string | null
+          request_key?: string | null
           updated_at?: string
           user_id: string
         }
@@ -293,6 +295,7 @@ export type Database = {
           id?: string
           kind?: string
           note?: string | null
+          request_key?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -805,6 +808,18 @@ export type Database = {
           p_lease_token: string
           p_result: Json
           p_run_id: string
+        }
+        Returns: Json
+      }
+      finish_notice_with_funding: {
+        Args: {
+          p_comparison: Json
+          p_generation: number
+          p_input: Json
+          p_lease_token: string
+          p_result: Json
+          p_run_id: string
+          p_schedules: Json
         }
         Returns: Json
       }

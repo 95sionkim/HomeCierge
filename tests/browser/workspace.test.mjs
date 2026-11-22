@@ -32,6 +32,60 @@ after(async () => {
 });
 
 for (const width of [1440, 390]) {
+  test('custom search and room funding at ' + width + 'px use the exact conditions and payment evidence', async () => {
+    const context = await browser.newContext({ viewport: { width, height: 900 } });
+    await context.route('**/*', r => new URL(r.request().url()).origin === origin ? r.continue() : r.abort());
+    try {
+      const page = await context.newPage(), errors = [];
+      page.setDefaultTimeout(6500);
+      page.on('pageerror', error => errors.push(error.message));
+      await page.goto(origin + '/#search');
+      const matched = page.getByRole('region', { name: '조건 충족', exact: true });
+      await matched.getByText('101동 101호', { exact: true }).waitFor();
+      assert.equal(await matched.locator('.money').first().innerText(), '7억 1,000만 원');
+      await matched.getByText('공고문 7·8쪽').click();
+      await matched.locator('details[open] .evidence-content').getByText('sha256:' + 'a'.repeat(64)).waitFor();
+      await matched.getByRole('button', {name:'주택형 선택'}).click();
+      assert.equal(await page.getByRole('dialog').getByRole('radio').isChecked(), true);
+      await page.keyboard.press('Escape');
+      await page.locator('#criteria-budget').fill('709,999,999');
+      await page.getByRole('button', {name:'이 조건으로 검색'}).click();
+      await matched.getByText('현재 자료로 조건을 충족한다고 확정한 공고가 없습니다.').waitFor();
+      await page.getByRole('button', {name:'합성시 가람구 제외'}).click();
+      await page.locator('#criteria-region').fill('99998');
+      await page.getByRole('button', {name:'이 조건으로 검색'}).click();
+      await page.getByText('수집 범위에서 조건을 충족한 공고는 0건입니다.').waitFor();
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      await page.goto(origin + '/#sample/saved');
+      await page.getByRole('link', {name:'호실 자금표'}).click();
+      await page.locator('.fund-total h2').getByText('7억 1,000만 원').waitFor();
+      await page.getByRole('button', {name:'예상 자금 포함'}).click();
+      const day = page.locator('.fund-day').filter({has:page.locator('time[datetime="2026-10-20"]')});
+      assert.deepEqual(await day.locator('.checkpoint strong').allInnerTexts(), ['2,100만 원','1,700만 원']);
+      await page.getByRole('button', {name:'자금 입력'}).click();
+      await page.locator('#fund-amount').fill('1000000');
+      await page.locator('#fund-date').fill('2026-10-20');
+      await page.getByRole('button', {name:'예시에 적용'}).click();
+      await day.locator('.checkpoint strong').getByText('1,600만 원').waitFor();
+      await page.locator('#fund-room').selectOption('101동 102호');
+      await page.getByRole('heading', {name:'날짜 미확정 납부'}).waitFor();
+      assert.equal(await page.locator('.fund-total h2').innerText(), '합계 확인 필요');
+      await page.getByLabel('분양대금 근거 · 공고문 7쪽', {exact:true}).click();
+      await page.locator('.component details[open] .evidence-content').getByText('synthetic-v1').waitFor();
+      const balance = page.locator('.fund-entry').filter({hasText:'보유 잔액'});
+      await balance.getByRole('button').click();
+      await page.getByLabel('자금 확실성').selectOption('expected');
+      await page.getByRole('button', {name:'예시에 적용'}).click();
+      await balance.getByText('예상 보유 잔액').waitFor();
+      await balance.getByRole('button').click();
+      assert.equal(await page.getByLabel('자금 확실성').inputValue(), 'expected');
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  });
+}
+
+for (const width of [1440, 390]) {
   test('the ' + width + 'px screen keeps split dates, selection and guest results consistent', async () => {
     const context = await browser.newContext({ viewport: { width, height: 900 } });
     await context.route('**/*', (route) =>

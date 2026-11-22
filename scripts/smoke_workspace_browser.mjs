@@ -32,6 +32,18 @@ export async function checkWorkspaceInBrowser({ apiPort, dbOrigin, owner, notice
     step = 'login';
     await page.goto(origin + '/#notices');
     await login();
+    step = 'region_picker';
+    await page.getByRole('link', {name:'맞춤 검색',exact:true}).first().click();
+    await page.locator('#criteria-regions option[value="합성시 가람구"]').waitFor({state:'attached'});
+    await page.locator('#criteria-region').fill('99999');
+    await page.locator('#criteria-budget').fill('710000000');
+    const searched = page.waitForResponse(r => new URL(r.url()).pathname === '/api/v1/notices/search' && r.request().method() === 'POST');
+    await page.getByRole('button',{name:'이 조건으로 검색'}).click();
+    // 앞 BE-07 검사에서 PDF 표시 권한을 철회했다. 디렉터리의 지역 선택은 계속 열려 있다.
+    check((await searched).status() === 403,'workspace_search_rights');
+    await page.locator('#criteria-form [role=alert]').waitFor();
+    check(await page.locator('.search-results').count() === 0,'workspace_search_discards_restricted_results');
+    await page.getByRole('link',{name:'오늘의 청약',exact:true}).first().click();
     step = 'choose_model';
     await page.locator('button.notice-card').filter({ hasText: notice.title }).click();
     await page.locator('dialog input[name="model"][value="01"]').check();
@@ -50,6 +62,18 @@ export async function checkWorkspaceInBrowser({ apiPort, dbOrigin, owner, notice
     step = 'worker_result';
     check((await runWorker(runId, 'present')).status === 'finished', 'be11_browser_worker');
     await page.locator('[data-result-status]').waitFor({ timeout: 35_000 });
+    step = 'fund_entry';
+    await page.getByRole('link',{name:'호실 자금표'}).click();
+    await page.getByRole('button',{name:'자금 입력'}).click();
+    await page.locator('#fund-amount').fill('9007199254740993');
+    await page.locator('#fund-date').fill('2026-10-20');
+    await page.getByRole('button',{name:'이 분석에 저장'}).click();
+    await page.locator('.fund-entry').waitFor();
+    await page.locator('.fund-entry [data-fund-edit]').click();
+    check(await page.locator('#fund-amount').inputValue() === '9007199254740993','workspace_fund_bigint_exact');
+    await page.locator('#fund-amount').fill('0');
+    await page.getByRole('button',{name:'이 분석에 저장'}).click();
+    await page.locator('.fund-entry strong').getByText('0원',{exact:true}).waitFor();
     step = 'signout';
     await page.locator('[data-action="account"]:visible').first().click();
     await page.locator('dialog [data-action="logout"]').click();
@@ -64,6 +88,8 @@ export async function checkWorkspaceInBrowser({ apiPort, dbOrigin, owner, notice
       .click();
     await page.locator('[data-result-status]').waitFor();
     check(new URL(page.url()).hash === hash, 'be11_browser_restore_same_run');
+    await page.getByRole('link',{name:'호실 자금표'}).click();
+    await page.locator('.fund-entry strong').getByText('0원',{exact:true}).waitFor();
   } catch {
     // 공급자 오류, 브라우저 상태, 계정·인증값이 CI 로그에 실리지 않도록 단계만 기록한다.
     check(false, 'be11_browser_' + step);

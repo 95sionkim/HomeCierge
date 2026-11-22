@@ -20,7 +20,7 @@ from ingestion_notices import NOTICE_SOURCES
 from ingestion_pages import request_unit
 from ingestion_trades import SOURCE_KINDS, TRADE_KINDS, trade_period
 from replay_ingestion import collect_notice_catalog, ingest
-from store_ingestion import snapshot_input
+from store_ingestion import payment_schedule_snapshot, snapshot_input
 from worker_rpc import WorkerRpcError
 
 
@@ -206,7 +206,7 @@ def _gaps(records):
 
 
 def capture_notice(plan, transports, guard, generation):
-    """공고·주택형을 먼저 확인하고, 입증된 선택에만 실거래를 조회해 (p_input, ingestion/v0)를 돌려준다."""
+    """선택 공고의 고정 요청, 수집본과 같은 판본에서 점검한 납부 일정을 돌려준다."""
     request, model_no = plan['request'], plan['modelNo']
     api = guard.api(transports.api)
     recorded = {}
@@ -227,13 +227,17 @@ def capture_notice(plan, transports, guard, generation):
         raise NoticeRunFailure('notice_selection_unverified')
 
     review = None
+    schedules = None
     if plan['allowOfficialPdf']:
         from notice_document_review import review_catalog_documents
         pdf = guard.pdf(transports.pdf)
         options = {} if transports.inspect is None else {'inspect': transports.inspect}
 
         def review(target, current):
-            return review_catalog_documents(target, current, fetch=pdf, monotonic=transports.clock, **options)
+            nonlocal schedules
+            checked = review_catalog_documents(target, current, fetch=pdf, monotonic=transports.clock, **options)
+            schedules = payment_schedule_snapshot(checked['review']['paymentSchedules'])
+            return checked
 
     def capture_fetch(source, scope, page, page_size):
         # 같은 BE-02 수집 함수를 다시 거치되 공고·주택형은 위에서 받은 응답만 재사용한다.
@@ -254,7 +258,7 @@ def capture_notice(plan, transports, guard, generation):
             record['status'] == 'failed' and _retryable_gap(record) for record in gaps):
         # 첫 쪽부터 실패한 일시 장애는 재시도한다. 쪽을 일부 받았다면 확보한 행과 누락 범위를 저장한다.
         raise NoticeRunFailure('notice_feed_unavailable', True)
-    return snapshot_input(request), capture
+    return snapshot_input(request), capture, schedules
 
 
 def prepare_notice_comparison(selection, work, *, generation, transports, renew, lease_seconds):
@@ -271,12 +275,12 @@ def prepare_notice_comparison(selection, work, *, generation, transports, renew,
     guard = CaptureGuard(renew, lease_seconds=lease_seconds, clock=transports.clock, sleep=transports.sleep,
                          limits=limits)
     try:
-        inputs, capture = capture_notice(plan, transports, guard, generation)
+        inputs, capture, schedules = capture_notice(plan, transports, guard, generation)
         comparison = compare_snapshot(capture, plan['comparison'], plan['evidence'])
     except (AttributeError, HTTPException, KeyError, OSError, RuntimeError, TypeError, ValueError):
         raise NoticeRunFailure('notice_feed_unavailable') from None
     guard.confirm_lease()
-    return inputs, capture, comparison
+    return inputs, capture, comparison, schedules
 
 
 def live_notice_transports():

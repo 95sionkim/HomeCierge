@@ -25,6 +25,9 @@ const publicErrors = new Set([
   'search_source_restricted',
   'directory_page_changed',
   'invalid_directory_input',
+  'invalid_search_input',
+  'invalid_funding_input',
+  'funding_not_found',
   'invalid_run_input',
   'notice_source_restricted',
   'run_rate_limited',
@@ -167,14 +170,15 @@ export function onSessionChange(callback) {
   };
 }
 
-async function request(path, method = 'GET') {
+async function request(path, method = 'GET', body) {
   const session = await currentSession();
   if (!identity(session)) throw apiError('authentication_required');
   let response, data;
   try {
     response = await fetch(path, {
       method,
-      headers: { Authorization: 'Bearer ' + session.access_token },
+      headers: { Authorization: 'Bearer ' + session.access_token, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      body: body === undefined ? undefined : JSON.stringify(body),
       credentials: 'same-origin',
       cache: 'no-store',
     });
@@ -192,6 +196,71 @@ export function listNotices({ limit, cursor, includeClosed } = {}) {
   if (cursor != null) query.set('cursor', cursor);
   if (includeClosed != null) query.set('includeClosed', String(includeClosed));
   return request('/api/v1/notices?' + query);
+}
+
+export function listSearchRegions() {
+  return request('/api/v1/notices/regions');
+}
+
+export function searchNotices(conditions) {
+  return request('/api/v1/notices/search', 'POST', conditions);
+}
+
+export function readFundingPlan(analysisId, snapshotId, modelNo, room) {
+  if (!uuid.test(analysisId) || !uuid.test(snapshotId)) throw apiError('invalid_funding_input');
+  return request('/api/v1/analyses/' + analysisId + '/funding-plan', 'POST', { snapshotId, modelNo, room });
+}
+
+const fundFields = 'id,kind,amountWon:amount_won::text,availableOn:available_on,certainty,updatedAt:updated_at';
+
+async function fundTable(analysisId, ownerId) {
+  const owner = await getSession();
+  if (!owner || owner.id !== ownerId) throw apiError('authentication_required');
+  if (!uuid.test(analysisId)) throw apiError('invalid_funding_input');
+  return (await client()).from('funding_entries');
+}
+
+export async function listFunds(analysisId, ownerId) {
+  const table = await fundTable(analysisId, ownerId);
+  const all = [];
+  const pageSize = 200;
+  // 고정 순서와 식별자 커서로 Data API의 기본 반환 건수 너머에 있는 입력도 복원한다.
+  let after;
+  do {
+    let query = table.select(fundFields).eq('user_id', ownerId).eq('analysis_id', analysisId).order('id').limit(pageSize);
+    if (after) query = query.gt('id', after);
+    const { data, error } = await query;
+    if (error) throw databaseError(error);
+    if (!Array.isArray(data) || data.some(row => !uuid.test(row.id) || typeof row.amountWon !== 'string'))
+      throw apiError('backend_unavailable');
+    all.push(...data);
+    after = data.length === pageSize ? data.at(-1).id : null;
+  } while (after);
+  return all.sort((a, b) => a.availableOn.localeCompare(b.availableOn) || a.id.localeCompare(b.id));
+}
+
+export async function saveFund(analysisId, ownerId, draft) {
+  const table = await fundTable(analysisId, ownerId);
+  const values = { kind: draft.kind, certainty: draft.certainty, amount_won: draft.amountWon, available_on: draft.availableOn };
+  const own = query => query.eq('user_id', ownerId).eq('analysis_id', analysisId);
+  const matches = row => row && row.kind === draft.kind && row.certainty === draft.certainty
+    && row.amountWon === draft.amountWon && row.availableOn === draft.availableOn;
+  if (draft.id) {
+    const { data, error } = await own(table.update(values)).eq('id', draft.id)
+      .eq('updated_at', draft.updatedAt).select('id').maybeSingle();
+    if (error) throw databaseError(error);
+    if (data) return;
+    const current = await own(table.select(fundFields)).eq('id', draft.id).maybeSingle();
+    if (current.error) throw databaseError(current.error);
+    if (!matches(current.data)) throw apiError('fund_changed');
+    return;
+  }
+  const result = await table.insert({ ...values, user_id: ownerId, analysis_id: analysisId, request_key: draft.requestKey });
+  if (!result.error) return;
+  if (result.error.code !== '23505') throw databaseError(result.error);
+  const prior = await own(table.select(fundFields)).eq('request_key', draft.requestKey).maybeSingle();
+  if (prior.error) throw databaseError(prior.error);
+  if (!matches(prior.data)) throw apiError('fund_changed');
 }
 
 function databaseError(error) {

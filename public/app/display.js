@@ -115,6 +115,11 @@ export function errorText(error) {
   const code = error?.code ?? '';
   const text = {
     invalid_credentials: '이메일과 비밀번호를 확인하고 다시 입력하세요.',
+    invalid_search_input: '지역, 예산, 면적과 입주월 범위를 확인해 주세요.',
+    invalid_funding_input: '분석과 호실 정보를 다시 확인해 주세요.',
+    funding_not_found: '이 분석의 자금표를 찾을 수 없습니다.',
+    fund_changed: '다른 변경이 먼저 저장됐습니다. 최신 자금을 확인하고 다시 수정해 주세요.',
+    search_selection_changed: '최신 공고에서 같은 회차와 주택형을 확인할 수 없습니다. 오늘의 청약에서 공고를 다시 확인해 주세요.',
     user_already_exists: '이메일이 이미 등록되어 있습니다. 로그인으로 이동하세요.',
     email_address_invalid: '이메일 주소의 형식을 확인하세요.',
     email_not_confirmed: '가입 확인 메일의 링크를 연 뒤 다시 로그인하세요.',

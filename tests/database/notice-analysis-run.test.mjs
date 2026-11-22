@@ -172,6 +172,35 @@ beforeEach(async () => {
 
 after(async () => db?.close());
 
+test('a leased notice stores validated payments and its comparison atomically for the owner', async () => {
+  const owner = await createAnalysis(), peer = await createAnalysis();
+  const {input,job,captureWork} = await start(owner,listing(),fixtureBasis);
+  const {request,result,comparison} = capture(input,captureWork,{pdf:true});
+  const room = '101동 101호';
+  const schedules = [['sale_price','700000000',7],['required_options','10000000',8]].map(([item,won,page]) => {
+    const evidence = [{document:'synthetic-notice-pdf',version:'synthetic-v1',page}];
+    return {item,room,modelNo,houseType,status:'confirmed',totalWon:won,reasons:[],evidence,
+      installments:[{stage:'balance',won,timing:{trigger:'calendar_date',dateStatus:'exact',date:'2026-11-30',evidence}}]};
+  });
+  const finishScheduled = rows => rpc('finish_notice_with_funding', ...lease(job), JSON.stringify(request), JSON.stringify(result),
+    JSON.stringify(comparison),JSON.stringify(rows));
+  await as('authenticated',owner.userId);
+  await assert.rejects(finishScheduled(schedules),forbidden);
+  await as('service_role');
+  await assert.rejects(finishScheduled([{...schedules[0],totalWon:'1'}]),{code:'22023'});
+  assert.equal(await captureCount(owner),0);
+  const saved = await finishScheduled(schedules);
+  assert.equal(saved.status,'finished');
+  await assert.rejects(finishScheduled(schedules),staleLease);
+  const read = () => rpc('read_analysis_funding_inputs',owner.analysisId,saved.snapshotId,modelNo,room);
+  await as('authenticated',owner.userId);
+  const planInput = await read();
+  assert.equal(planInput.scheduleStatus,'available');
+  assert.deepEqual(planInput.schedules,schedules);
+  await as('authenticated',peer.userId);
+  await assert.rejects(read(),missing);
+});
+
 test('a verified owner pins the chosen remainder notice and model on an unlinked draft', async () => {
   const original = { comparison: { room: '101동 101호' }, budget_max_won: '800000000' };
   const owner = await createAnalysis(original);

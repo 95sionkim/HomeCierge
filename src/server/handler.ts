@@ -4,7 +4,7 @@ import { koreaDate } from './public-fields.js';
 import { readLegalEvidence } from './legal-evidence.js';
 import { readRegionalNews } from './regional-news-request.js';
 import { parseNoticeSearchConditions, evaluateNoticeSearch } from './notice-search.js';
-import { evaluateNoticeDirectory, parseNoticeDirectoryQuery } from './notice-directory.js';
+import { evaluateNoticeDirectory, noticeRegionOptions, parseNoticeDirectoryQuery } from './notice-directory.js';
 import { readAnalysisRunOperation } from './analysis-runs.js';
 import type { AnalysisRun, AnalysisRunOperation, ComparisonSnapshot } from './analysis-runs.js';
 import { calculateFundingPlan } from './funding-plan.js';
@@ -72,6 +72,7 @@ export function createHandler(deps: {
     const news = snapshotService?.[3] === 'regional-news';
     const search = path === '/api/v1/notices/search';
     const directory = path === '/api/v1/notices';
+    const regions = path === '/api/v1/notices/regions';
     const enqueues = run !== null && !run[2];
     const method = search || funding || news || enqueues || run?.[3] === 'cancel' ? 'POST' : 'GET';
     const allowedMethods = `${method}, OPTIONS`;
@@ -81,7 +82,7 @@ export function createHandler(deps: {
       'X-Content-Type-Options': 'nosniff',
       'X-Request-Id': requestId,
     });
-    if (search || directory || funding || snapshotService || upload || run?.[3] === 'result') {
+    if (search || directory || regions || funding || snapshotService || upload || run?.[3] === 'result') {
       headers.set('Cache-Control', 'private, no-store');
       headers.set('Vary', 'Authorization, Origin');
       headers.set('Vercel-CDN-Cache-Control', 'no-store');
@@ -111,7 +112,7 @@ export function createHandler(deps: {
         return respond({ error: 'configuration_unavailable', requestId }, 503);
       }
     }
-    if (!upload && !run && !search && !directory && !funding && !snapshotService && !['/api/v1/me','/api/ready'].includes(path)) return respond({ error: 'not_found', requestId }, 404);
+    if (!upload && !run && !search && !directory && !regions && !funding && !snapshotService && !['/api/v1/me','/api/ready'].includes(path)) return respond({ error: 'not_found', requestId }, 404);
 
     const authorization = request.headers.get('authorization');
     const match = authorization?.match(/^Bearer ([^\s]+)$/i);
@@ -148,9 +149,9 @@ export function createHandler(deps: {
         const inputs = await backend.getFundingInputs(selection, request.signal);
         return respond(calculateFundingPlan(inputs), 200);
       }
-      if (directory || search) {
+      if (directory || search || regions) {
         const readPublishedIndex = async () => {
-          const index = await backend.getNoticeSearchIndex(request.signal, directory ? 'directory' : 'search');
+          const index = await backend.getNoticeSearchIndex(request.signal, search ? 'search' : 'directory');
           if (index === null) throw new ApiError('search_index_not_ready');
           if (typeof index !== 'object' || !('dataOrigin' in index) || index.dataOrigin !== 'collected') {
             throw new Error('invalid_search_index');
@@ -158,6 +159,10 @@ export function createHandler(deps: {
           return index;
         };
         const asOf = koreaDate.format(deps.now?.() ?? new Date());
+        if (regions) {
+          if (url.search) throw new ApiError('invalid_directory_input');
+          return respond(noticeRegionOptions(await readPublishedIndex()), 200);
+        }
         if (directory) {
           const options = parseNoticeDirectoryQuery(url.searchParams);
           if (!options) throw new ApiError('invalid_directory_input');

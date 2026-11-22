@@ -3,6 +3,8 @@ import { esc, icon, dateText, todayKst, errorText, isoDate } from './display.js'
 import { directoryPanels, directoryView, homeView, emptyState } from './directory-view.js';
 import { comparisonView, runView, sampleHeld } from './result-view.js';
 import { frame, authDialog, noticeDialog, sourceDialog, accountDialog } from './dialogs.js';
+import { createSearchPage } from './search-page.js';
+import { createFundingPage } from './funding-page.js';
 
 const root = document.querySelector('#app');
 const dialog = document.querySelector('#workspace-dialog');
@@ -41,20 +43,25 @@ let dialogNotice = null,
   sendingStart = false,
   sessionSubscription;
 let demoDirectory, demoComparison;
+const searchPage = createSearchPage({ root, render, user: () => state.session, selectNotice: selectSearchNotice });
+const fundingPage = createFundingPage({ root, render });
 const navs = [
   ['home', 'house', '홈'],
   ['notices', 'calendar-days', '오늘의 청약'],
+  ['search', 'sliders-horizontal', '맞춤 검색'],
   ['analyses', 'folder-open', '내 분석'],
 ];
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 function readRoute() {
   const bits = location.hash.replace(/^#\/?/, '').split('/');
+  const funding = ['run','sample'].includes(bits[0]) && bits.at(-1) === 'funding';
+  if (funding) bits.pop();
   if (bits[0] === 'run' && bits.length === 3 && uuid.test(bits[1]) && uuid.test(bits[2]))
-    return { key: 'run', analysisId: bits[1], runId: bits[2] };
-  if (bits[0] === 'sample' && bits.length === 2 && bits[1] === 'saved') return { key: 'sample', saved: true };
+    return { key: 'run', analysisId: bits[1], runId: bits[2], funding };
+  if (bits[0] === 'sample' && bits.length === 2 && bits[1] === 'saved') return { key: 'sample', saved: true, funding };
   if (bits[0] === 'sample' && bits.length === 3) {
     try {
-      return { key: 'sample', noticeNo: decodeURIComponent(bits[1]), modelNo: decodeURIComponent(bits[2]) };
+      return { key: 'sample', noticeNo: decodeURIComponent(bits[1]), modelNo: decodeURIComponent(bits[2]), funding };
     } catch {
       return { key: 'notices' };
     }
@@ -69,6 +76,8 @@ function navigate(to) {
   else location.hash = to;
 }
 function resetPrivate() {
+  searchPage.reset();
+  fundingPage.reset();
   ++epoch;
   ++dirVersion;
   ++historyVersion;
@@ -163,6 +172,40 @@ function validDirectory(d, origin) {
     !d.page
   )
     throw new Error('invalid directory');
+}
+async function selectSearchNotice(notice, model) {
+  const account = epoch, version = routeVersion;
+  const feeds = values => values.filter(x => x === 'applyhome_apt' || x === 'applyhome_remainder');
+  const source = feeds(notice.sourceIds);
+  const fail = () => { throw Object.assign(new Error('selection'), { code: 'search_selection_changed' }); };
+  if (source.length !== 1) fail();
+  const match = n => n.noticeNo === notice.noticeNo && n.houseManageNo === notice.houseManageNo && n.edition === notice.edition;
+  let entry;
+  if (!state.session) entry = (await getFixture('directory')).notices.find(match);
+  else {
+    // 검색과 개별 목록은 별도 관측이므로 선택 시점의 최신 공식 모델을 다시 확인한다.
+    let cursor = null, observation;
+    const seen = new Set();
+    do {
+      const page = await api.listNotices({ includeClosed: true, limit: 50, cursor });
+      if (epoch !== account || version !== routeVersion) return;
+      validDirectory(page, 'collected');
+      if (observation && observation !== page.observedAt) fail();
+      observation = page.observedAt;
+      entry = page.notices.find(match);
+      cursor = page.page.nextCursor;
+      if (cursor && seen.has(cursor)) fail();
+      seen.add(cursor);
+    } while (!entry && cursor);
+  }
+  if (epoch !== account || version !== routeVersion) return;
+  const selected = entry?.models.find(m => m.modelNo === model.modelNo && m.houseType === model.houseType
+    && m.analysisInput?.noticeSource === source[0] && !m.selectionBlockers?.length);
+  if (!selected) fail();
+  dialogNotice = { ...entry, models: [selected] };
+  openDialog(noticeDialog(dialogNotice, !state.session));
+  const radio = dialog.querySelector('input[name=model]:not(:disabled)');
+  if (radio) { radio.checked = true; radio.dispatchEvent(new Event('change', {bubbles:true})); }
 }
 async function loadDirectory() {
   const version = ++dirVersion,
@@ -348,6 +391,7 @@ function render() {
         : '',
     );
   else if (route.key === 'home') body = homeView(state, historyList(true));
+  else if (route.key === 'search') body = searchPage.view();
   else if (route.key === 'analyses')
     body = `<section class="section-header"><h1>내 분석</h1><p>${state.session ? '계정에 저장된 분석을 최근 순으로 확인하세요.' : '합성 자료로 만든 분석에서 가격과 근거를 살펴보세요.'}</p></section>${historyList()}`;
   else if (route.key === 'run')
@@ -371,9 +415,16 @@ function render() {
           ? comparisonView(state.sample)
           : emptyState('loader-circle', '예시 결과를 불러오고 있습니다.');
   else body = directoryView(state);
+  const comparison = route.key === 'run' ? state.comparison : route.key === 'sample' ? state.sample : null;
+  if (comparison && !state.suspended && !state.sessionProblem && !state.runError) {
+    const base = location.hash.replace(/\/funding$/, '');
+    const tab = (suffix, label, current) => `<a href="${esc(base + suffix)}"${current ? ' aria-current="page"' : ''}>${label}</a>`;
+    const tabs = `<nav class="analysis-tabs" aria-label="분석 보기">${tab('','비교 결과',!route.funding)}${tab('/funding','호실 자금표',route.funding)}</nav>`;
+    body = tabs + (route.funding ? fundingPage.view() : body);
+  }
   root.innerHTML = shell(body, route);
   document.title =
-    ({ notices: '오늘의 청약', home: '홈', analyses: '내 분석', run: '분석 결과', sample: '분석 예시' }[
+    (route.funding ? '호실별 자금표' : { notices: '오늘의 청약', search: '맞춤 공고 찾기', home: '홈', analyses: '내 분석', run: '분석 결과', sample: '분석 예시' }[
       route.key
     ] ?? '오늘의 청약') + ' | HomeCierge';
   if (searchFocus) {
@@ -403,6 +454,7 @@ async function readRun(route, version = routeVersion) {
       )
         throw new Error('unbound result');
       state.comparison = data.result;
+      if (route.funding) void loadFunding(route, data.result, r.snapshotId);
     } else if (['queued', 'running', 'retry_wait'].includes(r.status)) {
       pollTimer = setTimeout(() => void readRun(route, version), 4000);
     }
@@ -428,11 +480,23 @@ async function readSample(route, version) {
   } catch (error) {
     if (version === routeVersion) state.sampleError = error;
   }
-  if (version === routeVersion) render();
+  if (version === routeVersion) {
+    if (route.funding && state.sample) void loadFunding(route, state.sample);
+    render();
+  }
+}
+function loadFunding(route, result, snapshotId) {
+  return fundingPage.enter({
+    guest: route.key === 'sample', ownerId: state.session?.id, analysisId: route.analysisId, snapshotId,
+    modelNo: result.target?.modelNo, houseType: result.target?.houseType, name: result.target?.name,
+    price: result.noticePrice, origin: result.dataOrigin,
+  });
 }
 function routeChanged(focus = false) {
   const route = readRoute();
   const version = ++routeVersion;
+  searchPage.reset();
+  fundingPage.reset();
   clearTimeout(pollTimer);
   closeDialog();
   state.run = null;
@@ -442,6 +506,8 @@ function routeChanged(focus = false) {
   state.sampleError = null;
   if (route.key === 'sample' && !state.session && !state.suspended && !state.authPending)
     void readSample(route, version);
+  else if (route.key === 'search' && !state.suspended && !state.authPending && !state.sessionProblem)
+    void searchPage.enter();
   else if (route.key === 'run' && state.session && !state.suspended) void readRun(route, version);
   render();
   if (focus) {

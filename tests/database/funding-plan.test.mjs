@@ -108,6 +108,24 @@ async function assertNoCapture(owner, key) {
     where analysis_id = $1 and capture_key = $2`, [owner.analysisId, key])).count, 0);
 }
 
+test('fund entry retries stay unique per owner and analysis while legacy inputs and precise won are preserved', async () => {
+  const a = await analysis(), b = await analysis(), another = await analysis({userId:a.userId}), key = randomUUID();
+  const insert = target => db.query(`insert into public.funding_entries
+    (user_id,analysis_id,kind,amount_won,available_on,certainty,request_key)
+    values ($1,$2,'additional',9007199254740993,'2026-10-20','expected',$3) returning id,amount_won::text as won`,
+    [target.userId,target.analysisId,key]);
+  await as('authenticated',a.userId);
+  const first = (await insert(a)).rows[0];
+  assert.equal(first.won, '9007199254740993');
+  await assert.rejects(insert(a), conflict);
+  assert.ok((await insert(another)).rows[0].id);
+  await assert.rejects(db.query('update public.funding_entries set request_key=null where id=$1',[first.id]), forbidden);
+  await as('authenticated',b.userId);
+  assert.equal((await db.query('select id from public.funding_entries where request_key=$1',[key])).rows.length, 0);
+  assert.ok((await insert(b)).rows[0].id);
+  await addFunds(b);
+});
+
 before(async () => {
   const command = ['import json, sys', 'sys.path.insert(0, "scripts")',
     'from replay_ingestion import loads_source_json, replay',

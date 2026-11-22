@@ -69,7 +69,7 @@ class NoticeAnalysisWorkerTests(TestCase):
             if self.renew_error is not None:
                 raise self.renew_error
             return {'runId': self.job['runId'], 'status': 'running', 'attempt': self.job['generation']}
-        if name == 'finish_analysis_comparison':
+        if name in ('finish_analysis_comparison', 'finish_notice_with_funding'):
             if self.fail_finish is not None:
                 raise self.fail_finish
             return self.finished
@@ -152,7 +152,8 @@ class NoticeAnalysisWorkerTests(TestCase):
         self.work['noticeCapture']['allowOfficialPdf'] = True
         self.assertEqual(self.run_job(), self.finished)
         self.assertEqual(self.calls('pdf'), [DETAIL, self.attachment])
-        finish, = self.calls('finish_analysis_comparison')
+        finish, = self.calls('finish_notice_with_funding')
+        self.assertEqual(finish['p_schedules'], [])
         capture = finish['p_result']
         self.assertEqual(capture['catalog']['housingTypes'][0]['checkedSupplyArea']['m2'], '112.40')
         document, = capture['catalog']['documents']
@@ -160,6 +161,25 @@ class NoticeAnalysisWorkerTests(TestCase):
         self.assertNotIn('%PDF', json.dumps(finish))
         self.assertIn('comparison_evidence_unverified', [hold['reasonCode'] for hold in finish['p_comparison']['holds']])
         self.assertIsNone(finish['p_comparison']['appliedScope'])
+
+    def test_fresh_notice_saves_the_checked_payment_schedule_beside_its_comparison(self):
+        try:
+            import fitz
+        except ImportError:
+            self.skipTest('PyMuPDF 미설치')
+        from notice_pdf_fields import inspect_notice_pdf
+        from test_notice_pdf_fields import build_synthetic_notice_pdf
+        body = build_synthetic_notice_pdf()
+        self.work['noticeCapture']['allowOfficialPdf'] = True
+        self.inspect = inspect_notice_pdf
+        self.assertEqual(self.run_job(pdf=lambda url, **kw: self.pdf(url, **kw) if url == DETAIL else pdf_ok(body)), self.finished)
+        finish, = self.calls('finish_notice_with_funding')
+        selected = [s for s in finish['p_schedules'] if s['room'] == '101동 101호']
+        self.assertEqual({s['item']: s['totalWon'] for s in selected},
+                         {'sale_price': '700000000', 'required_options': '10000000'})
+        self.assertTrue(all(s['evidence'] and s['installments'] for s in selected))
+        self.assertNotIn('documentReview', finish['p_result'])
+        self.assertEqual(self.calls('finish_analysis_comparison'), [])
 
     def test_inconsistent_fixed_target_and_unverified_region_never_contact_providers(self):
         fixtures = [
@@ -236,7 +256,9 @@ class NoticeAnalysisWorkerTests(TestCase):
 
         self.assertEqual(self.run_job(pdf=too_slow), self.finished)
         self.assertEqual(self.calls('pdf'), [DETAIL])
-        capture = self.calls('finish_analysis_comparison')[0]['p_result']
+        completion, = self.calls('finish_notice_with_funding')
+        self.assertEqual(completion['p_schedules'], [])
+        capture = completion['p_result']
         self.assertEqual(capture['catalog']['documents'], [])
         self.assertIn('deadline_exceeded', [issue['code'] for issue in capture['catalog']['issues']])
 
@@ -386,7 +408,8 @@ class NoticeAnalysisWorkerTests(TestCase):
                 self.assertEqual(json.loads(stdout.getvalue()), self.finished)
                 self.assertEqual(pdf_factory.call_count, int(allowed))
                 self.assertEqual(self.calls('pdf'), [DETAIL, self.attachment] if allowed else [])
-                capture = self.calls('finish_analysis_comparison')[0]['p_result']
+                completion, = self.calls('finish_notice_with_funding' if allowed else 'finish_analysis_comparison')
+                capture = completion['p_result']
                 self.assertEqual(capture['dataOrigin'], 'collected')
                 if allowed:
                     document, = capture['catalog']['documents']

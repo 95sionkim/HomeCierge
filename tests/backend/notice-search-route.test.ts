@@ -78,6 +78,21 @@ test('a directory without a current publication never returns an empty successfu
   assert.equal((await response.json()).error, 'search_index_not_ready');
 });
 
+test('the region picker includes official regions without notices and follows directory permissions', async t => {
+  let allowed = true;
+  const {handle} = installBackend(t, () => allowed ? Response.json({...emptyIndex,regionNames:{'11215':'서울특별시 광진구'}})
+    : Response.json({code:'PT403',message:'notice_search_source_use_not_allowed'},{status:403}), false, 'read_notice_directory_index');
+  const url = 'https://api.invalid/api/v1/notices/regions', headers = {Authorization:token};
+  assert.equal((await handle(new Request(url))).status,401);
+  assert.equal((await handle(new Request(url + '?region=11215',{headers}))).status,400);
+  const result = await handle(new Request(url,{headers}));
+  assert.equal(result.status,200);
+  assert.equal(result.headers.get('cache-control'),'private, no-store');
+  assert.deepEqual((await result.json()).regions,[{code:'11200',name:null},{code:'11215',name:'서울특별시 광진구'}]);
+  allowed = false;
+  assert.equal((await handle(new Request(url,{headers}))).status,403);
+});
+
 test('search reads the published index using the authenticated caller and Korea calendar date', async t => {
   const { handle, calls } = installBackend(t, () => Response.json(emptyIndex));
   const result = await handle(post());

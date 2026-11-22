@@ -30,6 +30,7 @@ const pyeongM2Numerator = 400n;
 const pyeongM2Denominator = 121n;
 const koreaDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul' });
 const maxIndexBytes = 2 * 1024 * 1024;
+const utf8 = new TextEncoder();
 const maxNoticesPerList = 50;
 // 세 그룹을 12개씩 담으면 모델 최대 36개와 호실 최대 24개에 근거를 붙인다.
 // 근거(960×191B), 모델·호실의 나머지 필드(60×600B), 공고 공통 필드(4 KiB)를 합쳐도 250 KiB 이내다.
@@ -277,7 +278,7 @@ export function readIndex(value: unknown): Index {
     const hasNotices = notices.some(notice => notice.sourceIds.includes(source));
     indexAssert(sourceStatus === 'partial' || hasNotices === (sourceStatus === 'complete'));
   }
-  indexAssert(Buffer.byteLength(JSON.stringify(value)) <= maxIndexBytes);
+  indexAssert(utf8.encode(JSON.stringify(value)).byteLength <= maxIndexBytes);
   return { dataOrigin, observedAt, publicationWindow, regionCodes, coverage: { status, sources }, notices };
 }
 
@@ -414,7 +415,7 @@ function limitProjection(results: NoticeResult[]): NoticeResult[] {
   const shown: NoticeResult[] = [];
   let bytes = 2;
   for (const result of results.slice(0, maxNoticesPerList)) {
-    bytes += Buffer.byteLength(JSON.stringify(result)) + 1;
+    bytes += utf8.encode(JSON.stringify(result)).byteLength + 1;
     if (bytes > maxBytesPerList) break;
     shown.push(result);
   }

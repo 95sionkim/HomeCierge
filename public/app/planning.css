@@ -1,0 +1,668 @@
+/* 검색 조건과 자금표는 기존 워크스페이스 토큰, 숫자 타이포그래피와 상태 색을 공유한다. */
+.planning-layout,
+.fund-layout {
+  display: grid;
+  align-items: start;
+  gap: 24px;
+  grid-template-columns: minmax(240px, 0.75fr) minmax(0, 1.65fr);
+}
+.fund-layout {
+  grid-template-columns: minmax(0, 1.8fr) minmax(235px, 0.8fr);
+}
+.planning-box {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 23px;
+  min-width: 0;
+}
+.box-heading,
+.group-heading,
+.model-heading,
+.search-card-meta,
+.source-line,
+.region-chips,
+.fund-actions,
+.model-area {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.box-heading {
+  margin: 0 0 18px;
+  gap: 10px;
+  color: var(--foreground);
+}
+.box-heading > .icon {
+  color: var(--primary);
+  width: 19px;
+  height: 19px;
+}
+.planning-box h2,
+.group-heading h2,
+.room-control label {
+  margin: 0;
+  font-size: 18px;
+  letter-spacing: -0.045em;
+  font-weight: 720;
+}
+.planning-box h3 {
+  margin: 0;
+  letter-spacing: -0.035em;
+}
+.criteria,
+.personal-funds {
+  position: sticky;
+  top: 18px;
+}
+.criteria > label:not(.checkline),
+#fund-form > label,
+.criteria fieldset legend {
+  display: block;
+  font-size: 14px;
+  font-weight: 650;
+  margin: 18px 0 8px;
+}
+.criteria input:not([type='checkbox']),
+.criteria select,
+.personal-funds input,
+.personal-funds select,
+.room-control select {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  background: var(--surface);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 14px;
+  border: 1px solid var(--input);
+  border-radius: 8px;
+  padding: 10px 11px;
+  min-height: 42px;
+}
+.criteria input::placeholder {
+  color: var(--muted);
+}
+.input-action,
+.unit-input,
+.paired,
+.fund-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.input-action > input {
+  flex: 1;
+  min-width: 0;
+}
+.input-action > button {
+  flex: none;
+}
+.unit-input {
+  position: relative;
+}
+.unit-input input {
+  padding-right: 34px !important;
+  font-variant-numeric: tabular-nums;
+}
+.unit-input > span {
+  position: absolute;
+  right: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.field-help,
+.day-total,
+.search-card-id,
+.personal-funds .fund-entry span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+.field-help {
+  margin: 8px 0;
+}
+.region-chips,
+.source-line {
+  flex-wrap: wrap;
+}
+.region-chips:not(:empty) {
+  margin-top: 9px;
+}
+.region-chips button,
+.count-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 650;
+  font-size: 12px;
+  padding: 5px 8px;
+}
+.region-chips .icon {
+  width: 13px;
+  height: 13px;
+}
+.criteria-extra {
+  margin-top: 19px;
+  border-block: 1px solid var(--line);
+}
+.criteria-extra > summary,
+.payment-parts > summary {
+  cursor: pointer;
+  font-size: 14px;
+  list-style: none;
+}
+.criteria-extra > summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 650;
+  padding: 13px 0;
+}
+.criteria-extra[open] > summary .icon {
+  transform: rotate(180deg);
+}
+.criteria fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0 0 16px;
+  min-width: 0;
+}
+.criteria fieldset legend {
+  margin: 5px 0 7px;
+}
+.criteria fieldset select {
+  margin-bottom: 6px;
+}
+.paired {
+  align-items: flex-end;
+}
+.paired > label {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.months {
+  flex-wrap: wrap;
+}
+.months > label {
+  flex-basis: 112px;
+}
+.checkline {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 14px;
+  margin: 15px 0;
+}
+input[type='checkbox'] {
+  accent-color: var(--primary);
+}
+.wide {
+  width: 100%;
+  justify-content: center;
+}
+.plan-error,
+.hold-note,
+.zero-note {
+  border-radius: 7px;
+  padding: 9px 12px;
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 12px 0;
+}
+.plan-error {
+  background: var(--failed-soft);
+  color: var(--failed);
+}
+.hold-note {
+  background: var(--partial-soft);
+  color: var(--partial);
+}
+.zero-note {
+  color: var(--zero);
+  background: var(--zero-soft);
+}
+.plan-empty {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  text-align: center;
+  min-height: 210px;
+  gap: 12px;
+}
+.plan-empty > .icon {
+  width: 28px;
+  height: 28px;
+  color: var(--primary);
+}
+.plan-empty p {
+  color: var(--muted);
+  max-width: 38ch;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.search-summary {
+  background: color-mix(in srgb, var(--primary-soft) 45%, var(--surface));
+  border-color: color-mix(in srgb, var(--primary) 18%, var(--border));
+}
+.summary-caption {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--primary);
+  margin-bottom: 7px;
+}
+.search-summary > p {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.65;
+  margin: 8px 0;
+}
+.source-line > span {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--surface);
+}
+.search-group {
+  margin-top: 23px;
+}
+.group-heading {
+  margin-bottom: 12px;
+}
+.group-empty {
+  color: var(--muted);
+  font-size: 14px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  padding: 18px;
+  margin: 0;
+}
+.search-card {
+  margin-bottom: 12px;
+}
+.search-card-meta {
+  font-size: 12px;
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+.search-card h3 {
+  font-size: 21px;
+  margin-top: 12px;
+}
+.search-card-id {
+  margin: 3px 0 14px;
+  font-variant-numeric: tabular-nums;
+}
+.search-model {
+  border-top: 1px solid var(--line);
+  padding-top: 13px;
+  margin-top: 12px;
+}
+.model-heading {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+.model-area {
+  font-size: 13px;
+  color: var(--muted);
+  flex-wrap: wrap;
+  margin: 7px 0;
+}
+.text-action {
+  background: transparent;
+  border: 0;
+  color: var(--primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 5px 2px;
+  cursor: pointer;
+}
+.text-action .icon {
+  width: 13px;
+  height: 13px;
+}
+.search-room,
+.fund-entry,
+.payment-line,
+.fund-day-top,
+.fund-total {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.search-room {
+  padding: 12px 0;
+  border-top: 1px solid var(--soft-line);
+  font-size: 14px;
+}
+.search-room > div:last-child,
+.payment-line > div:last-child,
+.fund-day-top > div:last-child {
+  text-align: right;
+}
+.search-room small,
+.fund-day-top small,
+.payment-line small,
+.fund-entry span,
+.fund-entry strong,
+.fund-entry small {
+  display: block;
+}
+.search-room small,
+.payment-line small,
+.fund-day-top small,
+.fund-entry small {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.evidence-disclosure {
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.evidence-disclosure > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  list-style: none;
+  color: var(--primary);
+  padding: 3px 0;
+  cursor: pointer;
+  font-weight: 600;
+}
+.evidence-disclosure summary .icon {
+  width: 13px;
+  height: 13px;
+}
+.evidence-disclosure[open] summary .icon:last-child {
+  transform: rotate(180deg);
+}
+.evidence-content {
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--soft);
+  margin: 3px 0;
+  max-width: 370px;
+}
+.evidence-content dl {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 3px;
+  margin: 8px 0 0;
+}
+.evidence-content dd {
+  margin: 0;
+  color: var(--foreground);
+  font: 11px/1.55 var(--mono);
+}
+.search-room > div:last-child > .evidence-disclosure {
+  text-align: right;
+}
+.evidence-content {
+  text-align: left;
+}
+.analysis-tabs {
+  display: flex;
+  gap: 20px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 24px;
+}
+.analysis-tabs a {
+  padding: 5px 2px 12px;
+  text-decoration: none;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 650;
+}
+.analysis-tabs a[aria-current] {
+  color: var(--primary);
+  box-shadow: inset 0 -2px var(--primary);
+}
+.fund-main {
+  min-width: 0;
+}
+.room-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.room-control select {
+  width: auto;
+  min-width: 130px;
+}
+.room-control label {
+  font-size: 14px;
+}
+.fund-total {
+  align-items: center;
+  flex-wrap: wrap;
+  background: var(--primary-soft);
+  border: 1px solid color-mix(in srgb, var(--primary) 15%, var(--line));
+  border-radius: 14px;
+  padding: 20px 22px;
+}
+.fund-total p,
+.fund-total small {
+  font-size: 13px;
+  margin: 0;
+  color: var(--muted);
+}
+.fund-total h2 {
+  font-size: clamp(23px, 2.5vw, 32px);
+  color: var(--primary);
+  letter-spacing: -0.045em;
+  margin: 4px 0 0;
+}
+.component-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 10px 0 18px;
+}
+.component {
+  padding: 15px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 12px;
+  min-width: 0;
+}
+.component h3 {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0 0 4px;
+}
+.component strong {
+  font-size: 17px;
+}
+.payment-parts {
+  margin-top: 8px;
+}
+.payment-parts summary {
+  font-size: 12px;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.payment-line {
+  font-size: 13px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--soft-line);
+  flex-wrap: wrap;
+}
+.scenario-switch {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--soft);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 3px;
+}
+.scenario-switch button {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 7px 11px;
+}
+.scenario-switch button[aria-pressed='true'] {
+  background: var(--surface);
+  color: var(--primary);
+  font-weight: 700;
+  box-shadow: 0 1px 3px #1413231c;
+}
+.fund-day {
+  padding: 17px 0 9px;
+  border-bottom: 1px solid var(--line);
+}
+.fund-day:last-child {
+  border: 0;
+  padding-bottom: 0;
+}
+.fund-day-top time,
+.fund-day-top strong {
+  font-size: 15px;
+  font-weight: 700;
+}
+.checkpoints {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 10px;
+}
+.checkpoint {
+  padding: 12px;
+  border-radius: 9px;
+  background: var(--soft);
+  overflow-wrap: anywhere;
+}
+.checkpoint span,
+.checkpoint small,
+.checkpoint p {
+  font-size: 12px;
+  color: var(--muted);
+  display: block;
+}
+.checkpoint strong {
+  display: block;
+  font-size: 18px;
+  letter-spacing: -0.025em;
+  margin: 4px 0;
+  font-variant-numeric: tabular-nums;
+}
+.day-total {
+  font-size: 12px;
+  margin: 6px 0;
+}
+.undated {
+  margin-top: 14px;
+}
+.fund-entry {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  padding: 12px 0;
+}
+.fund-entry strong {
+  margin: 3px 0;
+}
+.fund-entries {
+  margin-bottom: 14px;
+}
+.fund-actions {
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+.fund-jump {
+  display: none;
+}
+@media (max-width: 900px) {
+  .fund-jump {
+    display: inline-flex;
+    margin-top: 6px;
+  }
+}
+@media (max-width: 1100px) {
+  .planning-layout,
+  .fund-layout {
+    gap: 14px;
+  }
+  .planning-box {
+    padding: 17px;
+  }
+}
+@media (max-width: 900px) {
+  .fund-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .personal-funds {
+    position: static;
+  }
+  .planning-layout {
+    grid-template-columns: minmax(210px, 0.8fr) minmax(0, 1.4fr);
+  }
+}
+@media (max-width: 730px) {
+  .planning-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .criteria {
+    position: static;
+  }
+  .planning-box {
+    border-radius: 12px;
+  }
+  .mobile-nav {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+  .search-group {
+    margin-top: 17px;
+  }
+  .component-grid {
+    gap: 7px;
+  }
+  .component {
+    padding: 12px;
+  }
+  .fund-total {
+    padding: 17px;
+  }
+  .fund-day-top {
+    flex-wrap: wrap;
+  }
+  .checkpoints {
+    gap: 5px;
+  }
+  .checkpoint {
+    padding: 9px;
+  }
+  .checkpoint strong {
+    font-size: 16px;
+  }
+  .analysis-tabs {
+    margin-bottom: 18px;
+  }
+}

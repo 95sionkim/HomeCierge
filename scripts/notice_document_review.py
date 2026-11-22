@@ -97,7 +97,7 @@ def review_catalog_documents(target, catalog, *, official_index=None, read_uploa
                              fetch=None, inspect=inspect_notice_pdf, monotonic=None):
     """공식 상세 페이지를 대조하고 첨부 바이트는 이 호출 안에서 사용한다.
 
-    review.paymentSchedules는 즉시 응답용이다. 항목의 status는 금액 점검 상태이며 일정의 구체성은
+    review.paymentSchedules는 즉시 응답과 동일 수집본의 자금표에 쓰인다. 항목의 status는 금액 점검 상태이며 일정의 구체성은
     installments[].timing.dateStatus에 따로 표시한다. 날짜의 evidence는 ISO 날짜의 확인 쪽을 가리킨다.
     """
     notice = catalog['notice']

@@ -115,6 +115,15 @@ function readRegionNames(value: unknown, regionCodes: ReadonlySet<string>): Read
   return new Map(entries as [string, string][]);
 }
 
+// 공고가 없는 지역도 선택할 수 있게 공식 지역 사전 전체를 읽는다.
+export function noticeRegionOptions(value: unknown) {
+  const split = splitRegionNames(value);
+  const { dataOrigin, observedAt, regionCodes } = readIndex(split.index);
+  const names = readRegionNames(split.names, regionCodes);
+  return { contractVersion: 'notice-regions/v1', dataOrigin, observedAt,
+    regions: [...regionCodes].sort().map(code => ({ code, name: names.get(code) ?? null })) };
+}
+
 function noticeKey({ houseManageNo, noticeNo }: { houseManageNo: string; noticeNo: string }) {
   return `${houseManageNo}:${noticeNo}`;
 }

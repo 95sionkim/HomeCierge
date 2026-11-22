@@ -38,7 +38,7 @@ def _payment_page_refs(references):
     return evidence
 
 
-def _payment_schedule_snapshot(schedules):
+def payment_schedule_snapshot(schedules):
     if not isinstance(schedules, list):
         raise ValueError('납부 일정 목록이 필요합니다.')
     nullable_text = (str, type(None))
@@ -72,7 +72,7 @@ def save_snapshot(user_id, analysis_id, capture_key, inputs, result, *, env, ope
     if payment_schedules is not None:
         # 비어 있는 검수 일정도 수집본과 같은 트랜잭션에 기록한다.
         rpc = 'save_funding_schedule_snapshot'
-        payload['p_schedules'] = _payment_schedule_snapshot(payment_schedules)
+        payload['p_schedules'] = payment_schedule_snapshot(payment_schedules)
     attempts = 2 if retry_uncertain else 1
     # 실조회는 다시 하면 조회 시점이 달라진다. 같은 조건·결과·키를 메모리에서 그대로 재전송한다.
     for attempt in range(1, attempts + 1):
