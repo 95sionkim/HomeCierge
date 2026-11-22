@@ -1,11 +1,11 @@
 # 화면 팀의 데이터·API 연결 계약
 
-2026-11-21. 화면 프레임워크는 고정하지 않는다. [인프라 준비 상태](infrastructure.md)와 [PRD](prd/01-product-prd.md)를 함께 읽는다. 개발 DB와 보호된 Preview API가 생성됐다. 키·인증값은 실행 환경으로 전달한다.
+2026-11-22. 화면 프레임워크는 고정하지 않는다. [인프라 준비 상태](infrastructure.md)와 [PRD](prd/01-product-prd.md)를 함께 읽는다. 개발 DB와 보호된 Preview API가 생성됐다. 키·인증값은 실행 환경으로 전달한다.
 
 | 연결 대상을 정한다 | 주소·계약을 확인한다 |
 | --- | --- |
 | Supabase 개발 DB·Auth | `https://jcaelooqogosbzrfyrhe.supabase.co` |
-| Vercel Preview API | `https://homecierge-1qgrkzixy-sions-projects-d18fe574.vercel.app` |
+| Vercel Preview API | `https://homecierge-ehc8bytxs-sions-projects-d18fe574.vercel.app` |
 | 로컬 API | `npm run dev` → `http://127.0.0.1:3001` |
 | 타입 | [원격 DB에서 생성한 Database 타입](../src/db/database.types.ts) |
 
@@ -13,7 +13,7 @@
 
 Preview에는 Vercel 배포 보호가 켜져 있다. Vercel 로그인과 Supabase의 서비스 사용자 로그인은 별개이며, 별도 화면의 자동 API 호출에 배포 보호가 추가로 적용될 수 있다. 로컬 API로 먼저 연동하고 화면 배포 때 접근 방식을 함께 검수한다. 보호 우회 값을 화면 코드에 넣지 않는다.
 
-11월 21일 배포한 `cad297e`에는 PDF 다운로드, 분석 접수·상태 조회·취소, 저장된 비교 결과 조회가 포함됐다. 팀의 배포 보호를 통과한 상태에서 `/api/health`는 200, 서비스 로그인 없이 `/result`를 조회하면 401 `authentication_required`를 반환했다. 접수한 실행은 별도 개발 작업자가 처리한다. [작업자 실행 방법](api/analysis-runs.md) · [비교 결과 계약](api/comparison-v1.md)
+11월 22일 배포한 `08d8d08`에서 공고 검색, 비공개 PDF 다운로드, 분석 실행·취소, 저장된 비교 조회를 제공한다. 팀 배포 보호를 통과한 생존 조회는 200이었고, 검색 주소에 GET을 보내면 405와 `Allow: POST, OPTIONS`가 반환됐다. 격리 Supabase 통합 검사에서는 실제 두 계정으로 HTTP POST의 충족·확인 필요 결과와 출처 권한 철회를 검증했다. [검색 계약과 화면 예시](api/notice-search.md) · [실제 로그인 통합 검사](https://github.com/95sionkim/HomeCierge/actions/runs/44986319057)
 
 ## 1. 인증과 API를 연결한다
 

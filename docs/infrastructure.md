@@ -115,6 +115,8 @@ BE-05 구현 커밋 `cad297e`의 보호된 Preview는 `READY`를 확인했다. �
 
 2026-11-22에 서울 개발 DB에 [공고 탐색 색인 마이그레이션](../supabase/migrations/20261122044154_notice_search_index.sql)을 적용하고 사용자·작업자 RPC 타입을 다시 생성했다. 가입 확인을 마친 사용자의 DB 역할로 조회하는 롤백 검사에서 공고 83건과 현존 지역코드 269개가 반환됐다. 익명 역할은 읽을 수 없고 일반 사용자는 게시할 수 없었다. 출처 이용 조건을 확인한 두 공고 목록과 지역코드 세 출처만 등록했다. PDF를 포함한 호실 자료의 공유 게시에는 별도 출처 검수가 필요하다. [게시 범위와 수동 갱신 절차](api/notice-search.md)
 
+같은 커밋의 보호된 Vercel Preview는 `READY`였다. 팀 접근 없이 302, 보호를 통과한 `/api/health`는 200, 검색 주소의 GET은 405와 POST 허용 헤더를 확인했다. GitHub Actions가 새로 설치한 Supabase에서는 두 사용자가 로그인해 같은 공유 공고를 검색했고, 예산 1원 차이, 동시 게시 충돌, 일반 사용자의 게시 거부와 출처 표시 권한 철회를 확인했다. 합성 출처 권한 변경은 작업이 끝나면 폐기하는 이 로컬 스택에서 수행했다. [화면 팀 Preview 주소](frontend-handoff.md) · [Supabase 통합 검사](https://github.com/95sionkim/HomeCierge/actions/runs/44986319057) · [기본 검사](https://github.com/95sionkim/HomeCierge/actions/runs/44986319064)
+
 ## 6. 연결할 환경변수를 구분한다
 
 | 이름을 확인한다 | 설정 위치를 정한다 | 사용 목적을 설명한다 |
