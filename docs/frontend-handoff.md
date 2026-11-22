@@ -5,7 +5,7 @@
 | 연결 대상을 정한다 | 주소·계약을 확인한다 |
 | --- | --- |
 | Supabase 개발 DB·Auth | `https://jcaelooqogosbzrfyrhe.supabase.co` |
-| Vercel Preview API | `https://homecierge-ehc8bytxs-sions-projects-d18fe574.vercel.app` |
+| Vercel Preview API | `https://homecierge-2a6shno3g-sions-projects-d18fe574.vercel.app` |
 | 로컬 API | `npm run dev` → `http://127.0.0.1:3001` |
 | 타입 | [원격 DB에서 생성한 Database 타입](../src/db/database.types.ts) |
 
@@ -13,7 +13,9 @@
 
 Preview에는 Vercel 배포 보호가 켜져 있다. Vercel 로그인과 Supabase의 서비스 사용자 로그인은 별개이며, 별도 화면의 자동 API 호출에 배포 보호가 추가로 적용될 수 있다. 로컬 API로 먼저 연동하고 화면 배포 때 접근 방식을 함께 검수한다. 보호 우회 값을 화면 코드에 넣지 않는다.
 
-11월 22일 배포한 `08d8d08`에서 공고 검색, 비공개 PDF 다운로드, 분석 실행·취소, 저장된 비교 조회를 제공한다. 팀 배포 보호를 통과한 생존 조회는 200이었고, 검색 주소에 GET을 보내면 405와 `Allow: POST, OPTIONS`가 반환됐다. 격리 Supabase 통합 검사에서는 실제 두 계정으로 HTTP POST의 충족·확인 필요 결과와 출처 권한 철회를 검증했다. [검색 계약과 화면 예시](api/notice-search.md) · [실제 로그인 통합 검사](https://github.com/95sionkim/HomeCierge/actions/runs/44986319057)
+11월 22일 개발 브랜치의 `e2c916a`를 보호된 Preview에 배포했다. 공고 검색, 비공개 PDF, 분석 실행·비교와 함께 선택한 호실의 자금표를 조회할 수 있다. 팀 접근으로 `/api/health`는 200, 자금표 경로의 GET은 405와 `Allow: POST, OPTIONS`를 반환했다. 자금표 응답에는 `private, no-store`가 적용된다. [호실별 자금표와 계산 예](api/funding-plan.md) · [공고 검색 계약](api/notice-search.md)
+
+격리 Supabase에 두 계정으로 로그인해 자금표 POST를 검수했다. 계약금 7,100만 원, 보유 잔액 5천만 원, 당일 예상 입금 400만 원에서 예상 자금 포함 시 부족액은 입금 전 2,100만 원과 입금 후 1,700만 원이었다. 예상액을 500만 원으로 수정하면 입금 후 부족액은 1,600만 원이 됐다. 다른 계정의 같은 조회는 404였다. [인증 통합 검사](https://github.com/95sionkim/HomeCierge/actions/runs/44989806440)
 
 ## 1. 인증과 API를 연결한다
 

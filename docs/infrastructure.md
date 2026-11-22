@@ -120,6 +120,8 @@ BE-05 구현 커밋 `cad297e`의 보호된 Preview는 `READY`를 확인했다. �
 
 서울 개발 DB의 [자금표 마이그레이션](../supabase/migrations/20261122052921_analysis_funding_plan.sql)을 적용하고 공개 RPC 타입을 생성했다. 합성 자료를 쓴 롤백 검사에서 같은 수집 키의 재시도, 소유자 조회, 큰 원 단위 정수의 보존, 자금 수정 반영, 다른 사용자의 조회 거부를 확인했다. 현재 `applyhome_apt_model`, `applyhome_remainder_model`, `applyhome_notice_pdf`에는 공고 목록과 같은 저장·재사용·표시 허용 기록이 없어, 해당 자료에서 파생한 일정을 지속적으로 제공하려면 출처별 검수가 필요하다. [자금표 계약](api/funding-plan.md)
 
+구현 커밋 `e2c916a`는 개발 브랜치 Preview에서 `READY`였다. GitHub Actions의 격리 Supabase에서는 소유자가 Auth로 로그인해 선택한 호실 일정을 읽고 자금을 수정해 부족액을 다시 계산했다. 다른 계정이 같은 분석을 조회하면 404가 반환됐다. 날짜가 미정인 납부와 서로 다른 정정판의 호실 충돌은 합성 PDF부터 데이터베이스와 계산 응답까지 검수했다. [Supabase 통합 검사](https://github.com/95sionkim/HomeCierge/actions/runs/44989806440) · [기본 검사](https://github.com/95sionkim/HomeCierge/actions/runs/44989806473)
+
 ## 6. 연결할 환경변수를 구분한다
 
 | 이름을 확인한다 | 설정 위치를 정한다 | 사용 목적을 설명한다 |
