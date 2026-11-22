@@ -3,7 +3,6 @@ import {
   icon,
   badge,
   kinds,
-  statusLabels,
   scheduleBadge,
   rangesFor,
   rangeLabel,
@@ -91,8 +90,11 @@ function listHTML(state, records) {
       '<button class="action secondary" data-action="reload">다시 조회</button>',
     );
   const matches = records.filter(({ notice }) => !state.day || inRange(notice, state.day));
-  if (matches.length)
-    return `<div class="notice-grid">${matches.map(({ notice, index }) => card(notice, index, state.directory?.asOf)).join('')}</div>`;
+  if (matches.length) {
+    const visible = matches.slice(0, state.visible);
+    return `<div class="notice-grid">${visible.map(({ notice, index }) => card(notice, index, state.directory?.asOf)).join('')}</div>${matches.length > visible.length ? `<div class="more-notices"><button type="button" class="action secondary" data-action="more-notices">공고 더 보기 ${icon('chevron-down')}</button><span class="small muted">${visible.length} / ${matches.length}건</span></div>` : ''}`;
+  }
+  if (state.directoryLoading) return emptyState('loader-circle', '다음 공고를 불러오는 중입니다.');
   const hasFilter = state.filter !== 'all' || state.query || state.day;
   const uncertain =
     state.dirError ||
@@ -163,9 +165,20 @@ function agenda(state, records) {
   </section>`;
 }
 
+export function directoryPanels(state) {
+  const d = state.directory,
+    records = selectedNotices(state);
+  return {
+    results: `${state.view === 'calendar' && d ? calendar(state, records, true) : ''}
+    ${state.day ? `<div class="day-selection"><strong>${esc(dateText(state.day))} 접수 일정</strong> <button type="button" class="text-button" data-action="clear-date">날짜 해제 ${icon('x')}</button></div>` : state.view === 'calendar' && d ? '<p class="calendar-caption">날짜를 선택하면 해당일의 접수 공고를 모아 볼 수 있습니다.</p>' : ''}
+    ${listHTML(state, records)}`,
+    summary: `${d && state.view !== 'calendar' ? calendar(state, records) : ''}${d ? agenda(state, records) : ''}`,
+  };
+}
+
 export function directoryView(state) {
-  const records = selectedNotices(state);
   const { directory: d } = state;
+  const panels = directoryPanels(state);
   const filters = [
     ['all', '전체'],
     ['open', '접수 중'],
@@ -187,12 +200,11 @@ export function directoryView(state) {
     <div class="toolbar"><div class="filter-row" role="group" aria-label="접수 상태">${filters.map(([key, label]) => `<button class="filter" data-filter="${key}" aria-pressed="${state.filter === key}">${label}</button>`).join('')}</div></div>
     <div class="utility-row"><label class="search-box">${icon('search')}<span class="sr-only">공고명, 지역 또는 공고번호 검색</span><input id="notice-search" type="search" placeholder="공고명, 지역 또는 공고번호" value="${esc(state.query)}" autocomplete="off"></label><label class="check-field"><input id="include-closed" type="checkbox"${state.includeClosed ? ' checked' : ''}>종료 공고 포함</label></div>
     ${state.dirError && d ? `<div class="scope-note">${icon('triangle-alert')}<div>목록 일부를 불러오지 못했습니다. ${esc(errorText(state.dirError))} <button type="button" class="text-button" data-action="reload">다시 조회</button></div></div>` : ''}
+    ${d && state.directoryLoading && state.session ? `<p class="loading-more" role="status">공고 ${d.notices.length}건을 읽었습니다. 다음 목록을 불러오는 중입니다.</p>` : ''}
     ${coverageIssue ? `<div class="scope-note">${icon('circle-help')}<span>관측일 또는 수집 범위를 확인 중입니다. 현재 건수는 일부 공고만 포함할 수 있습니다.</span></div>` : ''}
-    ${state.view === 'calendar' && d ? calendar(state, records, true) : ''}
-    ${state.day ? `<div class="day-selection"><strong>${esc(dateText(state.day))} 접수 일정</strong> <button type="button" class="text-button" data-action="clear-date">날짜 해제 ${icon('x')}</button></div>` : state.view === 'calendar' && d ? '<p class="calendar-caption">날짜를 선택하면 해당일의 접수 공고를 모아 볼 수 있습니다.</p>' : ''}
-    ${listHTML(state, records)}
+    <div id="directory-results">${panels.results}</div>
     ${d ? `<div class="directory-foot">${sourceChip(d.dataOrigin === 'synthetic')}<span>모집공고일 ${esc(rangeLabel(d.publicationWindow, false))} · 한국시간 기준</span></div>` : ''}
-  </section><aside class="side-stack" aria-label="일정 요약">${d && state.view !== 'calendar' ? calendar(state, records) : ''}${d ? agenda(state, records) : ''}</aside></div>`;
+  </section><aside id="directory-summary" class="side-stack" aria-label="일정 요약">${panels.summary}</aside></div>`;
 }
 
 export function homeView(state, history) {

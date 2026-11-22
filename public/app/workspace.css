@@ -2047,3 +2047,15 @@ dialog::backdrop {
     linear-gradient(180deg, transparent 0, #000 7%, #000 95%, transparent 100%);
   mask-composite: intersect;
 }
+.more-notices {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  margin-top: 16px;
+}
+.loading-more {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 8px 0 13px;
+}

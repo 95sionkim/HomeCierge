@@ -1,6 +1,6 @@
 import * as api from './client.js';
-import { esc, icon, badge, runBadge, dateText, todayKst, errorText, isoDate } from './display.js';
-import { directoryView, homeView, emptyState, noticeName } from './directory-view.js';
+import { esc, icon, dateText, todayKst, errorText, isoDate } from './display.js';
+import { directoryPanels, directoryView, homeView, emptyState } from './directory-view.js';
 import { comparisonView, runView, sampleHeld } from './result-view.js';
 import { frame, authDialog, noticeDialog, sourceDialog, accountDialog } from './dialogs.js';
 
@@ -21,6 +21,7 @@ const state = {
   filter: 'all',
   query: '',
   view: 'cards',
+  visible: 12,
   month: null,
   day: null,
   includeClosed: false,
@@ -90,6 +91,7 @@ function resetPrivate() {
     query: '',
     filter: 'all',
     includeClosed: false,
+    visible: 12,
   });
   closeDialog();
 }
@@ -196,7 +198,12 @@ async function loadDirectory() {
             else throw Object.assign(new Error('changed'), { code: 'directory_page_changed' });
             cursor = d.page.nextCursor;
             if (cursor && seen.has(cursor)) throw new Error('duplicate cursor');
-            if (cursor) seen.add(cursor);
+            if (cursor) {
+              seen.add(cursor);
+              state.directory = partial;
+              state.month ??= partial.asOf.slice(0, 7);
+              render();
+            }
           } while (cursor);
           break;
         } catch (error) {
@@ -210,7 +217,15 @@ async function loadDirectory() {
     state.month ??= partial.asOf.slice(0, 7);
   } catch (error) {
     if (!valid()) return;
-    state.directory = partial;
+    const mustDiscard = [
+      'authentication_required',
+      'search_source_restricted',
+      'notice_source_restricted',
+      'notice_search_source_use_not_allowed',
+      'directory_page_changed',
+    ].includes(error?.code);
+    state.directory = mustDiscard ? null : partial;
+    if (mustDiscard) closeDialog();
     state.dirError = error;
   } finally {
     if (valid()) {
@@ -299,9 +314,27 @@ function shell(body, route) {
     <div class="work"><header class="topbar"><div class="breadcrumb"><a href="#home" aria-label="홈">${icon('house')}</a>${icon('chevron-right')}<strong>${label}${route.key === 'run' || route.key === 'sample' ? ' · 분석 결과' : ''}</strong></div><a class="wordmark mobile-wordmark" href="#home">HomeCierge</a><div class="top-tools"><span class="mode-pill">${icon(state.session ? 'shield-check' : 'layers')}${mode}</span><button type="button" class="action compact ${state.session ? 'secondary' : 'primary'}" data-action="${state.session ? 'account' : 'auth'}">${state.session ? icon('user-round') + '내 계정' : '로그인 ' + icon('arrow-right')}</button></div></header><main id="main-content" tabindex="-1" class="content">${body}</main></div>
     <nav aria-label="모바일 주 메뉴" class="mobile-nav">${nav(true)}<button data-action="${state.session ? 'account' : 'auth'}">${icon('user-round')}계정</button></nav></div>`;
 }
+function focusedControl(node) {
+  if (!node || !root.contains(node)) return null;
+  const section = ['.rail', '.topbar', '.mobile-nav', 'main'].find((selector) => node.closest(selector));
+  const attribute = [
+    'id',
+    'data-action',
+    'data-notice',
+    'data-filter',
+    'data-view',
+    'data-date',
+    'data-month',
+    'href',
+  ].find((name) => node.hasAttribute(name));
+  return section && attribute
+    ? `${section} [${attribute}="${CSS.escape(node.getAttribute(attribute))}"]`
+    : null;
+}
 function render() {
   const route = readRoute();
   const focus = document.activeElement;
+  const previousControl = focusedControl(focus);
   const searchFocus =
     focus?.id === 'notice-search' ? { start: focus.selectionStart, end: focus.selectionEnd } : null;
   let body;
@@ -347,7 +380,7 @@ function render() {
     const next = document.querySelector('#notice-search');
     next?.focus({ preventScroll: true });
     next?.setSelectionRange(searchFocus.start, searchFocus.end);
-  }
+  } else if (previousControl) defaultFocus(previousControl);
 }
 async function readRun(route, version = routeVersion) {
   if (!state.session || state.suspended || document.hidden) return;
@@ -466,12 +499,14 @@ root.addEventListener('click', (event) => {
     return;
   }
   if (filter) {
+    state.visible = 12;
     state.filter = filter;
     render();
     defaultFocus(`[data-filter="${filter}"]`);
     return;
   }
   if (date && isoDate(date)) {
+    state.visible = 12;
     state.day = state.day === date ? null : date;
     render();
     defaultFocus(`[data-date="${date}"]`);
@@ -499,6 +534,11 @@ root.addEventListener('click', (event) => {
     if (action === 'calendar-reset') state.month = (state.directory?.asOf ?? todayKst()).slice(0, 7);
     render();
     defaultFocus(action === 'calendar-reset' ? '[data-action=calendar-reset]' : '#notice-search');
+  } else if (action === 'more-notices') {
+    const shown = state.visible;
+    state.visible += 12;
+    render();
+    document.querySelectorAll('.notice-card')[shown]?.focus();
   } else if (action === 'reload') void loadDirectory();
   else if (action === 'reload-run') routeChanged();
   else if (action === 'reload-history') void loadHistory();
@@ -515,7 +555,11 @@ root.addEventListener('click', (event) => {
 root.addEventListener('input', (event) => {
   if (event.target.id === 'notice-search') {
     state.query = event.target.value;
-    render();
+    state.visible = 12;
+    // 한글을 조합하는 동안 검색 입력과 커서는 유지하고 결과만 갱신한다.
+    const panels = directoryPanels(state);
+    document.querySelector('#directory-results').innerHTML = panels.results;
+    document.querySelector('#directory-summary').innerHTML = panels.summary;
   }
 });
 root.addEventListener('change', (event) => {
@@ -558,14 +602,22 @@ dialog.addEventListener('click', async (event) => {
   }
   if (action === 'logout') {
     button.disabled = true;
+    resetPrivate();
+    state.suspended = true;
+    render();
     try {
       await api.signOut();
       setUser(null);
       closeDialog();
       announce('로그아웃했습니다.');
     } catch (error) {
-      feedback(errorText(error));
-      button.disabled = false;
+      state.suspended = false;
+      state.sessionProblem = error;
+      render();
+      if (state.session) {
+        openDialog(accountDialog(state.session));
+        feedback('로그아웃을 마치지 못했습니다. ' + errorText(error));
+      }
     }
     return;
   }

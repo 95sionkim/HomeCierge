@@ -1,6 +1,7 @@
 // 실제 네트워크와 계정 없이 데스크톱·모바일에서 같은 합성 공고를 조작한다.
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import { readFile } from 'node:fs/promises';
 import { after, before, test } from 'node:test';
 import { chromium } from 'playwright-core';
 import { createDevServer } from '../../dev/server.ts';
@@ -69,3 +70,52 @@ for (const width of [1440, 390]) {
     }
   });
 }
+
+test('more cards remain searchable and provisional prices stay distinct from confirmed empty scopes', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const fixture = async (name) =>
+    JSON.parse(
+      await readFile(new URL('../../public/app/assets/' + name + '-example.json', import.meta.url), 'utf8'),
+    );
+  const directory = await fixture('directory'),
+    comparison = await fixture('comparison');
+  directory.notices = Array.from({ length: 15 }, (_, index) => ({
+    ...directory.notices[0],
+    noticeNo: String(9900000042 + index),
+    title: '합성 공고 ' + (index + 1),
+  }));
+  directory.counts = { ...directory.counts, listed: 15, open: 15, upcoming: 0, unknown: 0 };
+  directory.page.returned = directory.notices.length;
+  comparison.comparables = [comparison.comparables[0]];
+  comparison.completeness = 'partial';
+  comparison.comparables[0].tradeStats.sale.status = 'provisional';
+  comparison.tradeKinds.occupancy_right = {
+    conclusion: 'normal_zero',
+    collectionStatus: 'complete',
+    unresolvedRows: 0,
+  };
+  await context.route('**/*', (route) => {
+    const url = new URL(route.request().url());
+    if (url.origin !== origin) return route.abort();
+    if (url.pathname === '/app/assets/directory-example.json') return route.fulfill({ json: directory });
+    if (url.pathname === '/app/assets/comparison-example.json') return route.fulfill({ json: comparison });
+    return route.continue();
+  });
+  try {
+    const page = await context.newPage();
+    await page.goto(origin + '/#notices');
+    await page.locator('[data-action="more-notices"]').click();
+    assert.equal(await page.locator('.notice-card').count(), 15);
+    await page.locator('#notice-search').fill('합성 공고 15');
+    assert.equal(await page.locator('.notice-card').count(), 1);
+    await page.goto(origin + '/#sample/saved');
+    const table = page.getByRole('region', { name: '합성 비교 A 거래 통계' });
+    const sale = table.getByRole('row').filter({ hasText: '아파트 매매' });
+    await sale.getByText('잠정', { exact: true }).waitFor();
+    assert.equal(await sale.getByRole('cell', { name: '5억 1,500만 원', exact: true }).count(), 3);
+    await table.getByRole('row').filter({ hasText: '입주권' }).getByText('미확인', { exact: true }).waitFor();
+    await page.getByText('입주권 · 해당 범위 0건', { exact: true }).waitFor();
+  } finally {
+    await context.close();
+  }
+});

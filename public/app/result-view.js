@@ -61,6 +61,21 @@ function tradeStatsRow(kind, label, candidate) {
     ${['minWon', 'medianWon', 'maxWon'].map((key) => `<td>${available ? esc(won(statistic[key])) : '—'}</td>`).join('')}</tr>`;
 }
 
+function candidateTable(c) {
+  return `<div class="detail-block"><h3>${esc(c.name ?? '단지명 미확인')}</h3><p class="muted small">공급면적 ${esc(c.supplyAreaM2 ? c.supplyAreaM2 + '㎡' : '—')}</p><div class="trade-scroll" tabindex="0" role="region" aria-label="${esc(c.name ?? '비교 단지')} 거래 통계"><table class="data-table trade-table"><thead><tr><th scope="col">거래 유형</th><th scope="col">확인 상태</th><th scope="col">건수</th><th scope="col">최저</th><th scope="col">중위</th><th scope="col">최고</th></tr></thead><tbody>${Object.entries(
+    tradeNames,
+  )
+    .map(([k, label]) => tradeStatsRow(k, label, c))
+    .join('')}</tbody></table></div></div>`;
+}
+
+function ownReferences(data) {
+  const own = data.targetReferences ?? [];
+  return own.length
+    ? `<section class="panel"><div class="aside-head"><h2>대상 단지 자체 거래</h2></div><p class="narrative">선택한 공고 단지에서 확인한 참고 거래입니다.</p>${own.map(candidateTable).join('')}</section>`
+    : '';
+}
+
 function tradesView(data) {
   const comparables = data.comparables ?? [];
   const verifiedZero = Object.entries(tradeNames).filter(([key]) => {
@@ -83,16 +98,7 @@ function tradesView(data) {
   );
   return `<section class="panel"><div class="aside-head"><h2>주변 실거래</h2><span class="small muted">${comparables.length}개 단지</span></div>
     ${hasProvisional ? `<div class="scope-note">${icon('circle-pause')}<span>잠정 통계에는 근거를 확인한 거래만 포함합니다. 아직 확인 중인 거래에 따라 값과 순위가 달라질 수 있습니다.</span></div>` : ''}
-    ${comparables
-      .map(
-        (c) =>
-          `<div class="detail-block"><h3>${esc(c.name ?? '단지명 미확인')}</h3><p class="muted small">공급면적 ${esc(c.supplyAreaM2 ? c.supplyAreaM2 + '㎡' : '—')}</p><div class="trade-scroll" tabindex="0" role="region" aria-label="${esc(c.name ?? '비교 단지')} 거래 통계"><table class="data-table trade-table"><thead><tr><th scope="col">거래 유형</th><th scope="col">확인 상태</th><th scope="col">건수</th><th scope="col">최저</th><th scope="col">중위</th><th scope="col">최고</th></tr></thead><tbody>${Object.entries(
-            tradeNames,
-          )
-            .map(([k, label]) => tradeStatsRow(k, label, c))
-            .join('')}</tbody></table></div></div>`,
-      )
-      .join('')}
+    ${comparables.map(candidateTable).join('')}
     ${zeroSummary}<p class="trade-note">매매는 거래가격, 분양권과 입주권은 신고된 권리 거래금액입니다. 1~2건은 소표본으로 표시합니다.</p></section>`;
 }
 function relations(data) {
@@ -148,7 +154,7 @@ export function comparisonView(data, title) {
   const label =
     completeness === 'complete' ? '검산 완료' : completeness === 'partial' ? '일부 보류' : '비교 보류';
   return `<section data-run-status="finished" data-result-status="${esc(completeness)}"><div class="section-header"><div class="tag-row">${badge(completeness === 'complete' ? 'verified' : completeness === 'partial' ? 'partial' : 'unknown', completeness === 'complete' ? 'shield-check' : 'circle-pause', label)}${data.dataOrigin === 'synthetic' ? badge('closed', 'layers', '합성 자료') : ''}</div><h1>${esc(data.target?.name || title || '분석 결과')}</h1><p>${esc(descriptions[completeness] ?? '분석 결과의 확인 상태를 살펴보세요.')}</p></div>
-    <div class="result-layout"><div class="result-stack">${holds.length ? `<section class="panel hold-panel"><h2>확인이 필요한 근거</h2><ul class="source-list">${holds.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></section>` : ''}${priceView(data)}${tradesView(data)}</div><aside class="result-stack">${relations(data)}${evidenceView(data)}</aside></div></section>`;
+    <div class="result-layout"><div class="result-stack">${holds.length ? `<section class="panel hold-panel"><h2>확인이 필요한 근거</h2><ul class="source-list">${holds.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></section>` : ''}${priceView(data)}${tradesView(data)}${ownReferences(data)}</div><aside class="result-stack">${relations(data)}${evidenceView(data)}</aside></div></section>`;
 }
 
 export function sampleHeld(n, m, asOf) {

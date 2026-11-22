@@ -168,26 +168,29 @@ export function dateText(value, short = false) {
   return d ? (short ? d.slice(5) : d).replaceAll('-', '.') : '—';
 }
 
+const koreanDate = new Intl.DateTimeFormat('ko-KR', {
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric',
+  weekday: 'long',
+  timeZone: 'UTC',
+});
 export function longDate(value) {
   const d = isoDate(value);
-  return d
-    ? new Intl.DateTimeFormat('ko-KR', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        weekday: 'long',
-        timeZone: 'UTC',
-      }).format(new Date(d + 'T00:00:00Z'))
-    : '기준일 확인 중';
+  return d ? koreanDate.format(new Date(d + 'T00:00:00Z')) : '기준일 확인 중';
 }
 
+const rangeCache = new WeakMap();
 export function rangesFor(notice) {
+  if (rangeCache.has(notice)) return rangeCache.get(notice);
   const ranges = Array.isArray(notice.applicationSegments)
     ? notice.applicationSegments
     : notice.application && notice.checks?.schedule === 'verified'
       ? [notice.application]
       : [];
-  return ranges.filter((r) => isoDate(r?.start) && isoDate(r?.end) && r.start <= r.end);
+  const verified = ranges.filter((r) => isoDate(r?.start) && isoDate(r?.end) && r.start <= r.end);
+  rangeCache.set(notice, verified);
+  return verified;
 }
 
 export function rangeLabel(range, short = true) {
