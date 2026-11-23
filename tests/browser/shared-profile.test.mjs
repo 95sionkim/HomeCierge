@@ -465,7 +465,8 @@ test('guest #profile requires login, leaks no private data/draft, and isolates a
   // 사용자 A로 로그인 전환 -> 사용자 A 프로필 표시
   await page.evaluate((u) => window.__mockControl.switchUser(u), userA);
   await page.locator('.profile-version-pill').getByText('v2').waitFor();
-  assert.ok((await page.locator('.profile-saved-card').innerText()).includes('서울특별시 광진구'));
+  // 프로필과 지역 사전은 별도로 도착한다. 표시할 지역명까지 확인한 뒤 계정을 전환한다.
+  await page.locator('.profile-saved-card').getByText('서울특별시 광진구').waitFor();
   assert.ok((await page.locator('.profile-destination-card').innerText()).includes('아차산로 400'));
 
   // 사용자 A가 직접 수정 폼을 열고 작성 중 -> 사용자 B 전환 시 A의 초안/데이터 완전 초기화
@@ -473,8 +474,8 @@ test('guest #profile requires login, leaks no private data/draft, and isolates a
   await page.locator('#profile-budget').fill('999000000');
   await page.evaluate((u) => window.__mockControl.switchUser(u), userB);
   await page.locator('.profile-version-pill').getByText('v1').waitFor();
+  await page.locator('.profile-saved-card').getByText('서울특별시 강남구').waitFor();
   const savedTextB = await page.locator('.profile-saved-card').innerText();
-  assert.ok(savedTextB.includes('서울특별시 강남구'));
   assert.ok(!savedTextB.includes('광진구'));
   // 전환 후 수정 패널은 닫힌 초기 상태로 복원되고 B의 저장값으로 채워짐
   assert.equal(await page.locator('#profile-edit-panel').count(), 0);
@@ -939,7 +940,7 @@ test('direct O-3 modal on original comparison run and region-needed handoff to #
   await reviewDialog.locator('[data-action="open-profile"]').click();
   await page.waitForFunction(() => location.hash === '#profile');
   await page.locator('.profile-version-pill').getByText('v3').waitFor();
-  assert.ok((await page.locator('.profile-saved-card').innerText()).includes('서울특별시 성동구'));
+  await page.locator('.profile-saved-card').getByText('서울특별시 성동구').waitFor();
   assert.ok((await page.locator('.profile-saved-card').innerText()).includes('8억 5,000만 원'));
 
   await page.locator('[data-profile="toggle-draft"]').click();
