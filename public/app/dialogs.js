@@ -70,6 +70,6 @@ export function accountDialog(session) {
   return frame(
     '내 계정',
     session.email,
-    `<p class="auth-note">이 계정으로 접수한 분석은 로그인할 때 다시 볼 수 있습니다.</p><p class="form-message" id="form-message" role="status"></p><div class="form-actions"><button class="action secondary" type="button" data-action="logout">${icon('log-out')}로그아웃</button></div>`,
+    `<p class="auth-note">공유 프로필에서 다음 맞춤 검색에 사용할 조건과 변경 이력을 확인하세요.</p><p class="form-message" id="form-message" role="status"></p><div class="form-actions"><button class="action secondary" type="button" data-action="logout">${icon('log-out')}로그아웃</button><button class="action primary" type="button" data-action="open-profile">공유 프로필 열기 ${icon('arrow-right')}</button></div>`,
   );
 }

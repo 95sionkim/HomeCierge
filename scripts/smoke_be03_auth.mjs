@@ -14,6 +14,7 @@ import { createHandler } from '../src/server/handler.ts';
 import { createBackend } from '../src/server/supabase.ts';
 import { checkNoticeSearch } from './smoke_notice_search.mjs';
 import { checkFundingPlan } from './smoke_funding_plan.mjs';
+import { checkProfileInBrowser, checkProfileRegion, checkSharedProfile } from './smoke_shared_profile.mjs';
 import { checkLegalEvidence } from './smoke_legal_evidence.mjs';
 import { checkRegionalNews, syntheticNewsFetch } from './smoke_regional_news.mjs';
 import { checkNoticeAnalysis } from './smoke_notice_analysis.mjs';
@@ -599,6 +600,16 @@ async function run(config, capture, requestApi, apiPort) {
     });
     check(restored.status === 200 && isDeepStrictEqual(await restored.json(), savedComparison),
       'be05_reopen_saved_comparison');
+    await checkSharedProfile({ owner, peer, reopened, saved: savedComparison, check, result,
+      async openNewOwnerSession() {
+        const otherDevice = userClient();
+        await login(owner, otherDevice);
+        return otherDevice;
+      } });
+    const regionCheck = await checkProfileRegion({ owner, requestApi, check, result });
+    process.stdout.write('Shared profile regions (' + regionCheck + ')\n');
+    if (process.env.NOTICE_BROWSER_SMOKE === '1' || process.env.PROFILE_BROWSER_SMOKE === '1')
+      await checkProfileInBrowser({ owner, saved: savedComparison, apiPort, dbOrigin: config.origin, check });
   } catch (error) {
     const step = failureStep(error);
     failed.push(be04Started && step === 'unexpected_failure' ? 'be04_unexpected_failure' : step);
@@ -681,5 +692,8 @@ if (failures.length) {
   process.stdout.write('BE-04 smoke passed (run API, RLS, scoped worker, claim and cancel races, recovery, cleanup)\n');
   process.stdout.write('BE-05 smoke passed (comparison, evidence holds, snapshot replay, two-user isolation, new session)\n');
   process.stdout.write('Comparison conversation passed (one run after concurrent approvals, inclusive dates, previous result and history after sign-in)\n');
+  process.stdout.write('Shared profile passed (approval, stale revision, two-user isolation, history after sign-in, original comparison)\n');
+  if (process.env.NOTICE_BROWSER_SMOKE === '1' || process.env.PROFILE_BROWSER_SMOKE === '1')
+    process.stdout.write('Shared profile browser passed (chat, approve, next search)\n');
   process.stdout.write('BE-08 smoke passed (funding inputs, saved schedule, two-user isolation, recalculation)\n');
 }

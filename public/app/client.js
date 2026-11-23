@@ -255,6 +255,74 @@ export async function confirmDestination(ownerId, revision, destination) {
   if (error) throw databaseError(error);
 }
 
+const profileMonth = /^[0-9]{4}-(?:0[1-9]|1[0-2])$/;
+const profilePatterns = {
+  budget_max_won: /^(?:0|[1-9][0-9]*)$/,
+  supply_area_min_m2: /^[0-9]+(?:\.[0-9]+)?$/,
+  supply_area_max_m2: /^[0-9]+(?:\.[0-9]+)?$/,
+  move_in_start_month: profileMonth,
+  move_in_end_month: profileMonth,
+};
+function profileValues(fields, allowRemoval = false) {
+  if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return false;
+  return Object.entries(fields).every(([key, value]) => {
+    if (!Object.hasOwn(profilePatterns, key) && key !== 'region_codes') return false;
+    if (value === null) return allowRemoval;
+    if (key === 'region_codes') return Array.isArray(value) && value.every(code => typeof code === 'string' && /^[0-9]{5}$/.test(code));
+    return typeof value === 'string' && profilePatterns[key].test(value);
+  });
+}
+const profileStatuses = new Set(['pending', 'approved', 'rejected', 'cancelled']);
+const validRevision = n => Number.isSafeInteger(n) && n >= 0;
+const validTimestamp = s => typeof s === 'string' && Number.isFinite(Date.parse(s));
+function validProfileProposal(p) {
+  return p && uuid.test(p.id) && validRevision(p.baseRevision) && profileStatuses.has(p.status)
+    && typeof p.reason === 'string' && validTimestamp(p.createdAt)
+    && (p.status === 'pending' ? p.decidedAt === null : validTimestamp(p.decidedAt))
+    && ((p.analysisId === null && p.runId === null) || (uuid.test(p.analysisId) && uuid.test(p.runId)))
+    && profileValues(p.previous, true) && profileValues(p.patch, true)
+    && Object.keys(p.patch).length > 0 && Object.keys(p.previous).length === Object.keys(p.patch).length
+    && Object.keys(p.patch).every(key => Object.hasOwn(p.previous, key));
+}
+async function profileRpc(name, params, signal) {
+  const session = await currentSession();
+  if (!identity(session)) throw apiError('authentication_required');
+  const sdk = await client();
+  signal?.throwIfAborted();
+  // 계정 전환 직전의 요청도 해당 동작을 시작한 세션으로만 보낸다.
+  let query = sdk.rpc(name, params).setHeader('Authorization', 'Bearer ' + session.access_token);
+  if (signal) query = query.abortSignal(signal);
+  const { data, error } = await query;
+  signal?.throwIfAborted();
+  if (error) {
+    if (['40001', 'PT409', '23505'].includes(error.code)) throw apiError('profile_changed');
+    if (error.code === '22023') throw apiError('invalid_profile_input');
+    if (error.code === 'PT404') throw apiError('profile_proposal_not_found');
+    if (error.code === 'PT403') throw apiError('profile_regions_unavailable');
+    throw databaseError(error);
+  }
+  if (data?.contractVersion !== 'shared-profile/v1' || !validRevision(data.revision) ||
+      (data.updatedAt !== null && !validTimestamp(data.updatedAt)) ||
+      (data.destination !== null && typeof data.destination !== 'string') ||
+      !profileValues(data.conditions) || !Array.isArray(data.proposals) || data.proposals.length > 30 ||
+      !data.proposals.every(validProfileProposal) || (data.nextCursor !== null && !uuid.test(data.nextCursor))) {
+    throw apiError('backend_unavailable');
+  }
+  return data;
+}
+export function readSharedProfile(signal, before = null) {
+  return profileRpc('read_search_profile', { p_before: before }, signal);
+}
+export function proposeSearchProfile({ requestId, baseRevision, patch, reason, analysisId, runId }, signal) {
+  return profileRpc('propose_search_profile_change', {
+    p_request_id: requestId, p_base_revision: baseRevision, p_patch: patch, p_reason: reason,
+    p_analysis_id: analysisId ?? null, p_run_id: runId ?? null,
+  }, signal);
+}
+export function decideSearchProfile(changeId, decision, signal) {
+  return profileRpc('decide_search_profile_change', { p_change_id: changeId, p_decision: decision }, signal);
+}
+
 const fundFields = 'id,kind,amountWon:amount_won::text,availableOn:available_on,certainty,updatedAt:updated_at';
 
 async function fundTable(analysisId, ownerId) {

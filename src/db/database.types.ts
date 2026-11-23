@@ -763,6 +763,10 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      decide_search_profile_change: {
+        Args: { p_change_id: string; p_decision: string }
+        Returns: Json
+      }
       enqueue_analysis_run: {
         Args: {
           p_analysis_id: string
@@ -855,6 +859,17 @@ export type Database = {
         Args: { p_analysis_id: string; p_snapshot_id: string }
         Returns: Json
       }
+      propose_search_profile_change: {
+        Args: {
+          p_analysis_id?: string
+          p_base_revision: number
+          p_patch: Json
+          p_reason: string
+          p_request_id: string
+          p_run_id?: string
+        }
+        Returns: Json
+      }
       publish_law_reference: { Args: { p_reference: Json }; Returns: undefined }
       publish_notice_directory: {
         Args: { p_index: Json; p_regions: Json }
@@ -887,6 +902,7 @@ export type Database = {
       }
       read_notice_directory_index: { Args: never; Returns: Json }
       read_notice_search_index: { Args: never; Returns: Json }
+      read_search_profile: { Args: { p_before?: string }; Returns: Json }
       register_analysis_upload: {
         Args: { analysis_id: string; upload_id: string }
         Returns: {

@@ -9,6 +9,8 @@ import { createFundingPage } from './funding-page.js';
 import { createCommutePage } from './commute-page.js';
 import { createReferencePage } from './reference-page.js';
 import { createConversationPanel } from './conversation-panel.js';
+import { createProfilePage } from './profile-page.js';
+import { createProfileReview } from './profile-review.js';
 
 const root = document.querySelector('#app');
 const dialog = document.querySelector('#workspace-dialog');
@@ -52,7 +54,19 @@ let dialogNotice = null,
   sessionSubscription;
 let demoDirectory, demoComparison;
 let analysisKey, resultLinkFocus, originRun = null;
+let profileDraft = null;
+let reviewFromProfile = null;
 const searchPage = createSearchPage({ root, render, user: () => state.session, selectNotice: selectSearchNotice });
+const profilePage = createProfilePage({ root, render, announce, user: () => state.session });
+const profileReview = createProfileReview({
+  dialog, openDialog, announce,
+  editProfile(draft) {
+    if (!state.session || !draft) return;
+    profileDraft = { ...draft, owner: state.session.id };
+    closeDialog();
+    navigate('#profile');
+  },
+});
 const fundingPage = createFundingPage({ root, render });
 const referencePage = createReferencePage({ root, render });
 const commutePage = createCommutePage({ root, render });
@@ -60,6 +74,12 @@ const conversationPanel = createConversationPanel({
   root,
   render,
   announce,
+  onSharedProfile({ message, analysisId, runId }) {
+    const route = readRoute();
+    if (!state.session || state.suspended || state.sessionProblem || route.key !== 'run' ||
+        analysisId !== route.analysisId || runId !== route.runId) return;
+    profileReview.begin({ message, analysisId, runId });
+  },
   onApprovedRun({ analysisId, resultRunId, fromRunId }) {
     originRun = { analysisId, fromRunId, toRunId: resultRunId };
     void loadHistory();
@@ -73,6 +93,7 @@ const navs = [
   ['notices', 'calendar-days', '오늘의 청약'],
   ['search', 'sliders-horizontal', '맞춤 검색'],
   ['analyses', 'folder-open', '내 분석'],
+  ['profile', 'user-round', '공유 프로필'],
 ];
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 function readRoute() {
@@ -105,9 +126,12 @@ function resetPrivate() {
   state.conditionLookup = null;
   resultLinkFocus = null;
   originRun = null;
+  profileDraft = null;
+  reviewFromProfile = null;
   state.conditionsOpen = false;
   state.tradeKind = 'sale';
   searchPage.reset();
+  profilePage.reset();
   fundingPage.reset();
   referencePage.reset();
   commutePage.reset();
@@ -302,7 +326,7 @@ async function loadDirectory() {
       'directory_page_changed',
     ].includes(error?.code);
     state.directory = mustDiscard ? null : partial;
-    if (mustDiscard) closeDialog();
+    if (mustDiscard && (error.code === 'authentication_required' || !dialog.querySelector('[data-profile-review-dialog]'))) closeDialog();
     state.dirError = error;
   } finally {
     if (valid()) {
@@ -382,6 +406,7 @@ function shell(body, route) {
   const label = navs.find((n) => n[0] === active)?.[2] ?? '오늘의 청약';
   const nav = (mobile = false) =>
     navs
+      .filter(([key]) => !mobile || key !== 'profile')
       .map(
         ([key, symbol, name]) =>
           `<a href="#${key}" title="${name}" class="${mobile ? '' : 'nav-item '}${active === key ? 'active' : ''}"${active === key ? ' aria-current="page"' : ''}>${icon(symbol)}<span>${name}</span></a>`,
@@ -392,7 +417,7 @@ function shell(body, route) {
   const railToggle = analysis ? `<button type="button" class="rail-toggle" data-action="toggle-rail" aria-controls="main-rail-nav" aria-expanded="${state.railExpanded}" aria-label="${state.railExpanded ? '메뉴 접기' : '메뉴 펼치기'}" title="${state.railExpanded ? '메뉴 접기' : '메뉴 펼치기'}">${icon('panel-left')}</button>` : '';
   return `<div class="shell${analysis ? ' analysis-shell' + (state.railExpanded ? '' : ' rail-compact') : ''}"><aside class="rail">${railToggle}<a class="wordmark rail-brand" href="#home" aria-label="HomeCierge 홈">HomeCierge</a><nav class="rail-menu" id="main-rail-nav" aria-label="주 메뉴">${nav()}</nav>${historyRail()}<div class="rail-bottom"><button class="nav-item" data-action="source" type="button" aria-label="자료 근거" title="자료 근거">${icon('database')}<span>자료 근거</span></button><button type="button" class="account-control" title="${state.session ? '내 계정' : '로그인'}" ${accountAction}><span class="account-symbol">${icon('user-round')}</span><span>${state.session ? '내 계정' : '게스트'}<small>${esc(state.session?.email ?? '예시 둘러보기')}</small></span>${icon('chevron-right')}</button></div></aside>
     <div class="work"><header class="topbar"><div class="breadcrumb">${analysis ? '<a class="wordmark compact-brand" href="#home">HomeCierge</a>' : ''}<a href="#home" aria-label="홈">${icon('house')}</a>${icon('chevron-right')}<strong>${label}${route.key === 'run' || route.key === 'sample' ? ' · 분석 결과' : ''}</strong></div><a class="wordmark mobile-wordmark" href="#home">HomeCierge</a><div class="top-tools"><span class="mode-pill">${icon(state.session ? 'shield-check' : 'layers')}${mode}</span><button type="button" class="action compact ${state.session ? 'secondary' : 'primary'}" ${accountAction}>${state.session ? icon('user-round') + '내 계정' : '로그인 ' + icon('arrow-right')}</button></div></header><main id="main-content" tabindex="-1" class="content">${body}</main></div>
-    <nav aria-label="모바일 주 메뉴" class="mobile-nav">${nav(true)}<button ${accountAction}>${icon('user-round')}계정</button></nav></div>`;
+    <nav aria-label="모바일 주 메뉴" class="mobile-nav">${nav(true)}<button ${accountAction}${active === 'profile' ? ' class="active"' : ''}>${icon('user-round')}계정</button></nav></div>`;
 }
 function focusedControl(node) {
   if (!node || !root.contains(node)) return null;
@@ -433,6 +458,7 @@ function render() {
     );
   else if (route.key === 'home') body = homeView(state, historyList(true));
   else if (route.key === 'search') body = searchPage.view();
+  else if (route.key === 'profile') body = state.authPending ? emptyState('loader-circle', '계정을 확인하고 있습니다.') : profilePage.view();
   else if (route.key === 'analyses')
     body = `<section class="section-header"><h1>내 분석</h1><p>${state.session ? '계정에 저장된 분석을 최근 순으로 확인하세요.' : '합성 자료로 만든 분석에서 가격과 근거를 살펴보세요.'}</p></section>${historyList()}`;
   else if (route.key === 'run')
@@ -478,7 +504,7 @@ function render() {
   }
   root.innerHTML = shell(body, route);
   document.title =
-    (route.section === 'funding' ? '호실별 자금표' : isReference(route) ? resultSections[route.section] : { notices: '오늘의 청약', search: '맞춤 공고 찾기', home: '홈', analyses: '내 분석', run: '분석 결과', sample: '분석 예시' }[
+    (route.section === 'funding' ? '호실별 자금표' : isReference(route) ? resultSections[route.section] : { notices: '오늘의 청약', search: '맞춤 공고 찾기', home: '홈', analyses: '내 분석', profile: '공유 프로필', run: '분석 결과', sample: '분석 예시' }[
       route.key
     ] ?? '오늘의 청약') + ' | HomeCierge';
   if (searchFocus) {
@@ -522,6 +548,11 @@ async function readRun(route, version = routeVersion) {
           comparison: state.comparison,
           originRun,
         });
+        if (reviewFromProfile?.owner === state.session.id && reviewFromProfile.proposal.analysisId === route.analysisId &&
+            reviewFromProfile.proposal.runId === route.runId) {
+          profileReview.show(reviewFromProfile.proposal);
+          reviewFromProfile = null;
+        }
       }
     } else if (['queued', 'running', 'retry_wait'].includes(r.status)) {
       pollTimer = setTimeout(() => void readRun(route, version), 4000);
@@ -621,6 +652,12 @@ function routeChanged(focus = false) {
     state.tradeKind = 'sale';
   }
   if (resultLinkFocus !== location.hash) resultLinkFocus = null;
+  if (route.key !== 'run' || route.section !== 'comparison' || reviewFromProfile?.proposal.analysisId !== route.analysisId ||
+      reviewFromProfile?.proposal.runId !== route.runId) reviewFromProfile = null;
+  const draft = route.key === 'profile' && state.session && profileDraft?.owner === state.session.id
+    ? { message: profileDraft.message, analysisId: profileDraft.analysisId, runId: profileDraft.runId } : null;
+  profileDraft = null;
+  profilePage.reset();
   searchPage.reset();
   fundingPage.reset();
   referencePage.reset();
@@ -638,6 +675,8 @@ function routeChanged(focus = false) {
     void readSample(route, version);
   else if (route.key === 'search' && !state.suspended && !state.authPending && !state.sessionProblem)
     void searchPage.enter();
+  else if (route.key === 'profile' && !state.suspended && !state.authPending && !state.sessionProblem)
+    void profilePage.enter(draft);
   else if (route.key === 'run' && state.session && !state.suspended) void readRun(route, version);
   render();
   if (focus) {
@@ -653,6 +692,7 @@ function openDialog(html, focusSelector = null) {
   if (focusSelector) dialog.querySelector(focusSelector)?.focus();
 }
 function closeDialog() {
+  profileReview.reset();
   if (dialog.open) dialog.close();
   dialogNotice = null;
   sendingStart = false;
@@ -683,6 +723,14 @@ root.addEventListener('click', (event) => {
   const control = event.target.closest('button');
   if (!control) return;
   const { action, notice, view, filter, date, month } = control.dataset;
+  if (control.dataset.profileReview && state.session && readRoute().key === 'profile') {
+    const proposal = profilePage.getProposal(control.dataset.profileReview);
+    if (proposal && uuid.test(proposal.analysisId) && uuid.test(proposal.runId)) {
+      reviewFromProfile = { owner: state.session.id, proposal };
+      navigate('#run/' + proposal.analysisId + '/' + proposal.runId);
+    }
+    return;
+  }
   if (notice !== undefined) {
     const entry = state.directory?.notices[Number(notice)];
     if (!entry) return;
@@ -814,6 +862,7 @@ dialog.addEventListener('change', (event) => {
   }
 });
 dialog.addEventListener('cancel', () => {
+  profileReview.reset();
   dialogNotice = null;
   sendingStart = false;
 });
@@ -833,6 +882,11 @@ dialog.addEventListener('click', async (event) => {
   if (!button) return;
   const action = button.dataset.action;
   if (action === 'close') return closeDialog();
+  if (action === 'open-profile') {
+    closeDialog();
+    navigate('#profile');
+    return;
+  }
   if (action === 'auth' || action === 'signup') {
     openDialog(authDialog(action === 'signup'), '#auth-email');
     return;

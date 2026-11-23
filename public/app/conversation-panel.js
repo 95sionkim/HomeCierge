@@ -11,6 +11,7 @@ import {
   isoDate,
   rangeLabel,
 } from './display.js';
+import { isSharedProfileMessage } from './profile-language.js';
 
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const PUBLIC_INTENTS = new Set(['inclusion', 'holds', 'scope', 'price', 'period', 'change_period', 'help']);
@@ -106,7 +107,7 @@ function loadGuestConversation() {
   return guestModulePromise;
 }
 
-export function createConversationPanel({ root, render, announce, onApprovedRun }) {
+export function createConversationPanel({ root, render, announce, onApprovedRun, onSharedProfile }) {
   let ctx = null;
   let turns = [];
   let hasEarlier = false;
@@ -268,6 +269,47 @@ export function createConversationPanel({ root, render, announce, onApprovedRun 
       return;
     }
     validationError = '';
+
+    // 공유 프로필 변경 요청은 기존 비교 대화 엔드포인트로 보내지 않고 전용 경로로 분리한다.
+    if (isSharedProfileMessage(message)) {
+      if (ctx.guest) {
+        const turn = {
+          id: 'guest-profile-' + ++guestSeq,
+          runId: 'sample',
+          message,
+          intent: 'help',
+          createdAt: new Date().toISOString(),
+          answer:
+            '공유 프로필 변경은 로그인한 계정에서만 검토하고 반영할 수 있습니다. 예시 화면에서는 저장하거나 변경하지 않습니다.',
+          proposal: null,
+          profileGuest: true,
+        };
+        turns = [...turns, turn];
+        draft = '';
+        failedSubmission = null;
+        statusMessage = '';
+        announce('공유 프로필 변경은 로그인 후 이용할 수 있습니다.');
+        syncPanel({ scrollBottom: true, focusSelector: '#conversation-input' });
+        return;
+      }
+      if (typeof onSharedProfile === 'function') {
+        const handoff = { message, analysisId: ctx.analysisId, runId: ctx.runId };
+        draft = '';
+        failedSubmission = null;
+        statusMessage = '';
+        announce('공유 프로필 변경안 검토 화면으로 이동합니다.');
+        syncPanel();
+        onSharedProfile(handoff);
+        return;
+      }
+      failedSubmission = null;
+      statusMessage = '';
+      validationError = '공유 프로필 변경은 공유 프로필 화면에서 검토하고 반영하세요.';
+      announce(validationError);
+      updateComposerControls();
+      root.querySelector('#conversation-input')?.focus({ preventScroll: true });
+      return;
+    }
 
     if (ctx.guest) {
       const here = ctx;
@@ -512,6 +554,22 @@ export function createConversationPanel({ root, render, announce, onApprovedRun 
     </section>`;
   }
 
+  function renderGuestProfileNotice(turn) {
+    return `<section class="conv-approve is-pending is-preview" data-profile-guest="${esc(turn.id)}" aria-label="공유 프로필 로그인 안내">
+      <header class="conv-approve-head">
+        ${icon('user-round')}
+        <h3>공유 프로필 변경은 로그인 후 이용</h3>
+        <span class="conv-approve-scope">로그인 필요 · 저장 안 함</span>
+      </header>
+      <div class="conv-approve-body">
+        <div class="conv-approve-actions">
+          <button type="button" class="action primary compact" data-action="auth">${icon('log-in')}로그인하고 공유 프로필 열기</button>
+        </div>
+        <p class="conv-approve-foot">로그인 전에는 공유 프로필을 조회하거나 변경안을 저장하지 않습니다.</p>
+      </div>
+    </section>`;
+  }
+
   function renderTurn(turn) {
     const time = formatStamp(turn.createdAt);
     return `<div class="conv-turn" data-turn-id="${esc(turn.id)}">
@@ -523,7 +581,7 @@ export function createConversationPanel({ root, render, announce, onApprovedRun 
         <div class="conv-msg-meta"><span class="conv-msg-author">HomeCierge</span>${time}</div>
         <div class="conv-msg-body">${renderParagraphs(turn.answer)}</div>
       </article>
-      ${renderProposal(turn)}
+      ${turn.profileGuest ? renderGuestProfileNotice(turn) : renderProposal(turn)}
     </div>`;
   }
 
