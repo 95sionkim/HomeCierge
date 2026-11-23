@@ -99,7 +99,7 @@ function checkStale(check, response, step, deleted = false) {
     || (deleted && response.status === 404 && response.error?.code === 'PT404'), step);
 }
 
-async function workerOnce(config, runId, check, step) {
+export async function workerOnce(config, runId, check, step) {
   check(typeof runId === 'string' && UUID.test(runId), 'be04_worker_scope');
   let output;
   try {

@@ -11,6 +11,8 @@ import { createReferencePage } from './reference-page.js';
 import { createConversationPanel } from './conversation-panel.js';
 import { createProfilePage } from './profile-page.js';
 import { createProfileReview } from './profile-review.js';
+import { createReportPage } from './report-page.js';
+import { reportExample } from '/vendor/planning-example.js';
 
 const root = document.querySelector('#app');
 const dialog = document.querySelector('#workspace-dialog');
@@ -55,9 +57,11 @@ let dialogNotice = null,
 let demoDirectory, demoComparison;
 let analysisKey, resultLinkFocus, originRun = null;
 let profileDraft = null;
+let reportFundingChoice = null;
 let reviewFromProfile = null;
 const searchPage = createSearchPage({ root, render, user: () => state.session, selectNotice: selectSearchNotice });
 const profilePage = createProfilePage({ root, render, announce, user: () => state.session });
+const reportPage = createReportPage({ root, render, announce, user: () => state.session, navigate });
 const profileReview = createProfileReview({
   dialog, openDialog, announce,
   editProfile(draft) {
@@ -67,13 +71,18 @@ const profileReview = createProfileReview({
     navigate('#profile');
   },
 });
-const fundingPage = createFundingPage({ root, render });
+const fundingPage = createFundingPage({ root, render, onRoomSelected: room => { reportFundingChoice = room; } });
 const referencePage = createReferencePage({ root, render });
 const commutePage = createCommutePage({ root, render });
 const conversationPanel = createConversationPanel({
   root,
   render,
   announce,
+  onOpenReport() {
+    const route = readRoute();
+    if (!['run', 'sample'].includes(route.key) || route.section !== 'comparison') return;
+    navigate(location.hash + '/report');
+  },
   onSharedProfile({ message, analysisId, runId }) {
     const route = readRoute();
     if (!state.session || state.suspended || state.sessionProblem || route.key !== 'run' ||
@@ -87,12 +96,13 @@ const conversationPanel = createConversationPanel({
     announce('승인한 조건으로 새 분석 실행으로 이동했습니다.');
   },
 });
-const resultSections = { comparison: '비교 결과', funding: '호실 자금표', law: '법령 근거', news: '지역 뉴스', commute: '출퇴근 경로' };
+const resultSections = { comparison: '비교 결과', funding: '호실 자금표', law: '법령 근거', news: '지역 뉴스', commute: '출퇴근 경로', report: '보고서' };
 const navs = [
   ['home', 'house', '홈'],
   ['notices', 'calendar-days', '오늘의 청약'],
   ['search', 'sliders-horizontal', '맞춤 검색'],
   ['analyses', 'folder-open', '내 분석'],
+  ['reports', 'file-text', '저장 보고서'],
   ['profile', 'user-round', '공유 프로필'],
 ];
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
@@ -101,7 +111,8 @@ function readRoute() {
   let section = 'comparison';
   const sectionAt = bits[0] === 'sample' && bits[1] === 'saved' ? 2 : 3;
   if (['run', 'sample'].includes(bits[0]) && bits.length === sectionAt + 1 &&
-      ['funding', 'law', 'news', 'commute'].includes(bits.at(-1))) section = bits.pop();
+      ['funding', 'law', 'news', 'commute', 'report'].includes(bits.at(-1))) section = bits.pop();
+  if (bits[0] === 'reports' && bits.length === 2 && uuid.test(bits[1])) return { key: 'reports', reportId: bits[1].toLowerCase() };
   if (bits[0] === 'run' && bits.length === 3 && uuid.test(bits[1]) && uuid.test(bits[2]))
     return { key: 'run', analysisId: bits[1].toLowerCase(), runId: bits[2].toLowerCase(), section };
   if (bits[0] === 'sample' && bits.length === 2 && bits[1] === 'saved') return { key: 'sample', saved: true, section };
@@ -123,6 +134,7 @@ function navigate(to) {
 }
 function resetPrivate() {
   analysisKey = null;
+  reportFundingChoice = null;
   state.conditionLookup = null;
   resultLinkFocus = null;
   originRun = null;
@@ -132,6 +144,7 @@ function resetPrivate() {
   state.tradeKind = 'sale';
   searchPage.reset();
   profilePage.reset();
+  reportPage.reset();
   fundingPage.reset();
   referencePage.reset();
   commutePage.reset();
@@ -179,7 +192,7 @@ function setUser(user, force = false) {
   state.suspended = false;
   state.session = user;
   const route = readRoute();
-  if ((leaving && route.key === 'run') || (user && route.key === 'sample'))
+  if ((leaving && (route.key === 'run' || (route.key === 'reports' && route.reportId))) || (user && route.key === 'sample'))
     history.replaceState(null, '', '#notices');
   render();
   void loadDirectory();
@@ -406,7 +419,7 @@ function shell(body, route) {
   const label = navs.find((n) => n[0] === active)?.[2] ?? '오늘의 청약';
   const nav = (mobile = false) =>
     navs
-      .filter(([key]) => !mobile || key !== 'profile')
+      .filter(([key]) => !mobile || !['profile', 'reports'].includes(key))
       .map(
         ([key, symbol, name]) =>
           `<a href="#${key}" title="${name}" class="${mobile ? '' : 'nav-item '}${active === key ? 'active' : ''}"${active === key ? ' aria-current="page"' : ''}>${icon(symbol)}<span>${name}</span></a>`,
@@ -459,8 +472,9 @@ function render() {
   else if (route.key === 'home') body = homeView(state, historyList(true));
   else if (route.key === 'search') body = searchPage.view();
   else if (route.key === 'profile') body = state.authPending ? emptyState('loader-circle', '계정을 확인하고 있습니다.') : profilePage.view();
+  else if (route.key === 'reports') body = state.authPending ? emptyState('loader-circle', '계정을 확인하고 있습니다.') : reportPage.view();
   else if (route.key === 'analyses')
-    body = `<section class="section-header"><h1>내 분석</h1><p>${state.session ? '계정에 저장된 분석을 최근 순으로 확인하세요.' : '합성 자료로 만든 분석에서 가격과 근거를 살펴보세요.'}</p></section>${historyList()}`;
+    body = `<section class="section-header"><h1>내 분석</h1><p>${state.session ? '계정에 저장된 분석을 최근 순으로 확인하세요.' : '합성 자료로 만든 분석에서 가격과 근거를 살펴보세요.'}</p><a href="#reports" class="action secondary">${icon('file-text')}저장 보고서 열기</a></section>${historyList()}`;
   else if (route.key === 'run')
     body = state.authPending
       ? emptyState('loader-circle', '세션을 확인하고 있습니다.')
@@ -495,7 +509,8 @@ function render() {
     const base = route.section === 'comparison' ? location.hash : location.hash.slice(0, location.hash.lastIndexOf('/'));
     const tabs = Object.entries(resultSections).map(([key,label]) =>
       `<a href="${esc(base + (key === 'comparison' ? '' : '/' + key))}"${key === route.section ? ' aria-current="page"' : ''}>${label}</a>`).join('');
-    if (route.section === 'commute') body = commutePage.view();
+    if (route.section === 'report' && !state.runError) body = reportPage.view();
+    else if (route.section === 'commute') body = commutePage.view();
     else if (isReference(route)) body = referencePage.view();
     else if (route.section === 'funding' && comparison && !state.runError) body = fundingPage.view();
     const lookup = route.key === 'run' && isReference(route) ? state.conditionLookup : null;
@@ -504,7 +519,7 @@ function render() {
   }
   root.innerHTML = shell(body, route);
   document.title =
-    (route.section === 'funding' ? '호실별 자금표' : isReference(route) ? resultSections[route.section] : { notices: '오늘의 청약', search: '맞춤 공고 찾기', home: '홈', analyses: '내 분석', profile: '공유 프로필', run: '분석 결과', sample: '분석 예시' }[
+    (route.section === 'funding' ? '호실별 자금표' : route.section === 'report' ? '분석 보고서' : isReference(route) ? resultSections[route.section] : { notices: '오늘의 청약', search: '맞춤 공고 찾기', home: '홈', analyses: '내 분석', reports: '저장 보고서', profile: '공유 프로필', run: '분석 결과', sample: '분석 예시' }[
       route.key
     ] ?? '오늘의 청약') + ' | HomeCierge';
   if (searchFocus) {
@@ -528,7 +543,21 @@ async function readRun(route, version = routeVersion) {
     if (!valid()) return;
     if (r.analysisId !== route.analysisId || r.runId !== route.runId) throw new Error('unbound result');
     state.run = r;
-    if (r.status === 'finished' && isReference(route)) {
+    if (r.status === 'finished' && route.section === 'report') {
+      try {
+        const data = await api.getResult(r.analysisId, r.runId);
+        if (!valid()) return;
+        state.comparison = boundComparison(data, route, r.snapshotId);
+      } catch (error) {
+        if (!valid()) return;
+        if (error.code !== 'comparison_source_restricted') throw error;
+      }
+      const price = state.comparison?.noticePrice;
+      const rooms = [...new Set([...(price?.confirmedRooms ?? []), ...(price?.heldRooms ?? [])]
+        .map(r => r.room).filter(r => typeof r === 'string' && r.trim()))];
+      void reportPage.enter({kind:'run',analysisId:r.analysisId,runId:r.runId,guest:false,rooms,
+        selectedRoom:price?.scope === 'selected_room' ? price.room : null, fundingRoom:reportFundingChoice});
+    } else if (r.status === 'finished' && isReference(route)) {
       if (!uuid.test(r.snapshotId)) throw new Error('unbound snapshot');
       const title = state.analyses.find(a => a.analysisId === r.analysisId)?.title;
       state.conditionLookup = {};
@@ -610,6 +639,9 @@ async function readSample(route, version) {
     if (version === routeVersion) state.sampleError = error;
   }
   if (version === routeVersion) {
+    if (route.section === 'report' && state.sample) {
+      void reportPage.enter({kind:'run',guest:true,sampleReport:reportExample(state.sample)});
+    }
     if (state.sample && isReference(route)) loadReference(route, state.sample.target?.name);
     if (route.section === 'funding' && state.sample) void loadFunding(route, state.sample);
     if (route.section === 'comparison' && state.sample) {
@@ -648,6 +680,7 @@ function routeChanged(focus = false) {
     route.key === 'sample' ? 'sample/' + (route.saved ? 'saved' : route.noticeNo + '/' + route.modelNo) : null;
   if (key !== analysisKey) {
     analysisKey = key;
+    reportFundingChoice = null;
     state.conditionsOpen = false;
     state.tradeKind = 'sale';
   }
@@ -658,6 +691,7 @@ function routeChanged(focus = false) {
     ? { message: profileDraft.message, analysisId: profileDraft.analysisId, runId: profileDraft.runId } : null;
   profileDraft = null;
   profilePage.reset();
+  reportPage.reset();
   searchPage.reset();
   fundingPage.reset();
   referencePage.reset();
@@ -677,6 +711,8 @@ function routeChanged(focus = false) {
     void searchPage.enter();
   else if (route.key === 'profile' && !state.suspended && !state.authPending && !state.sessionProblem)
     void profilePage.enter(draft);
+  else if (route.key === 'reports' && !state.suspended && !state.authPending && !state.sessionProblem)
+    void reportPage.enter({kind:route.reportId ? 'detail' : 'list',reportId:route.reportId,guest:!state.session});
   else if (route.key === 'run' && state.session && !state.suspended) void readRun(route, version);
   render();
   if (focus) {

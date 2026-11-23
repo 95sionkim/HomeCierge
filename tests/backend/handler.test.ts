@@ -13,6 +13,7 @@ const env: Environment = {
   ALLOWED_ORIGINS: 'https://frontend.invalid',
 };
 const backend: Backend = {
+  savedReport: async () => { throw new Error('unexpected_report'); },
   getUser: async () => ({ id: 'synthetic-user', isAnonymous: false }),
   getProfile: async id => ({ user_id: id, revision: 0 }),
   getUploadContent: async () => null,

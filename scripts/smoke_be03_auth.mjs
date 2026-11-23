@@ -15,10 +15,11 @@ import { createBackend } from '../src/server/supabase.ts';
 import { checkNoticeSearch } from './smoke_notice_search.mjs';
 import { checkFundingPlan } from './smoke_funding_plan.mjs';
 import { checkProfileInBrowser, checkProfileRegion, checkSharedProfile } from './smoke_shared_profile.mjs';
+import { checkSavedReports, finishReportFixture, openReportInBrowser } from './smoke_saved_reports.mjs';
 import { checkLegalEvidence } from './smoke_legal_evidence.mjs';
 import { checkRegionalNews, syntheticNewsFetch } from './smoke_regional_news.mjs';
 import { checkNoticeAnalysis } from './smoke_notice_analysis.mjs';
-import { checkBe04Cleanup, runBe04Smoke } from './smoke_be04_runs.mjs';
+import { checkBe04Cleanup, runBe04Smoke, workerOnce } from './smoke_be04_runs.mjs';
 
 const DEVELOPMENT_ORIGIN = 'https://jcaelooqogosbzrfyrhe.supabase.co';
 const ACCOUNT_TAG = 'homecierge_be03_smoke_run';
@@ -521,11 +522,35 @@ async function run(config, capture, requestApi, apiPort) {
       account.client = userClient();
       const initial = await login(account, account.client);
       const session = await refreshAndVerify(account, initial);
+      account.accessToken = session.access_token;
       await seedAccount(account);
       await checkMe(requestApi, account, session);
     }
     await saveSnapshot(admin, accounts[0], capture, captureKey, params => storeWithPython(config, params));
     await saveSnapshot(admin, accounts[1], capture, captureKey, params => storeConcurrently(admin, params));
+    if (process.argv.includes('--saved-reports')) {
+      const funding = await checkFundingPlan({ accounts, admin, capture, requestApi, check, result });
+      const owner = { ...accounts[0], analysisId: funding.analysisId };
+      const peer = accounts[1];
+      const newOwnerSession = async () => {
+        const client = userClient();
+        await login(owner, client);
+        return client;
+      };
+      const saved = await finishReportFixture({ owner, snapshotId: funding.snapshotId, config, requestApi, check, result, workerOnce });
+      await checkSavedReports({ owner, peer, saved, requestApi, check,
+        freshToken: async account => (await login(account, userClient())).access_token,
+        async whileSaved(report) {
+          const fundingSection = report.sections.find(section => section.id === 'funding');
+          check(fundingSection?.tables.some(table => table.rows.some(row => row.includes('2026-10-20')
+            && row.includes('예상 자금 포함') && row.includes('2,100만 원') && row.includes('1,600만 원'))), 'report_saved_shortfalls');
+          await checkSharedProfile({ owner, peer, reopened: await newOwnerSession(), openNewOwnerSession: newOwnerSession, saved, check, result });
+          await checkProfileInBrowser({ owner, saved, apiPort, dbOrigin: config.origin, check,
+            afterProfile: page => openReportInBrowser(page, report, check) });
+        }
+      });
+      return failed;
+    }
     const pairs = [[accounts[0], accounts[1]], [accounts[1], accounts[0]]];
     for (const [account, other] of pairs) {
       const reopened = userClient();
@@ -600,16 +625,21 @@ async function run(config, capture, requestApi, apiPort) {
     });
     check(restored.status === 200 && isDeepStrictEqual(await restored.json(), savedComparison),
       'be05_reopen_saved_comparison');
-    await checkSharedProfile({ owner, peer, reopened, saved: savedComparison, check, result,
-      async openNewOwnerSession() {
-        const otherDevice = userClient();
-        await login(owner, otherDevice);
-        return otherDevice;
+    await checkSavedReports({ owner, peer, saved: savedComparison, requestApi, freshToken, check,
+      async whileSaved(report) {
+        await checkSharedProfile({ owner, peer, reopened, saved: savedComparison, check, result,
+          async openNewOwnerSession() {
+            const otherDevice = userClient();
+            await login(owner, otherDevice);
+            return otherDevice;
+          } });
+        if (process.env.NOTICE_BROWSER_SMOKE === '1' || process.env.PROFILE_BROWSER_SMOKE === '1') {
+          await checkProfileInBrowser({ owner, saved: savedComparison, apiPort, dbOrigin: config.origin, check,
+            afterProfile: page => openReportInBrowser(page, report, check) });
+        }
       } });
     const regionCheck = await checkProfileRegion({ owner, requestApi, check, result });
     process.stdout.write('Shared profile regions (' + regionCheck + ')\n');
-    if (process.env.NOTICE_BROWSER_SMOKE === '1' || process.env.PROFILE_BROWSER_SMOKE === '1')
-      await checkProfileInBrowser({ owner, saved: savedComparison, apiPort, dbOrigin: config.origin, check });
   } catch (error) {
     const step = failureStep(error);
     failed.push(be04Started && step === 'unexpected_failure' ? 'be04_unexpected_failure' : step);
@@ -681,6 +711,8 @@ if (failures.length) {
     process.stderr.write(`${stage} smoke failed (${step})\n`);
   }
   process.exitCode = 1;
+} else if (process.argv.includes('--saved-reports')) {
+  process.stdout.write('S-07 passed (two authenticated users, duplicate save, fixed funding amounts, profile edit, browser reopen and PDF, deletion, cleanup)\n');
 } else {
   if (process.env.BE07_EPHEMERAL_SEARCH_FIXTURE === '1') {
     process.stdout.write('BE-07 smoke passed (two-user search, publication, budget, incomplete rooms, source revocation)\n');
@@ -693,6 +725,7 @@ if (failures.length) {
   process.stdout.write('BE-05 smoke passed (comparison, evidence holds, snapshot replay, two-user isolation, new session)\n');
   process.stdout.write('Comparison conversation passed (one run after concurrent approvals, inclusive dates, previous result and history after sign-in)\n');
   process.stdout.write('Shared profile passed (approval, stale revision, two-user isolation, history after sign-in, original comparison)\n');
+  process.stdout.write('Saved reports passed (one version, account isolation, profile change, fresh session, PDF and individual deletion)\n');
   if (process.env.NOTICE_BROWSER_SMOKE === '1' || process.env.PROFILE_BROWSER_SMOKE === '1')
     process.stdout.write('Shared profile browser passed (chat, approve, next search)\n');
   process.stdout.write('BE-08 smoke passed (funding inputs, saved schedule, two-user isolation, recalculation)\n');

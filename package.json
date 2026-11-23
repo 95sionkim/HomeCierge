@@ -21,11 +21,14 @@
     "db:cli": "supabase"
   },
   "dependencies": {
-    "@supabase/supabase-js": "2.119.0"
+    "@supabase/supabase-js": "2.119.0",
+    "pdfkit": "0.21.0",
+    "pretendard": "1.3.9"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.16",
     "@types/node": "26.6.6",
+    "@types/pdfkit": "0.17.7",
     "@vercel/routing-utils": "6.6.1",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",

@@ -8,6 +8,9 @@ export function isUuid(value: unknown): value is string {
 
 const errorStatuses = {
   authentication_required: 401,
+  invalid_report_input: 400,
+  report_not_found: 404,
+  report_conflict: 409,
   invalid_run_input: 400,
   invalid_search_input: 400,
   invalid_directory_input: 400,
@@ -55,7 +58,7 @@ export class ApiError extends Error {
   get status() { return errorStatuses[this.code]; }
 }
 
-type InputError = 'invalid_run_input' | 'invalid_search_input' | 'invalid_funding_input' | 'invalid_news_input' | 'invalid_commute_input' | 'invalid_conversation_input';
+type InputError = 'invalid_run_input' | 'invalid_search_input' | 'invalid_funding_input' | 'invalid_news_input' | 'invalid_commute_input' | 'invalid_conversation_input' | 'invalid_report_input';
 
 export async function readBody(request: Request, limit: number, invalid: InputError): Promise<Uint8Array | null> {
   if (Number(request.headers.get('content-length')) > limit) return null;

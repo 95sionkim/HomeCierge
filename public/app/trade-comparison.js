@@ -1,39 +1,14 @@
 import { badge, dateText, esc, icon, supplyLabel, todayKst, won } from './display.js';
+import { halfWon, noticeRange, priceLabel, tradeRange } from './comparison-values.js';
+export { noticeRange, priceLabel } from './comparison-values.js';
 
 export const tradeNames = { sale: '아파트 매매', presale_right: '분양권', occupancy_right: '입주권' };
-
-// 짝수 건의 중위값은 0.5원까지 보존한다. 표와 차트는 같은 원 단위 값을 읽는다.
-function halfWon(value) {
-  if (typeof value !== 'string' || !/^(0|[1-9]\d{0,19})(\.5)?$/.test(value)) return null;
-  return BigInt(value.split('.')[0]) * 2n + (value.endsWith('.5') ? 1n : 0n);
-}
 
 function manwon(value) {
   const amount = halfWon(value);
   if (amount === null) return '—';
   const fraction = ((amount % 20000n) * 5n).toString().padStart(5, '0').replace(/0+$/, '');
   return (amount / 20000n).toLocaleString('ko-KR') + (fraction ? '.' + fraction : '');
-}
-
-export function noticeRange(price) {
-  if (price?.status !== 'confirmed' || price.basis !== 'sale_price_plus_required_options' ||
-      !['selected_room', 'confirmed_rooms'].includes(price.scope)) return null;
-  const min = price.scope === 'selected_room' ? price.won : price.minWon;
-  const max = price.scope === 'selected_room' ? price.won : price.maxWon;
-  if (halfWon(min) === null || halfWon(max) === null || halfWon(min) > halfWon(max)) return null;
-  return { min, max };
-}
-
-export function priceLabel(range) {
-  if (!range) return '—';
-  return range.min === range.max ? won(range.min) : won(range.min) + ' – ' + won(range.max);
-}
-
-function tradeRange(stat) {
-  if (!['confirmed', 'provisional'].includes(stat?.status) || !Number.isSafeInteger(stat.count) || stat.count < 1) return null;
-  const values = [stat.minWon, stat.medianWon, stat.maxWon].map(halfWon);
-  if (values.some(v => v === null) || values[0] > values[1] || values[1] > values[2]) return null;
-  return { min: stat.minWon, mid: stat.medianWon, max: stat.maxWon };
 }
 
 function rangeChart(price, rows) {

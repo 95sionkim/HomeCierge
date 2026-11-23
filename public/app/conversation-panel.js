@@ -107,7 +107,7 @@ function loadGuestConversation() {
   return guestModulePromise;
 }
 
-export function createConversationPanel({ root, render, announce, onApprovedRun, onSharedProfile }) {
+export function createConversationPanel({ root, render, announce, onApprovedRun, onSharedProfile, onOpenReport }) {
   let ctx = null;
   let turns = [];
   let hasEarlier = false;
@@ -269,6 +269,14 @@ export function createConversationPanel({ root, render, announce, onApprovedRun,
       return;
     }
     validationError = '';
+
+    // 보고서 요청은 현재 실행의 저장 화면을 열고, 보관 여부는 사용자가 선택한다.
+    if (onOpenReport && /^(?:(?:지금까지(?:의)?\s*(?:내용|분석)|(?:이|현재|이번)\s*(?:분석|결과))\s*(?:을|를)?\s*)?(?:종합\s*)?보고서(?:로|를)?\s*(?:정리|저장|생성|작성|열기|보여|만들어|열어)(?:해)?\s*(?:줘|주세요|주십시오)?[.!]?$/u.test(message.trim())) {
+      draft = '';
+      failedSubmission = null;
+      onOpenReport();
+      return;
+    }
 
     // 공유 프로필 변경 요청은 기존 비교 대화 엔드포인트로 보내지 않고 전용 경로로 분리한다.
     if (isSharedProfileMessage(message)) {

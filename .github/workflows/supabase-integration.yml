@@ -46,7 +46,7 @@ jobs:
             docker ps -a --format 'table {{.Names}}\t{{.Status}}'
             exit 1
           fi
-      - name: Sign in two users and check files, runs, comparisons, notice search, legal evidence, funding and regional news
+      - name: Verify two accounts, analysis workflows and saved PDF reports
         run: |
           umask 077
           local_status="$RUNNER_TEMP/homecierge-status.json"

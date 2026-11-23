@@ -75,7 +75,7 @@ export async function checkProfileRegion({ owner, requestApi, check, result }) {
 }
 
 // 실제로 로그인한 브라우저에서 비교 대화 → 승인 → 다음 검색을 거친다.
-export async function checkProfileInBrowser({ owner, saved, apiPort, dbOrigin, check }) {
+export async function checkProfileInBrowser({ owner, saved, apiPort, dbOrigin, check, afterProfile }) {
   const { chromium } = await import('playwright-core');
   const origin = 'http://127.0.0.1:' + apiPort;
   const executablePath = process.env.CHROME_BIN || (process.platform === 'darwin'
@@ -118,6 +118,10 @@ export async function checkProfileInBrowser({ owner, saved, apiPort, dbOrigin, c
     await page.goto(origin + '/#search');
     await page.waitForFunction(() => document.querySelector('#criteria-budget')?.value.replaceAll(',', '') === '800000000');
     check(submissions === 0, 'shared_profile_browser_search_on_demand');
+    if (afterProfile) {
+      step = 'reopen_saved_report';
+      await afterProfile(page);
+    }
   } catch {
     check(false, 'shared_profile_browser_' + step);
   } finally {

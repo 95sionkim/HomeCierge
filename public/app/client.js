@@ -44,6 +44,9 @@ const publicErrors = new Set([
   'comparison_not_available',
   'comparison_source_restricted',
   'invalid_conversation_input',
+  'invalid_report_input',
+  'report_not_found',
+  'report_conflict',
   'conversation_period_unavailable',
   'conversation_conflict',
   'backend_unavailable',
@@ -181,7 +184,7 @@ export function onSessionChange(callback) {
   };
 }
 
-async function request(path, method = 'GET', body, signal) {
+async function request(path, method = 'GET', body, signal, media = 'json') {
   const session = await currentSession();
   if (!identity(session)) throw apiError('authentication_required');
   let response, data;
@@ -194,6 +197,11 @@ async function request(path, method = 'GET', body, signal) {
       cache: 'no-store',
       signal,
     });
+    if (response.ok && response.status === 204) return;
+    if (response.ok && media === 'pdf') {
+      if (response.headers.get('content-type')?.split(';')[0] !== 'application/pdf') throw apiError('backend_unavailable');
+      return await response.blob();
+    }
     data = await response.json();
   } catch (error) {
     if (signal?.aborted || error?.name === 'AbortError') throw error;
@@ -486,6 +494,28 @@ export function cancelRun(analysisId, runId) {
 }
 export function getResult(analysisId, runId) {
   return request(runPath(analysisId, runId) + '/result');
+}
+export function listSavedReports(signal, before = null) {
+  if (before !== null && !uuid.test(before)) throw apiError('invalid_report_input');
+  return request('/api/v1/reports' + (before ? '?before=' + before : ''), 'GET', undefined, signal);
+}
+export function saveAnalysisReport(analysisId, runId, requestId, signal, fundingRoom = null) {
+  if (!uuid.test(requestId)) throw apiError('invalid_report_input');
+  return request(runPath(analysisId, runId) + '/reports', 'POST',
+    fundingRoom === null ? { requestId } : { requestId, fundingRoom }, signal);
+}
+function reportPath(id) {
+  if (!uuid.test(id)) throw apiError('invalid_report_input');
+  return '/api/v1/reports/' + id;
+}
+export function readSavedReport(reportId, signal) {
+  return request(reportPath(reportId), 'GET', undefined, signal);
+}
+export function downloadSavedReport(reportId, signal) {
+  return request(reportPath(reportId) + '/pdf', 'GET', undefined, signal, 'pdf');
+}
+export function deleteSavedReport(reportId, signal) {
+  return request(reportPath(reportId), 'DELETE', undefined, signal);
 }
 export function getConversation(analysisId, runId, signal) {
   return request(runPath(analysisId, runId) + '/conversation', 'GET', undefined, signal);

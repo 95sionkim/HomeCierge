@@ -47,6 +47,21 @@ export function createBackend(config: BackendConfig): Backend {
       if (error) throw new Error('database_unavailable');
       return data;
     },
+    async savedReport(operation, signal) {
+      const rpc = operation.action === 'save' ? client.rpc('save_analysis_report', {
+        p_analysis_id: operation.analysisId, p_run_id: operation.runId, p_request_id: operation.requestId,
+        ...(operation.fundingRoom ? { p_funding_room: operation.fundingRoom } : {}),
+      }) : operation.action === 'list' ? client.rpc('list_saved_analysis_reports', operation.before ? { p_before: operation.before } : {})
+        : operation.action === 'delete' ? client.rpc('delete_saved_analysis_report', { p_report_id: operation.reportId })
+        : client.rpc('read_saved_analysis_report', { p_report_id: operation.reportId, p_for_export: operation.action === 'export' });
+      const { data, error } = await rpc.abortSignal(signal);
+      if (error?.code === 'PT404') throw new ApiError('report_not_found');
+      if (error?.code === 'PT409') throw new ApiError('report_conflict');
+      if (error?.code === '22023') throw new ApiError('invalid_report_input');
+      if (error?.code === '42501' && error.message.includes('authentication_required')) throw new ApiError('authentication_required');
+      if (error) throw new Error('database_unavailable');
+      return data;
+    },
     async runAnalysis(operation, signal) {
       const args = { p_analysis_id: operation.analysisId };
       const rpc = operation.action === 'enqueue'

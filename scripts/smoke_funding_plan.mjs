@@ -71,4 +71,5 @@ export async function checkFundingPlan({ admin, accounts, capture, requestApi, c
     && update.rows[0].scenarios.includingExpected.beforeIncomingFunds.shortfallWon === '21000000'
     && update.rows[0].scenarios.includingExpected.afterIncomingFunds.shortfallWon === '16000000'
     && update.rows[0].scenarios.confirmedOnly.afterIncomingFunds.shortfallWon === '21000000', 'be08_recalculation');
+  return { analysisId: analysis.id, snapshotId };
 }

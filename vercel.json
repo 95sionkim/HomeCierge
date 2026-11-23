@@ -5,6 +5,11 @@
   "buildCommand": "npm run build",
   "outputDirectory": "public",
   "regions": ["icn1"],
-  "functions": { "api/index.ts": { "maxDuration": 30 } },
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 30,
+      "includeFiles": "node_modules/pretendard/dist/public/static/alternative/Pretendard-{Regular,Medium,SemiBold,Bold}.ttf"
+    }
+  },
   "rewrites": [{ "source": "/api/(.*)", "destination": "/api" }]
 }

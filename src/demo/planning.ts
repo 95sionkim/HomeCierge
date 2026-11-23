@@ -1,6 +1,7 @@
 // 게스트용 합성 공고와 납부 기준. 판정과 금액 계산은 로그인 경로와 같은 함수를 사용한다.
 import { evaluateNoticeSearch, parseNoticeSearchConditions } from '../server/notice-search.js';
 import { calculateFundingPlan } from '../server/funding-plan.js';
+import { projectSavedReport } from '../server/saved-report.js';
 export { conversationExample } from '../server/analysis-conversation.js';
 
 export const regions = [
@@ -82,6 +83,21 @@ export function searchExample(input: unknown) {
 
 export const sampleAnalysis = 'b0000000-0000-4000-8000-000000000001';
 export const sampleSnapshot = 'b0000000-0000-4000-8000-000000000002';
+// 로그인 전 보고서도 같은 화면 변환을 거치며 합성 분석의 수치와 보류 상태를 보존한다.
+export function reportExample(comparison: { dataOrigin?: unknown; conditions?: { asOf?: string }; collections?: { collectedAt?: string }[] }) {
+  if (comparison.dataOrigin !== 'synthetic') throw new Error('expected_synthetic_report');
+  const queriedAt = comparison.collections?.map(row => row.collectedAt).filter((v): v is string => !!v).sort().at(-1)
+    ?? (comparison.conditions?.asOf ?? '2026-11-10') + 'T00:00:00Z';
+  return projectSavedReport({ contractVersion:'report-snapshot/v1',analysisId:sampleAnalysis,snapshotId:sampleSnapshot,
+    runId:'b0000000-0000-4000-8000-000000000005',reportId:'b0000000-0000-4000-8000-000000000006',
+    version:1,dataOrigin:'synthetic',createdAt:queriedAt,queriedAt,rulesVersion:'comparison/v1',
+    sections:{
+      comparison:{status:'available',sources:[],exportAllowed:true,value:comparison},
+      funding:{status:'room_unselected',sources:[],exportAllowed:true,value:null},
+      law:{status:'available',sources:[],exportAllowed:true,value:{analysisId:sampleAnalysis,snapshotId:sampleSnapshot,
+        dataOrigin:'synthetic',noticeDate:null,noticeSource:'applyhome_apt',status:'synthetic_input',reference:null}},
+    } });
+}
 export const sampleFunds = [
   {
     id: 'b0000000-0000-4000-8000-000000000003',

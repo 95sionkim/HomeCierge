@@ -98,7 +98,7 @@ function fundsPanel(s) {
     }
     ${s.message ? `<p class="${s.problem ? 'plan-error' : 'field-help'}" role="status">${esc(s.message)}</p>` : ''}</aside>`;
 }
-export function createFundingPage({ root, render }) {
+export function createFundingPage({ root, render, onRoomSelected }) {
   let s = {},
     generation = 0,
     readVersion = 0;
@@ -211,6 +211,7 @@ export function createFundingPage({ root, render }) {
     if (!s.ctx) return;
     if (f.id === 'fund-room' && s.rooms.includes(f.value)) {
       s.room = f.value;
+      onRoomSelected?.(s.room);
       void fetchPlan();
     }
     if (f.id === 'fund-kind' && s.draft) {

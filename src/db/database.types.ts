@@ -767,6 +767,10 @@ export type Database = {
         Args: { p_change_id: string; p_decision: string }
         Returns: Json
       }
+      delete_saved_analysis_report: {
+        Args: { p_report_id: string }
+        Returns: undefined
+      }
       enqueue_analysis_run: {
         Args: {
           p_analysis_id: string
@@ -851,6 +855,10 @@ export type Database = {
         Args: { p_analysis_id: string; p_run_id: string }
         Returns: Json
       }
+      list_saved_analysis_reports: {
+        Args: { p_before?: string }
+        Returns: Json
+      }
       prepare_analysis_commute: {
         Args: { p_analysis_id: string; p_snapshot_id: string }
         Returns: Json
@@ -902,6 +910,10 @@ export type Database = {
       }
       read_notice_directory_index: { Args: never; Returns: Json }
       read_notice_search_index: { Args: never; Returns: Json }
+      read_saved_analysis_report: {
+        Args: { p_for_export?: boolean; p_report_id: string }
+        Returns: Json
+      }
       read_search_profile: { Args: { p_before?: string }; Returns: Json }
       register_analysis_upload: {
         Args: { analysis_id: string; upload_id: string }
@@ -951,6 +963,15 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      save_analysis_report: {
+        Args: {
+          p_analysis_id: string
+          p_funding_room?: string
+          p_request_id: string
+          p_run_id: string
+        }
+        Returns: Json
       }
       save_funding_schedule_snapshot: {
         Args: {
