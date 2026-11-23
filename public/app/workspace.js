@@ -8,6 +8,7 @@ import { createSearchPage } from './search-page.js';
 import { createFundingPage } from './funding-page.js';
 import { createCommutePage } from './commute-page.js';
 import { createReferencePage } from './reference-page.js';
+import { createConversationPanel } from './conversation-panel.js';
 
 const root = document.querySelector('#app');
 const dialog = document.querySelector('#workspace-dialog');
@@ -50,11 +51,22 @@ let dialogNotice = null,
   sendingStart = false,
   sessionSubscription;
 let demoDirectory, demoComparison;
-let analysisKey, resultLinkFocus;
+let analysisKey, resultLinkFocus, originRun = null;
 const searchPage = createSearchPage({ root, render, user: () => state.session, selectNotice: selectSearchNotice });
 const fundingPage = createFundingPage({ root, render });
 const referencePage = createReferencePage({ root, render });
 const commutePage = createCommutePage({ root, render });
+const conversationPanel = createConversationPanel({
+  root,
+  render,
+  announce,
+  onApprovedRun({ analysisId, resultRunId, fromRunId }) {
+    originRun = { analysisId, fromRunId, toRunId: resultRunId };
+    void loadHistory();
+    navigate('#run/' + analysisId + '/' + resultRunId);
+    announce('승인한 조건으로 새 분석 실행으로 이동했습니다.');
+  },
+});
 const resultSections = { comparison: '비교 결과', funding: '호실 자금표', law: '법령 근거', news: '지역 뉴스', commute: '출퇴근 경로' };
 const navs = [
   ['home', 'house', '홈'],
@@ -92,12 +104,14 @@ function resetPrivate() {
   analysisKey = null;
   state.conditionLookup = null;
   resultLinkFocus = null;
+  originRun = null;
   state.conditionsOpen = false;
   state.tradeKind = 'sale';
   searchPage.reset();
   fundingPage.reset();
   referencePage.reset();
   commutePage.reset();
+  conversationPanel.reset();
   ++epoch;
   ++dirVersion;
   ++historyVersion;
@@ -404,7 +418,9 @@ function render() {
   const focus = document.activeElement;
   const previousControl = focusedControl(focus);
   const searchFocus =
-    ['notice-search','commute-destination'].includes(focus?.id) ? { id: focus.id, start: focus.selectionStart, end: focus.selectionEnd } : null;
+    ['notice-search', 'commute-destination', 'conversation-input'].includes(focus?.id)
+      ? { id: focus.id, start: focus.selectionStart, end: focus.selectionEnd }
+      : null;
   let body;
   if (state.suspended || state.sessionProblem)
     body = emptyState(
@@ -420,7 +436,9 @@ function render() {
   else if (route.key === 'analyses')
     body = `<section class="section-header"><h1>내 분석</h1><p>${state.session ? '계정에 저장된 분석을 최근 순으로 확인하세요.' : '합성 자료로 만든 분석에서 가격과 근거를 살펴보세요.'}</p></section>${historyList()}`;
   else if (route.key === 'run')
-    body = state.authPending ? emptyState('loader-circle', '세션을 확인하고 있습니다.') : runView(state);
+    body = state.authPending
+      ? emptyState('loader-circle', '세션을 확인하고 있습니다.')
+      : runView(state, route.section === 'comparison' ? conversationPanel.view() : '', originRun);
   else if (route.key === 'sample')
     body = state.session
       ? emptyState(
@@ -437,7 +455,12 @@ function render() {
             '<a class="action secondary" href="#notices">공고로 돌아가기</a>',
           )
         : state.sample
-          ? comparisonView(state.sample, null, state.tradeKind)
+          ? comparisonView(
+              state.sample,
+              null,
+              state.tradeKind,
+              route.section === 'comparison' ? conversationPanel.view() : '',
+            )
           : emptyState('loader-circle', '예시 결과를 불러오고 있습니다.');
   else body = directoryView(state);
   const comparison = route.key === 'run' ? state.comparison : route.key === 'sample' ? state.sample : null;
@@ -490,6 +513,16 @@ async function readRun(route, version = routeVersion) {
       if (!valid()) return;
       state.comparison = boundComparison(data, route, r.snapshotId);
       if (route.section === 'funding') void loadFunding(route, data.result, r.snapshotId);
+      else if (route.section === 'comparison') {
+        conversationPanel.enter({
+          guest: false,
+          ownerId: state.session.id,
+          analysisId: route.analysisId,
+          runId: route.runId,
+          comparison: state.comparison,
+          originRun,
+        });
+      }
     } else if (['queued', 'running', 'retry_wait'].includes(r.status)) {
       pollTimer = setTimeout(() => void readRun(route, version), 4000);
     }
@@ -548,6 +581,17 @@ async function readSample(route, version) {
   if (version === routeVersion) {
     if (state.sample && isReference(route)) loadReference(route, state.sample.target?.name);
     if (route.section === 'funding' && state.sample) void loadFunding(route, state.sample);
+    if (route.section === 'comparison' && state.sample) {
+      conversationPanel.enter({
+        guest: true,
+        ownerId: null,
+        analysisId: null,
+        runId: null,
+        sampleKey: route.saved ? 'saved' : route.noticeNo + '/' + route.modelNo,
+        comparison: state.sample,
+        originRun: null,
+      });
+    }
     render();
   }
 }
@@ -581,6 +625,7 @@ function routeChanged(focus = false) {
   fundingPage.reset();
   referencePage.reset();
   commutePage.reset();
+  conversationPanel.reset();
   clearTimeout(pollTimer);
   closeDialog();
   state.run = null;

@@ -1,6 +1,7 @@
 // 게스트용 합성 공고와 납부 기준. 판정과 금액 계산은 로그인 경로와 같은 함수를 사용한다.
 import { evaluateNoticeSearch, parseNoticeSearchConditions } from '../server/notice-search.js';
 import { calculateFundingPlan } from '../server/funding-plan.js';
+export { conversationExample } from '../server/analysis-conversation.js';
 
 export const regions = [
   { code: '99999', name: '합성시 가람구' },

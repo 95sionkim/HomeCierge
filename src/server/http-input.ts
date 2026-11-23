@@ -39,6 +39,9 @@ const errorStatuses = {
   run_not_found: 404,
   run_conflict: 409,
   comparison_not_available: 409,
+  invalid_conversation_input: 400,
+  conversation_period_unavailable: 409,
+  conversation_conflict: 409,
   payload_too_large: 413,
   unsupported_media_type: 415,
   run_rate_limited: 429,
@@ -52,7 +55,7 @@ export class ApiError extends Error {
   get status() { return errorStatuses[this.code]; }
 }
 
-type InputError = 'invalid_run_input' | 'invalid_search_input' | 'invalid_funding_input' | 'invalid_news_input' | 'invalid_commute_input';
+type InputError = 'invalid_run_input' | 'invalid_search_input' | 'invalid_funding_input' | 'invalid_news_input' | 'invalid_commute_input' | 'invalid_conversation_input';
 
 export async function readBody(request: Request, limit: number, invalid: InputError): Promise<Uint8Array | null> {
   if (Number(request.headers.get('content-length')) > limit) return null;

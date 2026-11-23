@@ -8,6 +8,8 @@ import { parseNoticeSearchConditions, evaluateNoticeSearch } from './notice-sear
 import { evaluateNoticeDirectory, noticeRegionOptions, parseNoticeDirectoryQuery } from './notice-directory.js';
 import { readAnalysisRunOperation } from './analysis-runs.js';
 import type { AnalysisRun, AnalysisRunOperation, ComparisonSnapshot } from './analysis-runs.js';
+import { readConversation } from './analysis-conversation.js';
+import type { ChatOperation } from './analysis-conversation.js';
 import { calculateFundingPlan } from './funding-plan.js';
 import { readFundingSelection } from './funding-request.js';
 import type { FundingSelection } from './funding-request.js';
@@ -29,11 +31,13 @@ export type Backend = {
   prepareCommute: (analysisId: string, snapshotId: string, signal: AbortSignal) => Promise<unknown>;
   prepareRegionalNews: (analysisId: string, snapshotId: string, signal: AbortSignal) => Promise<unknown>;
   getComparison: (analysisId: string, runId: string, signal: AbortSignal) => Promise<ComparisonSnapshot>;
+  analysisConversation: (operation: ChatOperation, signal: AbortSignal) => Promise<unknown>;
 };
 export type BackendConfig = { url: string; key: string; token: string };
 
 const uploadContentPath = new RegExp(`^/api/v1/analyses/(${uuidPattern})/uploads/(${uuidPattern})/content$`);
 const analysisRunPath = /^\/api\/v1\/analyses\/([^/]+)\/runs(?:\/([^/]+)(?:\/(cancel|result))?)?$/;
+const conversationPath = /^\/api\/v1\/analyses\/([^/]+)\/runs\/([^/]+)\/conversation(?:\/([^/]+)\/decision)?$/;
 const fundingPlanPath = /^\/api\/v1\/analyses\/([^/]+)\/funding-plan$/;
 const snapshotServicePath = /^\/api\/v1\/analyses\/([^/]+)\/snapshots\/([^/]+)\/(legal-evidence|regional-news|commute)$/;
 
@@ -70,6 +74,7 @@ export function createHandler(deps: {
     const path = url.pathname;
     const upload = path.match(uploadContentPath);
     const run = path.match(analysisRunPath);
+    const conversation = path.match(conversationPath);
     const funding = path.match(fundingPlanPath);
     const snapshotService = path.match(snapshotServicePath);
     const commute = snapshotService?.[3] === 'commute';
@@ -78,15 +83,16 @@ export function createHandler(deps: {
     const directory = path === '/api/v1/notices';
     const regions = path === '/api/v1/notices/regions';
     const enqueues = run !== null && !run[2];
-    const method = search || funding || news || commute || enqueues || run?.[3] === 'cancel' ? 'POST' : 'GET';
-    const allowedMethods = `${method}, OPTIONS`;
+    const methods = conversation && !conversation[3] ? ['GET', 'POST']
+      : search || funding || news || commute || enqueues || run?.[3] === 'cancel' || conversation?.[3] ? ['POST'] : ['GET'];
+    const allowedMethods = [...methods, 'OPTIONS'].join(', ');
     const headers = new Headers({
       'Cache-Control': 'no-store',
       'Vary': 'Origin',
       'X-Content-Type-Options': 'nosniff',
       'X-Request-Id': requestId,
     });
-    if (search || directory || regions || funding || snapshotService || upload || run?.[3] === 'result') {
+    if (search || directory || regions || funding || snapshotService || upload || run?.[3] === 'result' || conversation) {
       headers.set('Cache-Control', 'private, no-store');
       headers.set('Vary', 'Authorization, Origin');
       headers.set('Vercel-CDN-Cache-Control', 'no-store');
@@ -102,7 +108,7 @@ export function createHandler(deps: {
       if (enqueues) headers.set('Access-Control-Expose-Headers', 'Location');
     }
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
-    if (request.method !== method) {
+    if (!methods.includes(request.method)) {
       headers.set('Allow', allowedMethods);
       return respond({ error: 'method_not_allowed', requestId }, 405);
     }
@@ -116,7 +122,7 @@ export function createHandler(deps: {
         return respond({ error: 'configuration_unavailable', requestId }, 503);
       }
     }
-    if (!upload && !run && !search && !directory && !regions && !funding && !snapshotService && !['/api/v1/me','/api/ready'].includes(path)) return respond({ error: 'not_found', requestId }, 404);
+    if (!upload && !run && !conversation && !search && !directory && !regions && !funding && !snapshotService && !['/api/v1/me','/api/ready'].includes(path)) return respond({ error: 'not_found', requestId }, 404);
 
     const authorization = request.headers.get('authorization');
     const match = authorization?.match(/^Bearer ([^\s]+)$/i);
@@ -130,6 +136,9 @@ export function createHandler(deps: {
     try {
       const user = await backend.getUser();
       if (!user || user.isAnonymous) return respond({ error: 'authentication_required', requestId }, 401);
+      if (conversation) {
+        return respond(await readConversation(request, backend, conversation[1], conversation[2], conversation[3]), 200);
+      }
       if (snapshotService) {
         const [, analysis, snapshot] = snapshotService;
         if (!isUuid(analysis) || !isUuid(snapshot) || url.search) {

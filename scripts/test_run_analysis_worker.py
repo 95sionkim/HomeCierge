@@ -1,4 +1,5 @@
 """합성 DB 응답으로 작업 중단·불확실한 커밋·임대 교체 경계를 검증한다."""
+import copy
 import io
 import json
 from unittest import TestCase
@@ -7,6 +8,8 @@ from urllib.error import HTTPError
 from uuid import uuid4
 
 from ingestion_pages import loads_source_json
+from ingestion_trades import trade_period
+from notice_run_capture import NoticeTransports
 from replay_ingestion import replay
 from run_analysis_worker import FIXTURE, run_once
 from worker_rpc import WorkerRpc, WorkerRpcError, WorkerRpcResponseTooLarge
@@ -165,3 +168,161 @@ class AnalysisWorkerTests(TestCase):
                 else:
                     with self.assertRaises(WorkerRpcError):
                         client.post('publish_notice_search_index', {}, allow_no_content=accepts_void)
+
+    def test_snapshot_comparison_period_narrows_and_rewidens_without_new_capture_or_mutation(self):
+        self.job['input'] = {'kind': 'snapshot', 'snapshotId': self.snapshot_id}
+        capture = copy.deepcopy(self.capture)
+        narrow_work = {**self.work, 'ingestion': capture,
+                       'comparisonPeriod': {'start': '2026-10-24', 'end': '2026-10-26'}}
+        before_work = copy.deepcopy(narrow_work)
+        before_job = copy.deepcopy(self.job)
+        self.client.post.side_effect = [self.job, narrow_work, {'status': 'running'}, self.finished]
+        self.assertEqual(run_once(self.client), self.finished)
+        narrow_params = self.client.post.call_args.args[1]
+        self.assertEqual((narrow_params['p_input'], narrow_params['p_result']), (None, None))
+        narrowed = narrow_params['p_comparison']
+        self.assertEqual(narrowed['conditions']['period'], trade_period('2026-11-10', '2026-10-24', '2026-10-26'))
+        self.assertEqual([row['complexId'] for row in narrowed['comparables']], ['comparison-b'])
+        self.assertEqual(set(narrowed['comparables'][0]['tradeStats']), {'presale_right', 'occupancy_right'})
+        self.assertEqual(narrowed['tradeKinds']['sale']['conclusion'], 'normal_zero')
+        self.assertEqual(narrow_work, before_work)
+        self.assertEqual(self.job, before_job)
+
+        # 같은 원본 스냅샷에 다시 넓힌 기간을 적용하면 비교 A가 복원되고 입주권이 제외된다.
+        rewiden_work = {**self.work, 'ingestion': capture,
+                        'comparisonPeriod': {'start': '2026-10-20', 'end': '2026-10-24'}}
+        self.client.post.side_effect = [self.job, rewiden_work, {'status': 'running'}, self.finished]
+        self.assertEqual(run_once(self.client), self.finished)
+        rewiden_params = self.client.post.call_args.args[1]
+        self.assertEqual((rewiden_params['p_input'], rewiden_params['p_result']), (None, None))
+        rewidened = rewiden_params['p_comparison']
+        self.assertEqual(rewidened['conditions']['period'], trade_period('2026-11-10', '2026-10-20', '2026-10-24'))
+        self.assertEqual([row['complexId'] for row in rewidened['comparables']], ['comparison-a', 'comparison-b'])
+        self.assertEqual(list(rewidened['comparables'][1]['tradeStats']), ['presale_right'])
+        self.assertEqual(rewidened['tradeKinds']['occupancy_right']['conclusion'], 'normal_zero')
+        self.assertEqual(capture, self.capture)
+
+        # 근거 없는 저장 수집본(collected)도 로컬 고정 자료 없이 새 기간과 보류를 기록한다.
+        collected = {**self.capture, 'dataOrigin': 'collected'}
+        stored = {**self.work, 'ingestion': collected, 'useSyntheticFixture': False,
+                  'comparisonPeriod': {'start': '2026-10-24', 'end': '2026-10-26'}}
+        self.client.post.side_effect = [self.job, stored, {'status': 'running'}, self.finished]
+        with patch('run_analysis_worker.FIXTURE') as fixture:
+            self.assertEqual(run_once(self.client), self.finished)
+            fixture.read_bytes.assert_not_called()
+        params = self.client.post.call_args.args[1]
+        self.assertEqual((params['p_input'], params['p_result']), (None, None))
+        self.assertEqual(params['p_comparison']['conditions']['period'],
+                         trade_period('2026-11-10', '2026-10-24', '2026-10-26'))
+        self.assertIn('comparison_evidence_unverified', {h['reasonCode'] for h in params['p_comparison']['holds']})
+
+        # 정상 실행은 comparisonPeriod 필드를 생략한다. 생략된 경우에는 원본 기간 비교를 유지한다.
+        absent_period_work = {**self.work, 'ingestion': capture}
+        self.assertNotIn('comparisonPeriod', absent_period_work)
+        self.client.post.side_effect = [self.job, absent_period_work, {'status': 'running'}, self.finished]
+        self.assertEqual(run_once(self.client), self.finished)
+        baseline = self.client.post.call_args.args[1]['p_comparison']
+        self.assertEqual([row['complexId'] for row in baseline['comparables']], ['comparison-a', 'comparison-b'])
+
+    def test_user_conditions_cannot_override_comparison_period_and_binding_hold_keeps_period(self):
+        self.job['input'] = {'kind': 'snapshot', 'snapshotId': self.snapshot_id}
+        injected = {
+            **self.work,
+            'ingestion': self.capture,
+            'conditions': {
+                'comparisonPeriod': {'start': '2026-10-24', 'end': '2026-10-26'},
+                'comparison': {'comparisonPeriod': {'start': '2026-10-24', 'end': '2026-10-26'},
+                               'period': {'start': '2026-10-24', 'end': '2026-10-26'}},
+            },
+        }
+        self.client.post.side_effect = [self.job, injected, {'status': 'running'}, self.finished]
+        self.assertEqual(run_once(self.client), self.finished)
+        comparison = self.client.post.call_args.args[1]['p_comparison']
+        self.assertEqual(comparison['conditions']['period'], trade_period('2026-11-10', '2026-10-10', '2026-10-31'))
+        self.assertEqual([row['complexId'] for row in comparison['comparables']], ['comparison-a', 'comparison-b'])
+
+        held_work = {**self.work, 'ingestion': self.capture, 'useSyntheticFixture': False,
+                     'selectionBindingIssue': 'target_identity_unverified',
+                     'comparisonPeriod': {'start': '2026-10-24', 'end': '2026-10-26'}}
+        self.client.post.side_effect = [self.job, held_work, {'status': 'running'}, self.finished]
+        self.assertEqual(run_once(self.client), self.finished)
+        held = self.client.post.call_args.args[1]['p_comparison']
+        self.assertEqual(held['conditions']['period'], trade_period('2026-11-10', '2026-10-24', '2026-10-26'))
+        self.assertEqual(held['comparables'], [])
+        self.assertIn('target_identity_unverified', {hold['reasonCode'] for hold in held['holds']})
+
+    def test_comparison_period_fails_without_writing_on_wrong_kind_or_invalid_request(self):
+        valid_override = {'start': '2026-10-24', 'end': '2026-10-26'}
+        # synthetic 실행에 comparisonPeriod(명시적 null 포함)가 오면 고정 자료 읽기나 저장 없이 실패한다.
+        for candidate in (valid_override, None, {}):
+            with self.subTest(kind='synthetic', comparison_period=candidate):
+                self.client.reset_mock()
+                synthetic_work = {**self.work, 'comparisonPeriod': candidate}
+                self.client.post.side_effect = [self.job, synthetic_work, {'runId': self.run_id, 'status': 'failed'}]
+                with patch('run_analysis_worker.FIXTURE') as fixture:
+                    self.assertEqual(run_once(self.client), {'status': 'failed', 'runId': self.run_id})
+                    fixture.read_bytes.assert_not_called()
+                self.assertEqual([call.args[0] for call in self.client.post.call_args_list],
+                                 ['claim_analysis_run', 'read_comparison_work', 'fail_analysis_run'])
+                self.assertFalse(self.client.post.call_args.args[1]['p_retryable'])
+
+        # notice 실행에 comparisonPeriod(명시적 null·형식 오류 포함)가 오면 외부 조회나 저장 없이 실패한다.
+        notice_job = {
+            'runId': self.run_id, 'generation': 1, 'leaseToken': str(uuid4()),
+            'input': {'kind': 'notice', 'noticeSource': 'applyhome_apt', 'houseManageNo': '9900000001',
+                      'noticeNo': '9900000042', 'edition': '2026-10-05', 'modelNo': '01'},
+        }
+        base_notice_work = {
+            'conditions': {'ingestion_target': {'noticeSource': 'applyhome_apt', 'houseManageNo': '9900000001',
+                                                'noticeNo': '9900000042', 'edition': '2026-10-05'},
+                           'comparison': {'modelNo': '01'}},
+            'ingestion': None, 'evidence': None, 'useSyntheticFixture': False, 'selectionBindingIssue': None,
+            'noticeCapture': {'asOf': '2026-11-10', 'requestRegionCodes': ['99999'], 'allowOfficialPdf': False},
+        }
+        for candidate in (valid_override, None, {}, '2026-10-24..2026-10-26'):
+            with self.subTest(kind='notice', comparison_period=candidate):
+                api, pdf = Mock(), Mock()
+                self.client.reset_mock()
+                notice_work = {**base_notice_work, 'comparisonPeriod': candidate}
+                self.client.post.side_effect = [notice_job, notice_work, {'runId': self.run_id, 'status': 'failed'}]
+                self.assertEqual(run_once(self.client, notice=NoticeTransports(api=api, pdf=pdf)),
+                                 {'status': 'failed', 'runId': self.run_id})
+                api.assert_not_called()
+                pdf.assert_not_called()
+                self.assertEqual([call.args[0] for call in self.client.post.call_args_list],
+                                 ['claim_analysis_run', 'read_comparison_work', 'fail_notice_analysis_run'])
+                self.assertEqual(self.client.post.call_args.args[1]['p_error_code'], 'notice_selection_unverified')
+                self.assertFalse(self.client.post.call_args.args[1]['p_retryable'])
+
+        # snapshot 실행이라도 명시적 null·잘못된·모호한·원본 범위 밖의 comparisonPeriod는 쓰기 없이 실패한다.
+        self.job['input'] = {'kind': 'snapshot', 'snapshotId': self.snapshot_id}
+        bad_periods = [
+            None,
+            {},
+            {'start': '2026-10-24'},
+            {'start': None, 'end': '2026-10-26'},
+            {'start': '2026-10-24', 'end': '2026-10-26', 'extra': '1'},
+            '2026-10-24..2026-10-26',
+            False,
+            {'start': '2026-10-26', 'end': '2026-10-24'},
+            {'start': '2026-10-09', 'end': '2026-10-26'},
+            {'start': '2026-10-24', 'end': '2026-11-01'},
+        ]
+        for bad in bad_periods:
+            with self.subTest(kind='snapshot', bad=bad):
+                self.client.reset_mock()
+                bad_work = {**self.work, 'ingestion': self.capture, 'useSyntheticFixture': True,
+                            'selectionBindingIssue': 'target_identity_unverified', 'comparisonPeriod': bad}
+                self.client.post.side_effect = [self.job, bad_work, {'runId': self.run_id, 'status': 'failed'}]
+                with patch('run_analysis_worker.FIXTURE') as fixture:
+                    if not (isinstance(bad, dict) and set(bad) == {'start', 'end'}
+                            and isinstance(bad['start'], str) and isinstance(bad['end'], str)):
+                        self.assertEqual(run_once(self.client), {'status': 'failed', 'runId': self.run_id})
+                        fixture.read_bytes.assert_not_called()
+                    else:
+                        bad_work['useSyntheticFixture'] = False
+                        self.assertEqual(run_once(self.client), {'status': 'failed', 'runId': self.run_id})
+                        fixture.read_bytes.assert_not_called()
+                self.assertEqual([call.args[0] for call in self.client.post.call_args_list],
+                                 ['claim_analysis_run', 'read_comparison_work', 'fail_analysis_run'])
+                self.assertFalse(self.client.post.call_args.args[1]['p_retryable'])

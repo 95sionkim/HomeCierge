@@ -106,6 +106,8 @@ TypeScript 화면에서는 `createClient<Database>(url, publishableKey)`로 생�
 
 ## 3. 공유 프로필 변경을 승인한다
 
+비교표에서 계약 기간을 바꾸는 카드는 해당 분석에만 적용한다. 저장된 결과에 대한 질문, 기간 제안, 승인과 이전 실행으로 돌아가는 주소는 [비교 대화 HTTP 계약](api/comparison-v1.md#비교-결과에-질문하고-계약-기간을-변경한다)에 있다.
+
 변경안의 `proposed_changes`에는 `search_conditions`와 `commute_destination`만 허용한다. `search_conditions`는 부분 필드 병합이 아닌 해당 객체의 새 전체 값이다. 기존 조건을 유지하려면 화면에서 기존 값과 변경 값을 합쳐 사용자에게 확인받고 전달한다. 공유 프로필에 상세 자금 항목을 넣을 수 없다.
 
 | 탐색 조건의 키를 정한다 | 값의 형식을 정한다 |

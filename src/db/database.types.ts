@@ -735,6 +735,15 @@ export type Database = {
         }
         Returns: undefined
       }
+      decide_analysis_chat_turn: {
+        Args: {
+          p_analysis_id: string
+          p_decision: string
+          p_run_id: string
+          p_turn_id: string
+        }
+        Returns: Json
+      }
       decide_profile_change: {
         Args: { decision: string; request_id: string }
         Returns: {
@@ -855,6 +864,10 @@ export type Database = {
         Args: { p_index: Json }
         Returns: undefined
       }
+      read_analysis_conversation: {
+        Args: { p_analysis_id: string; p_run_id: string }
+        Returns: Json
+      }
       read_analysis_funding_inputs: {
         Args: {
           p_analysis_id: string
@@ -946,6 +959,18 @@ export type Database = {
       }
       start_notice_workspace: {
         Args: { p_input: Json; p_request_key: string }
+        Returns: Json
+      }
+      submit_analysis_chat_turn: {
+        Args: {
+          p_analysis_id: string
+          p_end?: string
+          p_intent: string
+          p_message: string
+          p_request_id: string
+          p_run_id: string
+          p_start?: string
+        }
         Returns: Json
       }
     }

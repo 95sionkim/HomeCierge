@@ -577,7 +577,8 @@ async function run(config, capture, requestApi, apiPort) {
       'document_worker_deleted_pdf');
     be04Started = true;
     const secondWorker = makeClient(config.origin, config.service);
-    const savedComparison = await runBe04Smoke({ requestApi, admin, secondWorker, accounts, capture, config, check, result });
+    const freshToken = async account => (await login(account, userClient())).access_token;
+    const savedComparison = await runBe04Smoke({ requestApi, admin, secondWorker, accounts, capture, config, check, result, freshToken });
     // 새 기기처럼 로그인한 뒤 분석 목록만으로 마지막 실행과 저장한 수집본을 다시 찾는다.
     const [peer, owner] = accounts;
     const reopened = userClient();
@@ -679,5 +680,6 @@ if (failures.length) {
   process.stdout.write('BE-03 smoke passed (Auth, /api/v1/me, RLS, capture, upload content API, Storage, cleanup)\n');
   process.stdout.write('BE-04 smoke passed (run API, RLS, scoped worker, claim and cancel races, recovery, cleanup)\n');
   process.stdout.write('BE-05 smoke passed (comparison, evidence holds, snapshot replay, two-user isolation, new session)\n');
+  process.stdout.write('Comparison conversation passed (one run after concurrent approvals, inclusive dates, previous result and history after sign-in)\n');
   process.stdout.write('BE-08 smoke passed (funding inputs, saved schedule, two-user isolation, recalculation)\n');
 }

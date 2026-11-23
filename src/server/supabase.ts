@@ -151,6 +151,29 @@ export function createBackend(config: BackendConfig): Backend {
       if (!snapshot) throw new Error('invalid_comparison_response');
       return snapshot;
     },
+    async analysisConversation(op, signal) {
+      const target = { p_analysis_id: op.analysisId, p_run_id: op.runId };
+      const rpc = op.action === 'read' ? client.rpc('read_analysis_conversation', target)
+        : op.action === 'decide' ? client.rpc('decide_analysis_chat_turn', {
+          ...target, p_turn_id: op.turnId, p_decision: op.decision,
+        }) : client.rpc('submit_analysis_chat_turn', {
+          ...target, p_request_id: op.requestId, p_message: op.message, p_intent: op.intent,
+          ...(op.period && { p_start: op.period.start, p_end: op.period.end }),
+        });
+      const { data, error } = await rpc.abortSignal(signal);
+      if (error?.code === '42501' && error.message === 'authentication_required') throw new ApiError('authentication_required');
+      if (error?.code === 'PT403') throw new ApiError('comparison_source_restricted');
+      if (error?.code === 'PT404') throw new ApiError('run_not_found');
+      if (error?.code === 'PT409') {
+        if (error.message === 'analysis_comparison_not_ready') throw new ApiError('comparison_not_available');
+        if (error.message === 'analysis_chat_period_unavailable') throw new ApiError('conversation_period_unavailable');
+        throw new ApiError('conversation_conflict');
+      }
+      if (error?.code === 'PT429') throw new ApiError('run_rate_limited');
+      if (error?.code === '22023') throw new ApiError('invalid_conversation_input');
+      if (error) throw new Error('database_unavailable');
+      return data;
+    },
     async getUploadContent({ userId, analysisId, uploadId, signal }) {
       const { data: upload, error: lookupError } = await client.from('analysis_uploads')
         .select('object_path').eq('user_id', userId).eq('analysis_id', analysisId)

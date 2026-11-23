@@ -35,8 +35,35 @@ def pinned_fixture(path, expected_sha256):
     return loads_source_json(source.decode('utf-8'))
 
 
+def _is_snapshot_selection(selection):
+    if (not isinstance(selection, dict) or set(selection) != {'kind', 'snapshotId'}
+            or selection['kind'] != 'snapshot' or not isinstance(selection['snapshotId'], str)):
+        return False
+    try:
+        UUID(selection['snapshotId'])
+    except ValueError:
+        return False
+    return True
+
+
+def _approved_comparison_period(selection, work):
+    # 정상 실행은 comparisonPeriod 필드를 생략한다. 필드가 존재하면 스냅샷의 유효한 {start, end}여야 한다.
+    if 'comparisonPeriod' not in work:
+        return None
+    if not _is_snapshot_selection(selection):
+        raise ValueError('비교 기간 재계산은 저장된 수집본 실행에서만 사용할 수 있습니다.')
+    period = work['comparisonPeriod']
+    if (not isinstance(period, dict) or set(period) != {'start', 'end'}
+            or not isinstance(period['start'], str) or not isinstance(period['end'], str)):
+        raise ValueError('승인된 비교 기간에는 start와 end만 지정해야 합니다.')
+    return period
+
+
 def prepare_comparison(selection, work):
     # 사용자에게 허용한 선택과 서비스가 검수한 지역·단지·면적 근거는 별개의 입력이다.
+    if not isinstance(work, dict):
+        raise ValueError('비교 입력을 확인할 수 없습니다.')
+    comparison_period = _approved_comparison_period(selection, work)
     conditions = work['conditions']
     evidence = work['evidence']
     ingestion = work['ingestion']
@@ -57,13 +84,14 @@ def prepare_comparison(selection, work):
             ingestion = new_capture
         elif ingestion != expected_capture:
             raise ValueError('고정한 합성 수집본과 일치하지 않습니다.')
-    if new_capture is None:
-        if not isinstance(selection, dict) or set(selection) != {'kind', 'snapshotId'} or selection['kind'] != 'snapshot':
-            raise ValueError('저장된 수집본 식별자가 필요합니다.')
-        UUID(selection['snapshotId'])
+    if new_capture is None and not _is_snapshot_selection(selection):
+        raise ValueError('저장된 수집본 식별자가 필요합니다.')
     if not isinstance(ingestion, dict) or ingestion.get('contractVersion') != 'ingestion/v0':
         raise ValueError('수집본 버전을 확인할 수 없습니다.')
-    comparison = compare_snapshot(ingestion, conditions.get('comparison', {}), evidence, binding_issue=binding_issue)
+    comparison = compare_snapshot(
+        ingestion, conditions.get('comparison', {}), evidence,
+        binding_issue=binding_issue, comparison_period=comparison_period,
+    )
     return inputs, new_capture, comparison
 
 
@@ -103,6 +131,8 @@ def execute_notice_lease(client, lease, selection, lease_seconds, transports):
             work = client.post('read_comparison_work', lease, limit=MAX_COMPARISON_INPUT_BYTES)
         except WorkerRpcResponseTooLarge:
             raise NoticeRunFailure('notice_capture_limit', False) from None
+        if not isinstance(work, dict) or 'comparisonPeriod' in work:
+            raise NoticeRunFailure('notice_selection_unverified', False)
         inputs, capture, comparison, schedules = prepare_notice_comparison(
             selection, work, generation=lease['p_generation'], transports=transports,
             renew=renew, lease_seconds=lease_seconds,

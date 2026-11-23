@@ -119,6 +119,50 @@ async function workerOnce(config, runId, check, step) {
   return output;
 }
 
+async function checkComparisonConversation({ requestApi, config, owner, other, saved, check, freshToken }) {
+  const base = '/api/v1/analyses/' + owner.analysisId + '/runs/' + saved.runId + '/conversation';
+  async function chat(token, path, body, status) {
+    const reply = await requestApi(base + path, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return readRunResponse(reply, check, 'comparison_chat', status);
+  }
+  const ask = { requestId: randomUUID(), message: '왜 이 거래만 포함됐어?' };
+  const question = await chat(owner.accessToken, '', ask, 200);
+  check(question.turns.length === 1 && question.turns[0].answer.includes('매매 1건'), 'chat_grounded_counts');
+  await chat(other.accessToken, '', undefined, 404);
+  const change = { requestId: randomUUID(), message: '2026-10-24부터 2026-10-26까지로 바꿔줘' };
+  const proposed = await chat(owner.accessToken, '', change, 200);
+  const pending = proposed.turns.at(-1);
+  check(pending?.proposal?.status === 'pending' && pending.proposal.resultRunId === null, 'chat_not_applied_yet');
+  check(isDeepStrictEqual(proposed, await chat(owner.accessToken, '', change, 200)), 'chat_submit_idempotent');
+  const decision = '/' + pending.id + '/decision';
+  await chat(other.accessToken, decision, { decision: 'approve' }, 404);
+  const [approved, retried] = await concurrent(
+    chat(owner.accessToken, decision, { decision: 'approve' }, 200),
+    chat(owner.accessToken, decision, { decision: 'approve' }, 200),
+  );
+  const rerunId = approved.turns.at(-1)?.proposal?.resultRunId;
+  check(UUID.test(rerunId) && rerunId !== saved.runId && isDeepStrictEqual(approved, retried), 'chat_one_approved_run');
+  const outcome = await workerOnce(config, rerunId, check, 'chat_recalculate');
+  check(outcome?.status === 'finished' && outcome.snapshotId === saved.snapshotId, 'chat_same_capture');
+  const relogged = { ...owner, accessToken: await freshToken(owner) };
+  const history = await readRunResponse(await requestApi('/api/v1/analyses/' + owner.analysisId + '/runs/' + rerunId + '/conversation',
+    { headers: { Authorization: 'Bearer ' + relogged.accessToken } }), check, 'chat_parent_navigation', 200);
+  check(history.previousRunId === saved.runId, 'chat_reopened_previous_link');
+  const updated = await readRunResponse(await readComparison(requestApi, relogged, rerunId), check, 'chat_changed_result', 200);
+  const p = updated.result.conditions.period;
+  check(p.source === 'user_confirmed' && p.start === '2026-10-24' && p.end === '2026-10-26'
+    && isDeepStrictEqual(updated.result.comparables.map(c => c.complexId), ['comparison-b'])
+    && updated.result.comparables[0].tradeStats.presale_right.count === 1
+    && updated.result.comparables[0].tradeStats.occupancy_right.count === 1, 'chat_inclusive_subset');
+  check(isDeepStrictEqual(saved, await readRunResponse(await readComparison(requestApi, relogged, saved.runId),
+    check, 'chat_original_result', 200)), 'chat_original_unchanged');
+  check(isDeepStrictEqual(approved, await chat(relogged.accessToken, '', undefined, 200)), 'chat_reopen_history');
+}
+
 async function checkCaptureIds(account, ids, check, result, step) {
   const rows = result(await account.client.from(SNAPSHOTS).select('id').eq('analysis_id', account.analysisId), `${step}_read`);
   check(rows.length === ids.length && isDeepStrictEqual(new Set(rows.map(row => row.id)), new Set(ids)), step);
@@ -295,7 +339,7 @@ async function checkConcurrentTerminal({ api, requestApi, admin, secondWorker, a
   await checkRunCapture(account, final, capture, check, result, 'be04_race_capture');
 }
 
-export async function runBe04Smoke({ requestApi, admin, secondWorker, accounts, capture, config, check, result }) {
+export async function runBe04Smoke({ requestApi, admin, secondWorker, accounts, capture, config, check, result, freshToken }) {
   const [owner, other] = accounts;
   const api = async (step, status, request) => readRunResponse(await requestRun(requestApi, request), check, step, status);
   const extra = result(await owner.client.from('analyses').insert({ user_id: owner.id, chat_id: owner.chatId })
@@ -346,6 +390,7 @@ export async function runBe04Smoke({ requestApi, admin, secondWorker, accounts, 
   const restored = await readRunResponse(await readComparison(requestApi, owner, pinned.runId), check, 'be05_reuse_read', 200);
   check(restored.snapshotId === saved.snapshotId && restored.runId === pinned.runId
     && isDeepStrictEqual(saved.result, restored.result), 'be05_same_inputs_same_comparison');
+  await checkComparisonConversation({ requestApi, config, owner, other, saved: restored, check, freshToken });
   const currentReplay = await api('be04_finished_replay', 202, request);
   check(isDeepStrictEqual(currentReplay, finished), 'be04_replay_current_state');
   const idle = await workerOnce(config, runId, check, 'be04_repeat');

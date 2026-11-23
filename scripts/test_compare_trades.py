@@ -8,6 +8,7 @@ from decimal import Context, Decimal, localcontext
 from pathlib import Path
 
 from compare_trades import compare_snapshot
+from ingestion_trades import trade_period
 from replay_ingestion import replay
 
 
@@ -621,6 +622,361 @@ class ComparisonTests(unittest.TestCase):
                          [('failed', '04'), ('conflict', None), ('empty', None)])
         self.assertTrue(all(item['evidence']['source'] == 'kapt' for item in info))
         self.assertEqual(result['completeness'], 'complete')
+
+    def test_comparison_period_narrows_and_rewidens_against_immutable_capture_without_mutation(self):
+        ingestion = replay(self.bundle)
+        baseline = compare_snapshot(ingestion, {}, self.evidence)
+        before_ingestion = copy.deepcopy(ingestion)
+        before_evidence = copy.deepcopy(self.evidence)
+        selection = {'modelNo': '01'}
+        before_selection = copy.deepcopy(selection)
+        narrow_request = {'start': '2026-10-24', 'end': '2026-10-26'}
+        before_narrow = copy.deepcopy(narrow_request)
+
+        narrowed = compare_snapshot(ingestion, selection, self.evidence, comparison_period=narrow_request)
+        self.assertEqual(narrowed['conditions']['period'], trade_period('2026-11-10', '2026-10-24', '2026-10-26'))
+        self.assertEqual(narrowed['conditions']['period']['source'], 'user_confirmed')
+        self.assertEqual((narrowed['completeness'], narrowed['appliedScope'], narrowed['rankingComplete']),
+                         ('complete', 'priority', True))
+        self.assertEqual(narrowed['holds'], [])
+        self.assertEqual([row['complexId'] for row in narrowed['comparables']], ['comparison-b'])
+        self.assertEqual(narrowed['comparables'][0]['rank'], 1)
+        self.assertEqual(narrowed['regionDecision']['priority']['confirmedCandidateCount'], 1)
+        rights = narrowed['comparables'][0]['tradeStats']
+        self.assertEqual({kind: (stats['count'], stats['medianWon'], stats['observations'][0]['contractDate'])
+                          for kind, stats in rights.items()},
+                         {'presale_right': (1, '405000000', '2026-10-24'),
+                          'occupancy_right': (1, '486000000', '2026-10-26')})
+        self.assertEqual(narrowed['tradeKinds']['sale']['conclusion'], 'normal_zero')
+        self.assertEqual(narrowed['tradeKinds']['sale']['confirmedCandidateCount'], 0)
+        self.assertEqual(narrowed['tradeKinds']['presale_right']['displayedCandidateCount'], 1)
+        self.assertEqual(narrowed['tradeKinds']['occupancy_right']['displayedCandidateCount'], 1)
+        self.assertEqual([item['reasonCode'] for item in narrowed['exclusions']], ['outside_contract_period'] * 3)
+
+        rewidened = compare_snapshot(ingestion, selection, self.evidence,
+                                     comparison_period={'start': '2026-10-20', 'end': '2026-10-24'})
+        self.assertEqual(rewidened['conditions']['period'], trade_period('2026-11-10', '2026-10-20', '2026-10-24'))
+        self.assertEqual((rewidened['completeness'], rewidened['appliedScope'], rewidened['rankingComplete']),
+                         ('complete', 'priority', True))
+        self.assertEqual([row['complexId'] for row in rewidened['comparables']], ['comparison-a', 'comparison-b'])
+        self.assertEqual(rewidened['comparables'][0]['tradeStats']['sale']['observations'][0]['contractDate'], '2026-10-20')
+        self.assertEqual(list(rewidened['comparables'][1]['tradeStats']), ['presale_right'])
+        self.assertEqual(rewidened['tradeKinds']['occupancy_right']['conclusion'], 'normal_zero')
+        self.assertEqual({item['reasonCode'] for item in rewidened['exclusions']},
+                         {'cancelled_trade', 'outside_contract_period'})
+        self.assertEqual(sum(item['reasonCode'] == 'outside_contract_period' for item in rewidened['exclusions']), 2)
+
+        single_day = compare_snapshot(ingestion, selection, self.evidence,
+                                      comparison_period={'start': '2026-10-24', 'end': '2026-10-24'})
+        self.assertEqual([row['complexId'] for row in single_day['comparables']], ['comparison-b'])
+        self.assertEqual(list(single_day['comparables'][0]['tradeStats']), ['presale_right'])
+
+        self.assertEqual(ingestion, before_ingestion)
+        self.assertEqual(self.evidence, before_evidence)
+        self.assertEqual(selection, before_selection)
+        self.assertEqual(narrow_request, before_narrow)
+        self.assertEqual(compare_snapshot(ingestion, {}, self.evidence), baseline)
+
+    def test_selection_conditions_cannot_override_comparison_period(self):
+        ingestion = replay(self.bundle)
+        baseline = compare_snapshot(ingestion, {}, self.evidence)
+        injected = {
+            'comparisonPeriod': {'start': '2026-10-24', 'end': '2026-10-26'},
+            'comparison_period': {'start': '2026-10-24', 'end': '2026-10-26'},
+            'period': {'start': '2026-10-24', 'end': '2026-10-26'},
+            'start': '2026-10-24',
+            'end': '2026-10-26',
+            'periodChangeConfirmed': True,
+        }
+        self.assertEqual(compare_snapshot(ingestion, injected, self.evidence), baseline)
+        approved = compare_snapshot(ingestion, injected, self.evidence,
+                                    comparison_period={'start': '2026-10-24', 'end': '2026-10-26'})
+        self.assertEqual(approved['conditions']['period'], trade_period('2026-11-10', '2026-10-24', '2026-10-26'))
+        self.assertEqual([row['complexId'] for row in approved['comparables']], ['comparison-b'])
+
+    def test_comparison_period_rejects_malformed_invalid_and_out_of_coverage_requests(self):
+        ingestion = replay(self.bundle)
+        invalid_requests = [
+            '2026-10-24..2026-10-26',
+            ['2026-10-24', '2026-10-26'],
+            False,
+            123,
+            {},
+            {'start': '2026-10-24'},
+            {'end': '2026-10-26'},
+            {'start': '2026-10-24', 'end': '2026-10-26', 'asOf': '2026-11-10'},
+            {'start': '2026-10-24', 'end': '2026-10-26', 'source': 'default_recent_year'},
+            {'start': '2026-10-24', 'end': '2026-10-26', 'extra': None},
+            {'start': None, 'end': '2026-10-26'},
+            {'start': '2026-10-24', 'end': None},
+            {'start': ' 2026-10-24', 'end': '2026-10-26'},
+            {'start': '2026-10-24', 'end': '2026-10-26\n'},
+            {'start': 20261024, 'end': 20261026},
+            {'start': '2026-02-29', 'end': '2026-10-26'},
+            {'start': '2026-10-26', 'end': '2026-10-24'},
+            {'start': '2026-10-09', 'end': '2026-10-26'},
+            {'start': '2026-10-24', 'end': '2026-11-01'},
+            {'start': '2026-10-24', 'end': '2026-11-11'},
+        ]
+        for bad in invalid_requests:
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValueError):
+                    compare_snapshot(ingestion, {}, self.evidence, comparison_period=bad)
+                with self.assertRaises(ValueError):
+                    compare_snapshot(ingestion, {}, self.evidence,
+                                     binding_issue='target_identity_unverified', comparison_period=bad)
+
+        leap = copy.deepcopy(ingestion)
+        leap['asOf'] = '2024-03-01'
+        leap['period'] = trade_period('2024-03-01')
+        with self.assertRaises(ValueError):
+            compare_snapshot(leap, {}, self.evidence, comparison_period={'start': '2024-02-01', 'end': '2024-02-28'})
+
+    def test_comparison_period_sets_canonical_user_confirmed_period_even_when_other_gates_hold(self):
+        ingestion = replay(self.bundle)
+        override = {'start': '2026-10-24', 'end': '2026-10-26'}
+        expected_period = trade_period('2026-11-10', '2026-10-24', '2026-10-26')
+
+        wrong_target = copy.deepcopy(ingestion)
+        wrong_target['target'] = {**wrong_target['target'], 'edition': 'different-edition'}
+        wrong_catalog = copy.deepcopy(ingestion)
+        wrong_catalog['catalog']['contract'] = 'unsupported/v0'
+        wrong_kinds = copy.deepcopy(ingestion)
+        wrong_kinds['tradeKinds'] = []
+        wrong_regions = copy.deepcopy(ingestion)
+        wrong_regions['requestRegionCodes'] = ['bad']
+        wrong_edition_doc = copy.deepcopy(ingestion)
+        wrong_edition_doc['catalog']['documents'][0]['edition'] = 'other-edition'
+        unverified_target_evidence = copy.deepcopy(self.evidence)
+        unverified_target_evidence['target']['status'] = 'unverified'
+        unverified_priority_evidence = copy.deepcopy(self.evidence)
+        unverified_priority_evidence['scopes']['priority']['status'] = 'unverified'
+
+        cases = [
+            ('binding', ingestion, {}, self.evidence, 'target_identity_unverified', 'target_identity_unverified'),
+            ('notice', wrong_target, {}, self.evidence, None, 'notice_identity_unverified'),
+            ('catalog', wrong_catalog, {}, self.evidence, None, 'catalog_version_unsupported'),
+            ('selection', ingestion, 'not-a-dict', self.evidence, None, 'selection_invalid'),
+            ('kinds', wrong_kinds, {}, self.evidence, None, 'trade_kinds_unverified'),
+            ('regions', wrong_regions, {}, self.evidence, None, 'collection_request_regions_unverified'),
+            ('model', ingestion, {'modelNo': '99'}, self.evidence, None, 'housing_type_unverified'),
+            ('area', wrong_edition_doc, {}, self.evidence, None, 'target_supply_area_unverified'),
+            ('evidence', ingestion, {}, None, None, 'comparison_evidence_unverified'),
+            ('target_complex', ingestion, {}, unverified_target_evidence, None, 'target_complex_identity_unverified'),
+            ('priority_region', ingestion, {}, unverified_priority_evidence, None, 'priority_region_unverified'),
+        ]
+        for label, cap, sel, ev, binding, expected_reason in cases:
+            with self.subTest(case=label):
+                result = compare_snapshot(cap, sel, ev, binding_issue=binding, comparison_period=override)
+                self.assertEqual(result['conditions']['period'], expected_period)
+                self.assertEqual(result['conditions']['period']['source'], 'user_confirmed')
+                self.assertIn(expected_reason, {hold['reasonCode'] for hold in result['holds']})
+
+        self.sales_only()
+        del self.bundle['request']['start'], self.bundle['request']['end']
+        self.rows(SALE, [], month='202511')
+        self.rows(SALE, [], month='202512')
+        for month in range(1, 12):
+            self.rows(SALE, [], month=f'2026{month:02}')
+        default_capture = replay(self.bundle)
+        self.assertEqual(default_capture['period']['source'], 'default_recent_year')
+        oct_only = compare_snapshot(default_capture, {}, None,
+                                    comparison_period={'start': '2026-10-01', 'end': '2026-10-31'})
+        self.assertEqual(oct_only['conditions']['period'], trade_period('2026-11-10', '2026-10-01', '2026-10-31'))
+        self.assertIsNone(oct_only['conditions']['period']['inProgressMonth'])
+        self.assertEqual([c['month'] for c in oct_only['collections']], ['2026-10'])
+        with_in_progress = compare_snapshot(default_capture, {}, None,
+                                            comparison_period={'start': '2026-10-01', 'end': '2026-11-05'})
+        self.assertEqual(with_in_progress['conditions']['period'],
+                         trade_period('2026-11-10', '2026-10-01', '2026-11-05'))
+        self.assertEqual(with_in_progress['conditions']['period']['inProgressMonth'], '202611')
+
+    def test_comparison_period_distinguishes_normal_zero_holds_missing_pages_and_dedupes(self):
+        # 완전한 수집에서 기간 내 거래가 0건이면 정상 0개로 확대하고 collections를 중복 없이 유지한다.
+        complete_capture = replay(self.bundle)
+        empty_range = compare_snapshot(complete_capture, {}, self.evidence,
+                                       comparison_period={'start': '2026-10-27', 'end': '2026-10-31'})
+        self.assertEqual((empty_range['completeness'], empty_range['appliedScope'], empty_range['comparables']),
+                         ('complete', 'expansion', []))
+        self.assertEqual(empty_range['regionDecision']['priority']['conclusion'], 'normal_zero')
+        self.assertEqual(empty_range['regionDecision']['expansion']['conclusion'], 'normal_zero')
+        self.assertEqual(len(empty_range['collections']), 2)
+        self.assertEqual(len({c['recordId'] for c in empty_range['collections']}), 2)
+
+        # 관련 월의 누락 페이지는 기간을 좁혀도 정상 0개로 바꾸지 않고 보류·확대 차단을 유지한다.
+        missing_page_bundle = copy.deepcopy(self.bundle)
+        missing_page_bundle['pages'] = [
+            page for page in missing_page_bundle['pages']
+            if not (page['source'] == SALE and page['page'] == 2)
+        ]
+        missing_page_capture = replay(missing_page_bundle)
+        narrowed_missing = compare_snapshot(missing_page_capture, {}, self.evidence,
+                                            comparison_period={'start': '2026-10-24', 'end': '2026-10-26'})
+        self.assertEqual((narrowed_missing['completeness'], narrowed_missing['rankingComplete']), ('partial', False))
+        self.assertEqual(narrowed_missing['tradeKinds']['sale']['conclusion'], 'held')
+        self.assertEqual(narrowed_missing['comparables'][0]['tradeStats']['presale_right']['status'], 'provisional')
+        self.assertIsNone(narrowed_missing['comparables'][0]['rank'])
+        zero_with_missing = compare_snapshot(missing_page_capture, {}, self.evidence,
+                                             comparison_period={'start': '2026-10-27', 'end': '2026-10-31'})
+        self.assertEqual((zero_with_missing['completeness'], zero_with_missing['appliedScope']), ('partial', 'priority'))
+        self.assertEqual(zero_with_missing['regionDecision']['priority']['conclusion'], 'held')
+        self.assertIsNone(zero_with_missing['regionDecision']['expansion'])
+
+        # 계약일 결측 행은 기간 축소로 제외되지 않고 보류를 유지한다.
+        self.sales_only()
+        self.bundle['request']['start'] = '2026-09-01'
+        self.bundle['request']['end'] = '2026-10-31'
+        self.complex('multi')
+        self.rows(SALE, [self.sale_row('multi', dealYear='2026', dealMonth='09', dealDay='15', excluUseAr='81')], month='202609')
+        self.rows(SALE, [self.sale_row('multi', dealYear='2026', dealMonth='10', dealDay='20', excluUseAr='81'),
+                         self.sale_row('multi', dealYear='2026', dealMonth='10', dealDay='25', excluUseAr='84')], month='202610')
+        multi_bundle = copy.deepcopy(self.bundle)
+        # 2026-09에 누락 페이지(totalCount=3, page 1만 존재)를 만들고 2026-10은 완전 수집으로 둔다.
+        for page in multi_bundle['pages']:
+            if page['source'] == SALE and page['scope']['DEAL_YMD'] == '202609':
+                page['body']['response']['body']['totalCount'] = 3
+        multi_capture = replay(multi_bundle)
+        self.link_sales(multi_capture, {('합성 multi', '81'): ('multi', '112.0'),
+                                        ('합성 multi', '84'): ('multi', '110.0')})
+        full_multi = compare_snapshot(multi_capture, {}, self.evidence)
+        self.assertEqual(full_multi['completeness'], 'partial')
+        oct_only = compare_snapshot(multi_capture, {}, self.evidence,
+                                    comparison_period={'start': '2026-10-24', 'end': '2026-10-26'})
+        self.assertEqual(oct_only['completeness'], 'complete')
+        self.assertEqual([c['month'] for c in oct_only['collections']], ['2026-10'])
+        self.assertEqual(oct_only['comparables'][0]['supplyAreaM2'], '110.0')
+        oct_rewidened = compare_snapshot(multi_capture, {}, self.evidence,
+                                         comparison_period={'start': '2026-10-20', 'end': '2026-10-26'})
+        self.assertEqual(oct_rewidened['completeness'], 'complete')
+        self.assertEqual(oct_rewidened['comparables'][0]['supplyAreaM2'], '112.0')
+        sept_rewidened = compare_snapshot(multi_capture, {}, self.evidence,
+                                          comparison_period={'start': '2026-09-15', 'end': '2026-10-26'})
+        self.assertEqual(sept_rewidened['completeness'], 'partial')
+
+        # 계약일이 비어 있는 보류 행은 같은 월에서 기간을 좁혀도 정상 0개가 되지 않는다.
+        self.bundle['request']['start'] = '2026-10-10'
+        self.bundle['request']['end'] = '2026-10-31'
+        self.evidence['tradeLinks'] = []
+        self.bundle['pages'] = [p for p in self.bundle['pages'] if p['scope'].get('DEAL_YMD') != '202609']
+        self.rows(SALE, [self.sale_row('multi', dealDay='')], month='202610')
+        undated_capture = replay(self.bundle)
+        self.link_sales(undated_capture, {('합성 multi', '84.00'): ('multi', '112.4')})
+        held_undated = compare_snapshot(undated_capture, {}, self.evidence,
+                                        comparison_period={'start': '2026-10-24', 'end': '2026-10-26'})
+        self.assertEqual(held_undated['regionDecision']['priority']['conclusion'], 'held')
+        self.assertEqual(held_undated['tradeKinds']['sale']['conclusion'], 'held')
+        self.assertIsNone(held_undated['regionDecision']['expansion'])
+
+    def test_full_year_capture_narrowed_to_one_or_two_months_and_rewidened_uses_original_evidence(self):
+        # 기본 1년(13개 계약월) 수집본에 미수집·실패·부분수집·보류·타동 거래가 섞여 있어도
+        # 1~2개월 축소 시 요청 월 밖 기록은 outside_applied_region이나 보류로 집계하지 않는다.
+        self.sales_only()
+        del self.bundle['request']['start'], self.bundle['request']['end']
+        self.region()  # OTHER_DONG (별빛동)
+        for identifier, locality, lat in [
+            ('feb-part', PRIORITY, '37.501'),
+            ('mar-held', PRIORITY, '37.502'),
+            ('may-garam', PRIORITY, '37.503'),
+            ('may-other', OTHER_DONG, '37.504'),
+            ('sept-out', PRIORITY, '37.505'),
+            ('sept-in', PRIORITY, '37.506'),
+            ('oct-in', PRIORITY, '37.507'),
+            ('oct-out', PRIORITY, '37.508'),
+        ]:
+            self.complex(identifier, locality, lat)
+        for month in ('202511', '202512', '202601', '202602', '202603', '202604', '202605',
+                      '202606', '202607', '202608', '202609', '202610', '202611'):
+            self.rows(SALE, [], month=month)
+        self.rows(SALE, [self.sale_row('feb-part', dealYear='2026', dealMonth='02', dealDay='10')], month='202602')
+        self.rows(SALE, [self.sale_row('mar-held', dealYear='2026', dealMonth='03', dealDay='12')], month='202603')
+        self.rows(SALE, [
+            self.sale_row('may-garam', dealYear='2026', dealMonth='05', dealDay='15'),
+            self.sale_row('may-other', dealYear='2026', dealMonth='05', dealDay='16', umdCd='00200', umdNm='별빛동'),
+        ], month='202605')
+        self.rows(SALE, [
+            self.sale_row('sept-out', dealYear='2026', dealMonth='09', dealDay='10'),
+            self.sale_row('sept-in', dealYear='2026', dealMonth='09', dealDay='15'),
+        ], month='202609')
+        self.rows(SALE, [
+            self.sale_row('oct-in', dealYear='2026', dealMonth='10', dealDay='20'),
+            self.sale_row('oct-out', dealYear='2026', dealMonth='10', dealDay='25'),
+        ], month='202610')
+        # 2026-01·2026-11 실패, 2026-02 누락 페이지(totalCount=3) 구성
+        for page in self.bundle['pages']:
+            if page['source'] == SALE and page['scope']['DEAL_YMD'] in ('202601', '202611'):
+                page['body']['response']['header']['resultCode'] = '04'
+            elif page['source'] == SALE and page['scope']['DEAL_YMD'] == '202602':
+                page['body']['response']['body']['totalCount'] = 3
+        full_capture = replay(self.bundle)
+        # 2025-12 배치는 수집본에서 아예 빠진 미수집 월로 둔다.
+        full_capture['tradeBatches'] = [
+            batch for batch in full_capture['tradeBatches'] if batch['record']['month'] != '2025-12'
+        ]
+        self.link_sales(full_capture, {
+            ('합성 feb-part', '84.00'): ('feb-part', '112.40'),
+            ('합성 mar-held', '84.00'): ('mar-held', None),  # 공급면적 미확인 보류
+            ('합성 may-garam', '84.00'): ('may-garam', '112.40'),
+            ('합성 may-other', '84.00'): ('may-other', '112.40'),
+            ('합성 sept-out', '84.00'): ('sept-out', '112.50'),
+            ('합성 sept-in', '84.00'): ('sept-in', '112.40'),
+            ('합성 oct-in', '84.00'): ('oct-in', '112.45'),
+            ('합성 oct-out', '84.00'): ('oct-out', '112.60'),
+        })
+        before_capture = copy.deepcopy(full_capture)
+        before_evidence = copy.deepcopy(self.evidence)
+
+        baseline = compare_snapshot(full_capture, {}, self.evidence)
+        self.assertEqual((baseline['completeness'], baseline['rankingComplete']), ('partial', False))
+        self.assertIn('outside_applied_region', {item['reasonCode'] for item in baseline['exclusions']})
+
+        # 2개월(2026-09-15..2026-10-20) 축소: 2025-12·2026-01·02·03·11 미해소와 2026-05 타동이 집계되지 않는다.
+        two_months = compare_snapshot(full_capture, {}, self.evidence,
+                                      comparison_period={'start': '2026-09-15', 'end': '2026-10-20'})
+        self.assertEqual(two_months['conditions']['period'], trade_period('2026-11-10', '2026-09-15', '2026-10-20'))
+        self.assertIsNone(two_months['conditions']['period']['inProgressMonth'])
+        self.assertEqual((two_months['completeness'], two_months['rankingComplete'], two_months['holds']),
+                         ('complete', True, []))
+        self.assertEqual([c['month'] for c in two_months['collections']], ['2026-09', '2026-10'])
+        self.assertEqual([row['complexId'] for row in two_months['comparables']], ['sept-in', 'oct-in'])
+        self.assertEqual([row['rank'] for row in two_months['comparables']], [1, 2])
+        self.assertEqual([(item['reasonCode'], item['reference']['recordId']) for item in two_months['exclusions']], [
+            ('outside_contract_period', 'col-apt_trade-99999-202609'),
+            ('outside_contract_period', 'col-apt_trade-99999-202610'),
+        ])
+        self.assertNotIn('outside_applied_region', {item['reasonCode'] for item in two_months['exclusions']})
+
+        # 1개월(2026-10-01..2026-10-20) 축소: 2026-10만 유지하고 10-25만 outside_contract_period로 제외한다.
+        one_month = compare_snapshot(full_capture, {}, self.evidence,
+                                     comparison_period={'start': '2026-10-01', 'end': '2026-10-20'})
+        self.assertEqual((one_month['completeness'], one_month['holds']), ('complete', []))
+        self.assertEqual([c['month'] for c in one_month['collections']], ['2026-10'])
+        self.assertEqual([row['complexId'] for row in one_month['comparables']], ['oct-in'])
+        self.assertEqual([(item['reasonCode'], item['reference']['recordId']) for item in one_month['exclusions']], [
+            ('outside_contract_period', 'col-apt_trade-99999-202610'),
+        ])
+
+        # 원본 수집본·원본 근거로 2026-05-01..2026-10-31 재확대 시 5월·9월·10월 후보가 모두 복원된다.
+        rewidened_clean = compare_snapshot(full_capture, {}, self.evidence,
+                                           comparison_period={'start': '2026-05-01', 'end': '2026-10-31'})
+        self.assertEqual((rewidened_clean['completeness'], rewidened_clean['holds']), ('complete', []))
+        self.assertEqual({row['complexId'] for row in rewidened_clean['comparables']},
+                         {'may-garam', 'sept-in', 'oct-in', 'sept-out', 'oct-out'})
+        self.assertEqual([(item['reasonCode'], item['reference']['recordId']) for item in rewidened_clean['exclusions']], [
+            ('outside_applied_region', 'col-apt_trade-99999-202605'),
+        ])
+
+        # 원본 전체(2025-11-11..2026-11-10)로 다시 넓히면 원래 미해소 월·보류 행과 2월 근거가 다시 반영된다.
+        rewidened_full = compare_snapshot(full_capture, {}, self.evidence,
+                                          comparison_period={'start': '2025-11-11', 'end': '2026-11-10'})
+        self.assertEqual(rewidened_full['conditions']['period'],
+                         trade_period('2026-11-10', '2025-11-11', '2026-11-10'))
+        self.assertEqual(rewidened_full['conditions']['period']['inProgressMonth'], '202611')
+        self.assertEqual((rewidened_full['completeness'], rewidened_full['rankingComplete']), ('partial', False))
+        hold_reasons = {hold['reasonCode'] for hold in rewidened_full['holds']}
+        self.assertTrue({'collection_not_replayed', 'trade_supply_area_unverified'} <= hold_reasons)
+        self.assertIn('feb-part', {row['complexId'] for row in rewidened_full['comparables']})
+        self.assertEqual(full_capture, before_capture)
+        self.assertEqual(self.evidence, before_evidence)
 
 
 if __name__ == '__main__':

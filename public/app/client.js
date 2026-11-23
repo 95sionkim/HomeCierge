@@ -43,11 +43,14 @@ const publicErrors = new Set([
   'run_conflict',
   'comparison_not_available',
   'comparison_source_restricted',
+  'invalid_conversation_input',
+  'conversation_period_unavailable',
+  'conversation_conflict',
   'backend_unavailable',
 ]);
 
-function apiError(code) {
-  return Object.assign(new Error(code), { code });
+function apiError(code, status = null) {
+  return Object.assign(new Error(code), { code, ...(status == null ? {} : { status }) });
 }
 
 function authError(error) {
@@ -192,10 +195,11 @@ async function request(path, method = 'GET', body, signal) {
       signal,
     });
     data = await response.json();
-  } catch {
+  } catch (error) {
+    if (signal?.aborted || error?.name === 'AbortError') throw error;
     throw apiError('backend_unavailable');
   }
-  if (!response.ok) throw apiError(publicErrors.has(data?.error) ? data.error : 'backend_unavailable');
+  if (!response.ok) throw apiError(publicErrors.has(data?.error) ? data.error : 'backend_unavailable', response.status);
   return data;
 }
 
@@ -414,4 +418,28 @@ export function cancelRun(analysisId, runId) {
 }
 export function getResult(analysisId, runId) {
   return request(runPath(analysisId, runId) + '/result');
+}
+export function getConversation(analysisId, runId, signal) {
+  return request(runPath(analysisId, runId) + '/conversation', 'GET', undefined, signal);
+}
+export function sendConversationMessage(analysisId, runId, requestId, message, signal) {
+  if (!uuid.test(requestId) || typeof message !== 'string') throw apiError('invalid_conversation_input');
+  const count = Array.from(message).length;
+  if (count < 1 || count > 800) throw apiError('invalid_conversation_input');
+  return request(runPath(analysisId, runId) + '/conversation', 'POST', { requestId, message }, signal);
+}
+export function decideConversationProposal(analysisId, runId, turnId, decision, signal) {
+  if (
+    typeof turnId !== 'string' ||
+    !turnId ||
+    turnId.includes('/') ||
+    !['approve', 'reject', 'cancel'].includes(decision)
+  )
+    throw apiError('invalid_conversation_input');
+  return request(
+    runPath(analysisId, runId) + '/conversation/' + encodeURIComponent(turnId) + '/decision',
+    'POST',
+    { decision },
+    signal,
+  );
 }

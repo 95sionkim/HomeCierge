@@ -277,6 +277,21 @@ def _period(ingestion):
     return canonical if all(stored.get(key) == value for key, value in canonical.items()) else None
 
 
+def _comparison_period(ingestion, override):
+    if not isinstance(override, dict) or set(override) != {'start', 'end'}:
+        raise ValueError('승인된 비교 기간에는 start와 end만 지정해야 합니다.')
+    start, end = override['start'], override['end']
+    if _text(start) is None or _text(end) is None:
+        raise ValueError('승인된 비교 기간의 시작일과 종료일이 올바르지 않습니다.')
+    original = _period(ingestion)
+    if original is None or original['status'] != 'confirmed':
+        raise ValueError('원본 수집본의 확정된 거래 기간을 확인할 수 없습니다.')
+    period = trade_period(original['asOf'], start, end)
+    if not (original['start'] <= period['start'] and period['end'] <= original['end']):
+        raise ValueError('승인된 비교 기간이 원본 수집본의 거래 기간 범위를 벗어났습니다.')
+    return period
+
+
 def _unique_values(value, valid):
     return (isinstance(value, list) and bool(value) and all(valid(item) for item in value)
             and len(value) == len(set(value)))
@@ -906,21 +921,24 @@ def _replace(selected, candidates, selection, complexes, localities, role):
 
 
 def compare_snapshot(ingestion: dict, selection: dict, evidence: Optional[dict] = None,
-                     *, binding_issue: Optional[str] = None) -> dict:
+                     *, binding_issue: Optional[str] = None,
+                     comparison_period: Optional[dict] = None) -> dict:
     """BE-02 수집본의 범위와 행을 검증해 현재 분석에 적용할 비교 결과를 만든다.
 
     binding_issue는 DB 작업자가 고정된 분석 조건과 수집본의 연결을 검증하며 기록한 사유다.
+    comparison_period는 서비스가 승인한 재계산 기간({start, end})이며 원본 수집 기간 안에서만 허용한다.
     가격·자체 거래·순위의 개별 상태를 함께 반환한다. 필수 수집과 주변 후보 판별의
     완전성이 증명될 때만 정상 0개로 판정하며, 순위에 필요한 미정값은 D-03으로 남긴다.
     """
     if (not isinstance(ingestion, dict) or ingestion.get('contractVersion') != 'ingestion/v0'
             or ingestion.get('dataOrigin') not in ('synthetic', 'collected')):
         raise ValueError('출처가 표시된 ingestion/v0 결과가 필요합니다.')
+    override_period = None if comparison_period is None else _comparison_period(ingestion, comparison_period)
     result = {'contractVersion': 'comparison/v1', 'dataOrigin': ingestion['dataOrigin'],
               'completeness': 'unavailable', 'appliedScope': None, 'comparables': [], 'targetReferences': [],
               'holds': [], 'exclusions': [], 'target': None, 'noticePrice': None,
               'regionDecision': {'priority': None, 'expansion': None, 'reasonCode': None},
-              'conditions': {'asOf': _text(ingestion.get('asOf')), 'period': None, 'area': None, 'tradeKinds': [],
+              'conditions': {'asOf': _text(ingestion.get('asOf')), 'period': override_period, 'area': None, 'tradeKinds': [],
                              'maxComparables': MAX_COMPARABLES,
                              'limitations': ['reporting_delays', 'later_corrections_or_cancellations']},
               'tradeKinds': {}, 'collections': [], 'rankingComplete': False}
@@ -951,7 +969,8 @@ def compare_snapshot(ingestion: dict, selection: dict, evidence: Optional[dict] 
     price_unresolved = price['scope'] == 'selected_room' and price['status'] == 'held'
     if price_unresolved:
         holds.append(_hold('notice_room_price_unverified', subject='notice_price', room=price['room'], reasons=price['reasons']))
-    period, kinds = _period(ingestion), ingestion.get('tradeKinds')
+    period = _period(ingestion) if override_period is None else override_period
+    kinds = ingestion.get('tradeKinds')
     result['conditions']['period'] = period
     if period is None or period['status'] != 'confirmed':
         decision = _obj(_obj(period).get('decision')).get('decisionId')

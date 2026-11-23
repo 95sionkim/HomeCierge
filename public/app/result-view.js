@@ -128,7 +128,7 @@ function holdPanel(data) {
     ${kept.length ? `<div><h3>지금 확인할 수 있는 결과</h3><ul>${kept.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}</div></section>`;
 }
 
-export function comparisonView(data, title, tradeKind = 'sale') {
+export function comparisonView(data, title, tradeKind = 'sale', conversationHtml = '') {
   if (!data || data.contractVersion !== 'comparison/v1')
     return emptyState('circle-help', '결과를 표시할 수 없습니다.', '확인 가능한 분석 결과 형식이 필요합니다.');
   const complete = data.completeness === 'complete', partial = data.completeness === 'partial';
@@ -138,10 +138,13 @@ export function comparisonView(data, title, tradeKind = 'sale') {
   const summary = verifiedScope && data.comparables?.length
     ? scope.name + '에서 비교 단지 ' + data.comparables.length + '곳을 확인했습니다.'
     : complete ? '적용한 조건으로 가격과 거래 근거를 확인했습니다.' : partial ? '확인된 값과 근거가 부족한 항목을 함께 표시합니다.' : '저장된 분석에서 확인하지 못한 항목을 살펴보세요.';
-  return `<section data-run-status="finished" data-result-status="${esc(data.completeness)}">
-    <header class="section-header result-heading"><div><h1>${esc(data.target?.name || title || '분석 결과')}</h1><p>${esc(summary)}</p></div>
-    <div class="tag-row">${badge(complete ? 'verified' : partial ? 'partial' : 'unknown', complete ? 'shield-check' : 'circle-pause', complete ? '비교 검산 완료' : partial ? '일부 보류' : '비교 보류')}${data.dataOrigin === 'synthetic' ? badge('closed', 'layers', '합성 자료') : ''}</div></header>
-    ${holdPanel(data)}<div class="comparison-layout"><div id="market-view">${marketView(data, tradeKind)}</div><aside class="result-stack" aria-label="선택 공고의 금액과 근거">${priceView(data)}${evidenceView(data)}</aside></div></section>`;
+  const jumpButton = conversationHtml
+    ? `<button type="button" class="action secondary compact conv-jump-btn" data-conv="jump-composer">${icon('message-square')}대화로 질문하기</button>`
+    : '';
+  const stage = `<div class="comparison-stage"><header class="section-header result-heading"><div><h1>${esc(data.target?.name || title || '분석 결과')}</h1><p>${esc(summary)}</p></div>
+    <div class="tag-row">${badge(complete ? 'verified' : partial ? 'partial' : 'unknown', complete ? 'shield-check' : 'circle-pause', complete ? '비교 검산 완료' : partial ? '일부 보류' : '비교 보류')}${data.dataOrigin === 'synthetic' ? badge('closed', 'layers', '합성 자료') : ''}${jumpButton}</div></header>
+    ${holdPanel(data)}<div class="comparison-layout"><div id="market-view">${marketView(data, tradeKind)}</div><aside class="result-stack" aria-label="선택 공고의 금액과 근거">${priceView(data)}${evidenceView(data)}</aside></div></div>`;
+  return `<section data-run-status="finished" data-result-status="${esc(data.completeness)}"${conversationHtml ? ' class="comparison-workspace"' : ''}>${stage}${conversationHtml}</section>`;
 }
 
 export function sampleHeld(n, m, asOf) {
@@ -149,6 +152,7 @@ export function sampleHeld(n, m, asOf) {
     contractVersion: 'comparison/v1',
     dataOrigin: 'synthetic',
     completeness: 'unavailable',
+    appliedScope: null,
     target: {
       name: n.title,
       noticeNo: n.noticeNo,
@@ -159,6 +163,7 @@ export function sampleHeld(n, m, asOf) {
       supplyArea: null,
     },
     conditions: { asOf },
+    regionDecision: { priority: null, expansion: null },
     noticePrice: {
       status: 'unverified',
       reasons: ['no_confirmed_room_subtotal'],
@@ -166,12 +171,13 @@ export function sampleHeld(n, m, asOf) {
       heldRooms: [],
     },
     holds: [{ reasonCode: 'target_supply_area_unverified' }, { reasonCode: 'no_confirmed_room_subtotal' }],
+    exclusions: [],
     comparables: [],
     collections: [],
   };
 }
 
-export function runView(state) {
+export function runView(state, conversationHtml = '', originRun = null) {
   const { run, comparison, runError, session } = state;
   if (!session)
     return emptyState(
@@ -195,8 +201,12 @@ export function runView(state) {
       x.edition === run.input?.edition,
   );
   const title = n?.title ?? state.analyses?.find((x) => x.runId === run.runId)?.title ?? '청약 분석';
-  if (run.status === 'finished' && comparison) return comparisonView(comparison, title, state.tradeKind);
+  if (run.status === 'finished' && comparison) return comparisonView(comparison, title, state.tradeKind, conversationHtml);
   const active = ['queued', 'running', 'retry_wait'].includes(run.status);
+  const originLink =
+    originRun && originRun.analysisId === run.analysisId && originRun.toRunId === run.runId
+      ? `<a class="text-button origin-run-link" href="#run/${esc(originRun.analysisId)}/${esc(originRun.fromRunId)}">${icon('arrow-left')}이전 결과와 대화 보기</a>`
+      : '';
   const caption =
     {
       queued: '실행을 접수했습니다. 작업자가 수집을 시작하면 자동으로 갱신합니다.',
@@ -206,5 +216,5 @@ export function runView(state) {
       cancelled: '요청에 따라 실행을 취소했습니다.',
       failed: reasonText(run.errorCode) ?? '실행을 마치지 못했습니다.',
     }[run.status] ?? '현재 실행 상태를 확인할 수 없습니다.';
-  return `<section data-run-status="${esc(run.status)}"><div class="section-header"><div class="tag-row">${runBadge(run.status)}</div><h1>${esc(title)}</h1><p>${esc(caption)}</p></div><div class="result-layout"><section class="panel"><h2>실행 상태</h2><ul class="detail-list"><li><span>접수일</span><strong>${esc(dateText(todayKst(run.submittedAt)))}</strong></li><li><span>공고 번호</span><strong class="code">${esc(run.input?.noticeNo ?? '—')}</strong></li><li><span>모델 번호</span><strong class="code">${esc(run.input?.modelNo ?? '—')}</strong></li></ul><div class="form-actions">${active ? '<button class="action secondary" data-action="cancel">실행 취소</button>' : ''}<button class="text-button" data-action="reload-run">${icon('refresh-cw')}상태 새로고침</button></div></section></div></section>`;
+  return `<section data-run-status="${esc(run.status)}"><div class="section-header"><div class="tag-row">${runBadge(run.status)}</div><h1>${esc(title)}</h1><p>${esc(caption)}</p></div><div class="result-layout"><section class="panel"><h2>실행 상태</h2><ul class="detail-list"><li><span>접수일</span><strong>${esc(dateText(todayKst(run.submittedAt)))}</strong></li><li><span>공고 번호</span><strong class="code">${esc(run.input?.noticeNo ?? '—')}</strong></li><li><span>모델 번호</span><strong class="code">${esc(run.input?.modelNo ?? '—')}</strong></li></ul><div class="form-actions">${active ? '<button class="action secondary" data-action="cancel">실행 취소</button>' : ''}${originLink}<button class="text-button" data-action="reload-run">${icon('refresh-cw')}상태 새로고침</button></div></section></div></section>`;
 }
