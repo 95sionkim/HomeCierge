@@ -21,7 +21,7 @@ export function authDialog(register = false) {
   return frame(
     register ? '계정 만들기' : '로그인',
     register ? '이메일로 청약 분석 계정을 만드세요.' : '내 계정의 공고 목록과 분석을 이어보세요.',
-    `<form id="auth-form" data-mode="${register ? 'signup' : 'signin'}"><label class="form-field" for="auth-email">이메일<input type="email" name="email" id="auth-email" autocomplete="username" required placeholder="name@example.com"></label><label class="form-field" for="auth-password">비밀번호<input type="password" name="password" id="auth-password" autocomplete="${register ? 'new-password' : 'current-password'}" required${register ? ' minlength="6"' : ''}></label><p class="form-message" id="form-message" role="status"></p><div class="form-actions"><button type="submit" class="action primary">${register ? '가입하기' : '로그인'}</button></div></form><button class="text-button auth-switch" type="button" data-action="${register ? 'auth' : 'signup'}">${register ? '이미 계정이 있으신가요? 로그인' : '새 계정 만들기'}</button>`,
+    `<form id="auth-form" data-mode="${register ? 'signup' : 'signin'}"><label class="form-field" for="auth-email">이메일<input type="email" name="email" id="auth-email" autocomplete="username" required placeholder="name@example.com"></label><label class="form-field" for="auth-password">비밀번호<input type="password" name="password" id="auth-password" autocomplete="${register ? 'new-password' : 'current-password'}" required${register ? ' minlength="6"' : ''}></label><p class="form-message" id="form-message" role="status"></p><div class="form-actions"><button type="submit" class="action primary">${register ? '가입하기' : '로그인'}</button></div></form><button class="text-button auth-switch" type="button" data-action="${register ? 'auth' : 'signup'}">${register ? '이미 계정이 있으신가요? 로그인' : '새 계정 만들기'}</button><p><a href="#privacy" data-action="open-privacy">삭제 접수 조회</a></p>`,
   );
 }
 export function noticeDialog(n, synthetic) {
@@ -70,6 +70,6 @@ export function accountDialog(session) {
   return frame(
     '내 계정',
     session.email,
-    `<p class="auth-note">공유 프로필에서 다음 맞춤 검색에 사용할 조건과 변경 이력을 확인하세요.</p><p class="form-message" id="form-message" role="status"></p><div class="form-actions"><button class="action secondary" type="button" data-action="logout">${icon('log-out')}로그아웃</button><button class="action primary" type="button" data-action="open-profile">공유 프로필 열기 ${icon('arrow-right')}</button></div>`,
+    `<p><a href="#privacy" data-action="open-privacy">내 데이터 관리</a></p><p class="form-message" id="form-message" role="status"></p><div class="form-actions"><button class="action secondary" type="button" data-action="logout">${icon('log-out')}로그아웃</button><button class="action primary" type="button" data-action="open-profile">공유 프로필 열기 ${icon('arrow-right')}</button></div>`,
   );
 }

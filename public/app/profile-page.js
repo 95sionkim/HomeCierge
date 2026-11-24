@@ -1625,6 +1625,7 @@ export function createProfilePage({ root, render, announce = () => {}, user }) {
       </div>
       ${renderFormPanel(regionMap)}
       ${renderHistorySection(historyList, regionMap)}
+      <p><a class="action secondary compact" href="#privacy">내 데이터 관리</a></p>
     </div>`;
   }
 

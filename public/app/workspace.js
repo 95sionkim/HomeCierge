@@ -12,6 +12,7 @@ import { createConversationPanel } from './conversation-panel.js';
 import { createProfilePage } from './profile-page.js';
 import { createProfileReview } from './profile-review.js';
 import { createReportPage } from './report-page.js';
+import { createPrivacyPage } from './privacy-page.js';
 import { reportExample } from '/vendor/planning-example.js';
 
 const root = document.querySelector('#app');
@@ -59,9 +60,29 @@ let analysisKey, resultLinkFocus, originRun = null;
 let profileDraft = null;
 let reportFundingChoice = null;
 let reviewFromProfile = null;
+let signedOutReceipt = null;
 const searchPage = createSearchPage({ root, render, user: () => state.session, selectNotice: selectSearchNotice });
 const profilePage = createProfilePage({ root, render, announce, user: () => state.session });
 const reportPage = createReportPage({ root, render, announce, user: () => state.session, navigate });
+const privacyPage = createPrivacyPage({
+  root, render, announce, user: () => state.session,
+  onDeleted() {
+    resetPrivate(true);
+    render();
+    if (state.session) void loadHistory();
+  },
+  async onAccountRequested(receipt) {
+    const owner = state.session?.id;
+    signedOutReceipt = receipt;
+    try {
+      await api.signOut();
+    } catch {
+      announce('삭제가 접수됐습니다. 접수번호로 처리 상태를 확인하세요.');
+    } finally {
+      if (state.session?.id === owner) setUser(null, true);
+    }
+  },
+});
 const profileReview = createProfileReview({
   dialog, openDialog, announce,
   editProfile(draft) {
@@ -108,6 +129,7 @@ const navs = [
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 function readRoute() {
   const bits = location.hash.replace(/^#\/?/, '').split('/');
+  if (bits.length === 1 && bits[0] === 'privacy') return { key:'privacy' };
   let section = 'comparison';
   const sectionAt = bits[0] === 'sample' && bits[1] === 'saved' ? 2 : 3;
   if (['run', 'sample'].includes(bits[0]) && bits.length === sectionAt + 1 &&
@@ -132,7 +154,7 @@ function navigate(to) {
   if (location.hash === to) routeChanged();
   else location.hash = to;
 }
-function resetPrivate() {
+function resetPrivate(keepPrivacy = false) {
   analysisKey = null;
   reportFundingChoice = null;
   state.conditionLookup = null;
@@ -144,6 +166,7 @@ function resetPrivate() {
   state.tradeKind = 'sale';
   searchPage.reset();
   profilePage.reset();
+  if (!keepPrivacy) privacyPage.reset();
   reportPage.reset();
   fundingPage.reset();
   referencePage.reset();
@@ -186,6 +209,7 @@ function setUser(user, force = false) {
     return;
   ++restoreVersion;
   const leaving = Boolean(state.session && state.session.id !== user?.id);
+  if (user) signedOutReceipt = null;
   resetPrivate();
   state.authPending = false;
   state.sessionProblem = null;
@@ -416,7 +440,7 @@ function historyRail() {
 function shell(body, route) {
   const analysis = ['run', 'sample'].includes(route.key);
   const active = analysis ? 'analyses' : route.key;
-  const label = navs.find((n) => n[0] === active)?.[2] ?? '오늘의 청약';
+  const label = active === 'privacy' ? '내 데이터 관리' : navs.find((n) => n[0] === active)?.[2] ?? '오늘의 청약';
   const nav = (mobile = false) =>
     navs
       .filter(([key]) => !mobile || !['profile', 'reports'].includes(key))
@@ -472,6 +496,7 @@ function render() {
   else if (route.key === 'home') body = homeView(state, historyList(true));
   else if (route.key === 'search') body = searchPage.view();
   else if (route.key === 'profile') body = state.authPending ? emptyState('loader-circle', '계정을 확인하고 있습니다.') : profilePage.view();
+  else if (route.key === 'privacy') body = state.authPending ? emptyState('loader-circle', '계정을 확인하고 있습니다.') : privacyPage.view();
   else if (route.key === 'reports') body = state.authPending ? emptyState('loader-circle', '계정을 확인하고 있습니다.') : reportPage.view();
   else if (route.key === 'analyses')
     body = `<section class="section-header"><h1>내 분석</h1><p>${state.session ? '계정에 저장된 분석을 최근 순으로 확인하세요.' : '합성 자료로 만든 분석에서 가격과 근거를 살펴보세요.'}</p><a href="#reports" class="action secondary">${icon('file-text')}저장 보고서 열기</a></section>${historyList()}`;
@@ -519,7 +544,7 @@ function render() {
   }
   root.innerHTML = shell(body, route);
   document.title =
-    (route.section === 'funding' ? '호실별 자금표' : route.section === 'report' ? '분석 보고서' : isReference(route) ? resultSections[route.section] : { notices: '오늘의 청약', search: '맞춤 공고 찾기', home: '홈', analyses: '내 분석', reports: '저장 보고서', profile: '공유 프로필', run: '분석 결과', sample: '분석 예시' }[
+    (route.section === 'funding' ? '호실별 자금표' : route.section === 'report' ? '분석 보고서' : isReference(route) ? resultSections[route.section] : { notices: '오늘의 청약', search: '맞춤 공고 찾기', home: '홈', analyses: '내 분석', reports: '저장 보고서', profile: '공유 프로필', privacy:'내 데이터 관리', run: '분석 결과', sample: '분석 예시' }[
       route.key
     ] ?? '오늘의 청약') + ' | HomeCierge';
   if (searchFocus) {
@@ -691,6 +716,8 @@ function routeChanged(focus = false) {
     ? { message: profileDraft.message, analysisId: profileDraft.analysisId, runId: profileDraft.runId } : null;
   profileDraft = null;
   profilePage.reset();
+  privacyPage.reset();
+  if (route.key !== 'privacy') signedOutReceipt = null;
   reportPage.reset();
   searchPage.reset();
   fundingPage.reset();
@@ -711,6 +738,11 @@ function routeChanged(focus = false) {
     void searchPage.enter();
   else if (route.key === 'profile' && !state.suspended && !state.authPending && !state.sessionProblem)
     void profilePage.enter(draft);
+  else if (route.key === 'privacy' && !state.suspended && !state.authPending && !state.sessionProblem) {
+    const receipt = state.session ? null : signedOutReceipt;
+    signedOutReceipt = null;
+    void privacyPage.enter(receipt);
+  }
   else if (route.key === 'reports' && !state.suspended && !state.authPending && !state.sessionProblem)
     void reportPage.enter({kind:route.reportId ? 'detail' : 'list',reportId:route.reportId,guest:!state.session});
   else if (route.key === 'run' && state.session && !state.suspended) void readRun(route, version);
@@ -914,10 +946,16 @@ dialog.addEventListener('click', async (event) => {
       closeDialog();
     return;
   }
-  const button = event.target.closest('button[data-action]');
+  const button = event.target.closest('button[data-action], a[data-action]');
   if (!button) return;
   const action = button.dataset.action;
   if (action === 'close') return closeDialog();
+  if (action === 'open-privacy') {
+    event.preventDefault();
+    closeDialog();
+    navigate('#privacy');
+    return;
+  }
   if (action === 'open-profile') {
     closeDialog();
     navigate('#profile');

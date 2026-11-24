@@ -1,0 +1,829 @@
+/* D-06 / A-56 내 데이터 관리(#privacy): 기존 워크스페이스 토큰을 공유한다.
+ * 따뜻한 흰색 카드(--surface/--card)와 남색 주요 행동(--primary)을 쓰고,
+ * 파괴적 붉은색은 최종 삭제 확인 버튼에만 제한한다.
+ */
+.privacy-page {
+  width: 100%;
+  max-width: 1060px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+.privacy-page > *,
+.privacy-stage > *,
+.privacy-scope-grid > *,
+.privacy-counts-grid > *,
+.privacy-meta-grid > *,
+.privacy-receipt-card > * {
+  min-width: 0;
+}
+
+/* 헤더 */
+.privacy-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px 20px;
+  margin: 4px 0 2px;
+}
+.privacy-header-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.privacy-header-copy p {
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.55;
+  max-width: 64ch;
+  word-break: keep-all;
+}
+.privacy-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 배너 및 오류 */
+.privacy-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.55;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--foreground);
+}
+.privacy-banner > .icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  margin-top: 2px;
+}
+.privacy-banner strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 3px;
+}
+.privacy-banner p {
+  color: var(--muted);
+  font-size: 14px;
+  word-break: keep-all;
+}
+.privacy-banner.is-verified {
+  background: var(--verified-soft);
+  border-color: color-mix(in srgb, var(--verified) 28%, var(--line));
+}
+.privacy-banner.is-verified > .icon {
+  color: var(--verified);
+}
+.privacy-banner.is-partial {
+  background: var(--partial-soft);
+  border-color: color-mix(in srgb, var(--partial) 28%, var(--line));
+}
+.privacy-banner.is-partial > .icon {
+  color: var(--partial);
+}
+
+.privacy-inline-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--failed-soft);
+  border: 1px solid color-mix(in srgb, var(--failed) 30%, var(--line));
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--foreground);
+}
+.privacy-inline-error > .icon {
+  width: 17px;
+  height: 17px;
+  color: var(--failed);
+  flex: none;
+  margin-top: 2px;
+}
+.privacy-inline-error > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.privacy-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* 게스트 카드 */
+.privacy-guest-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 20px;
+  padding: 24px;
+  background: var(--surface);
+}
+.privacy-guest-copy {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex: 1 1 360px;
+  min-width: 0;
+}
+.privacy-guest-copy > .icon {
+  width: 22px;
+  height: 22px;
+  color: var(--primary);
+  flex: none;
+  margin-top: 2px;
+}
+.privacy-guest-copy h2 {
+  font-size: 18px;
+  line-height: 1.38;
+  word-break: keep-all;
+}
+.privacy-guest-copy p {
+  margin-top: 4px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--muted);
+  word-break: keep-all;
+}
+.privacy-guest-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 단계 카드 공통 */
+.privacy-stage,
+.privacy-confirm-card,
+.privacy-lookup-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 22px;
+  background: var(--surface);
+}
+.privacy-stage-head,
+.privacy-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.privacy-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  flex: none;
+  margin-top: 2px;
+}
+.privacy-stage-head h2,
+.privacy-card-head h2 {
+  font-size: 19px;
+  line-height: 1.35;
+  font-weight: 700;
+}
+.privacy-card-sub {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+  word-break: keep-all;
+}
+
+/* 1단계: 범위 선택 그리드 */
+.privacy-scope-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.privacy-group-label {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--muted);
+}
+.privacy-scope-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.privacy-scope-grid-wide {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.privacy-scope-btn {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  width: 100%;
+  padding: 13px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  text-align: left;
+  color: var(--foreground);
+}
+.privacy-scope-btn:not(:disabled):hover {
+  border-color: var(--input);
+  background: var(--surface);
+}
+.privacy-scope-btn.is-selected {
+  background: var(--primary-soft);
+  border: 2px solid var(--primary);
+  padding: 12px 13px;
+}
+.privacy-scope-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--soft-line);
+  color: var(--foreground);
+  flex: none;
+}
+.privacy-scope-btn.is-selected .privacy-scope-icon {
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 30%, var(--line));
+}
+.privacy-scope-icon .icon {
+  width: 16px;
+  height: 16px;
+}
+.privacy-scope-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.privacy-scope-text strong {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.privacy-scope-text small {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+  word-break: keep-all;
+}
+
+/* 2단계: 대상 목록 */
+.privacy-subblock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.privacy-subhead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+.privacy-subhead h3 {
+  font-size: 15px;
+  font-weight: 700;
+}
+.privacy-item-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.privacy-item-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  text-align: left;
+  color: var(--foreground);
+}
+.privacy-item-row:not(:disabled):hover {
+  border-color: var(--input);
+  background: var(--soft);
+}
+.privacy-item-row.is-selected {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+.privacy-radio-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 2px solid var(--input);
+  background: var(--surface);
+  flex: none;
+  position: relative;
+}
+.privacy-item-row.is-selected .privacy-radio-dot {
+  border-color: var(--primary);
+}
+.privacy-item-row.is-selected .privacy-radio-dot::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 999px;
+  background: var(--primary);
+}
+.privacy-item-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.privacy-item-copy strong {
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.privacy-item-copy small {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.privacy-item-id {
+  color: var(--muted);
+  flex: none;
+}
+.privacy-list-more {
+  display: flex;
+  justify-content: center;
+  padding-top: 4px;
+}
+.privacy-quiet-state {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--soft);
+  border: 1px solid var(--soft-line);
+  font-size: 14px;
+  color: var(--muted);
+  word-break: keep-all;
+}
+.privacy-quiet-state .icon {
+  width: 17px;
+  height: 17px;
+  flex: none;
+}
+.privacy-quiet-action {
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+.privacy-quiet-action .action {
+  margin-left: auto;
+}
+
+/* 2단계: 실제 영향 확인 */
+.privacy-impact-box {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 16px;
+  background: var(--card);
+  border: 1px solid var(--border);
+}
+.privacy-impact-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 14px;
+}
+.privacy-impact-head h3 {
+  font-size: 16px;
+  font-weight: 700;
+}
+.privacy-impact-total {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--foreground);
+  white-space: nowrap;
+}
+.privacy-counts-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.privacy-count-cell {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--soft-line);
+}
+.privacy-count-cell.is-affected {
+  border-color: color-mix(in srgb, var(--primary) 42%, var(--line));
+  background: var(--primary-soft);
+}
+.privacy-count-cell dt {
+  font-size: 13px;
+  color: var(--muted);
+}
+.privacy-count-cell dd {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--foreground);
+  white-space: nowrap;
+}
+.privacy-count-cell.is-affected dt,
+.privacy-count-cell.is-affected dd {
+  color: var(--foreground);
+}
+.privacy-impact-details {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.privacy-impact-detail {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 13px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--foreground);
+  word-break: keep-all;
+}
+.privacy-impact-detail .icon {
+  width: 16px;
+  height: 16px;
+  color: var(--primary);
+  flex: none;
+  margin-top: 2px;
+}
+.privacy-impact-detail.is-storage {
+  background: var(--partial-soft);
+  border-color: color-mix(in srgb, var(--partial) 32%, var(--line));
+}
+.privacy-impact-detail.is-storage .icon {
+  color: var(--partial);
+}
+.privacy-processing-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 11px 13px;
+  border-radius: 12px;
+  background: var(--partial-soft);
+  border: 1px solid color-mix(in srgb, var(--partial) 32%, var(--line));
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--foreground);
+  word-break: keep-all;
+}
+.privacy-processing-note .icon {
+  width: 16px;
+  height: 16px;
+  color: var(--partial);
+  flex: none;
+  margin-top: 2px;
+}
+.privacy-backup-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 13px 14px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px dashed var(--input);
+}
+.privacy-backup-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.privacy-backup-head strong {
+  font-size: 13px;
+  font-weight: 700;
+}
+.privacy-backup-box p {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+  word-break: keep-all;
+}
+.privacy-policy-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  word-break: keep-all;
+}
+.privacy-policy-note .icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  margin-top: 2px;
+}
+.privacy-impact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+/* 3단계: 최종 확인 (파괴적 색은 최종 확인 버튼에만 제한) */
+.privacy-confirm-card {
+  border-color: var(--input);
+  background: var(--card);
+}
+.privacy-phrase-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.privacy-phrase-field label {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--foreground);
+}
+.privacy-phrase-field input {
+  width: 100%;
+  max-width: 360px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--input);
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 15px;
+}
+.privacy-phrase-status {
+  font-size: 13px;
+  color: var(--muted);
+}
+.privacy-phrase-status.is-ready {
+  color: var(--verified);
+  font-weight: 600;
+}
+.privacy-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.privacy-destructive-btn {
+  background: var(--destructive, oklch(0.53 0.2 27));
+  color: var(--destructive-foreground, #fff);
+  border: 1px solid var(--destructive, oklch(0.53 0.2 27));
+}
+.privacy-destructive-btn:not(:disabled):hover {
+  background: color-mix(in srgb, var(--destructive, oklch(0.53 0.2 27)) 86%, var(--foreground));
+}
+.privacy-destructive-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 접수 내역 카드 및 목록 */
+.privacy-account-result,
+.privacy-receipts-section,
+.privacy-receipt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.privacy-section-title h2 {
+  font-size: 18px;
+  font-weight: 700;
+}
+.privacy-section-title p {
+  margin-top: 3px;
+  font-size: 13px;
+  color: var(--muted);
+  word-break: keep-all;
+}
+.privacy-receipt-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  background: var(--surface);
+}
+.privacy-receipt-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+}
+.privacy-receipt-head h3 {
+  font-size: 17px;
+  font-weight: 700;
+}
+.privacy-code-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+}
+.privacy-code-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 240px;
+}
+.privacy-code-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.privacy-receipt-code {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  user-select: all;
+}
+.privacy-code-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.privacy-copy-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+.privacy-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--soft);
+  border: 1px solid var(--soft-line);
+}
+.privacy-meta-grid dt {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.privacy-meta-grid dd {
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.privacy-muted-val {
+  color: var(--muted);
+  font-weight: 500;
+}
+.privacy-receipt-foot {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* 접수 상태 조회 폼 */
+.privacy-lookup-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.privacy-lookup-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.privacy-lookup-field label {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--foreground);
+}
+.privacy-lookup-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: stretch;
+}
+.privacy-lookup-row input {
+  flex: 1 1 280px;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--input);
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 14px;
+}
+
+/* 반응형: 태블릿 및 모바일 (390px 가로 스크롤 없음) */
+@media (max-width: 900px) {
+  .privacy-scope-grid,
+  .privacy-counts-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .privacy-page {
+    gap: 16px;
+  }
+  .privacy-stage,
+  .privacy-confirm-card,
+  .privacy-lookup-card,
+  .privacy-guest-card,
+  .privacy-receipt-card {
+    padding: 16px;
+  }
+  .privacy-impact-box {
+    padding: 14px;
+  }
+  .privacy-scope-grid,
+  .privacy-scope-grid-wide,
+  .privacy-counts-grid,
+  .privacy-meta-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .privacy-guest-actions,
+  .privacy-impact-actions,
+  .privacy-confirm-actions,
+  .privacy-code-actions {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .privacy-confirm-actions {
+    flex-direction: column-reverse;
+  }
+  .privacy-guest-actions .action,
+  .privacy-impact-actions .action,
+  .privacy-confirm-actions .action,
+  .privacy-code-actions .action,
+  .privacy-lookup-row .action {
+    width: 100%;
+  }
+  .privacy-phrase-field input {
+    max-width: 100%;
+  }
+  .privacy-item-row {
+    align-items: flex-start;
+  }
+  .privacy-item-id {
+    display: none;
+  }
+}

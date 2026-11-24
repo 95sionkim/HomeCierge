@@ -57,6 +57,7 @@ jobs:
           SUPABASE_WORKER_KEY=$(jq -er '.SECRET_KEY // .SERVICE_ROLE_KEY' "$local_status")
           export SUPABASE_URL SUPABASE_PUBLISHABLE_KEY SUPABASE_WORKER_KEY
           NOTICE_BROWSER_SMOKE=1 BE07_EPHEMERAL_SEARCH_FIXTURE=1 npm run test:auth
+          DELETION_BROWSER_SMOKE=1 npm run test:auth -- --data-deletion
       - name: Remove the test stack
         if: always()
         run: |

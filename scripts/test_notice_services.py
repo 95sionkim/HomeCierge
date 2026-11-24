@@ -56,6 +56,19 @@ class NoticeServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'unexpected_worker_probe'):
             ops.verify_worker(client)
 
+    def test_deletion_service_uses_only_its_worker_key_and_records_no_identifiers(self):
+        ops.write_private(self.secrets / 'worker.env', (ops.WORKER_KEY + '=test-fixture\n').encode())
+        with mock.patch.object(ops, 'WorkerRpc') as rpc, \
+                mock.patch.object(ops, 'process_deletion', side_effect=['live_deleted', 'idle']) as process, \
+                mock.patch.object(ops.time, 'sleep', side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                ops.serve(self.secrets, 'deletion')
+        self.assertEqual(set(rpc.call_args.args[0]), {'APP_ENV', 'SUPABASE_URL', ops.WORKER_KEY})
+        self.assertEqual(process.call_count, 2)
+        state = ops.read_state(ops.state_file(self.secrets, 'deletion'))
+        self.assertEqual(state['status'], 'idle')
+        self.assertEqual(set(state), {'status', 'checkedAt'})
+
     def test_daily_deadline_uses_korean_date_in_every_timezone(self):
         for tz in (timezone.utc, ops.KST, timezone(timedelta(hours=-8))):
             now = self.at_deadline.astimezone(tz)

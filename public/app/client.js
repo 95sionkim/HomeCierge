@@ -47,6 +47,10 @@ const publicErrors = new Set([
   'invalid_report_input',
   'report_not_found',
   'report_conflict',
+  'deletion_not_found',
+  'deletion_conflict',
+  'deletion_upload_scope_unverified',
+  'invalid_deletion_input',
   'conversation_period_unavailable',
   'conversation_conflict',
   'backend_unavailable',
@@ -154,7 +158,6 @@ export async function signUp(email, password) {
 
 export async function signOut() {
   const { error } = await (await client()).auth.signOut({ scope: 'local' });
-  if (error) throw authError(error);
   pendingKeys.clear();
   try {
     for (const key of Object.keys(sessionStorage))
@@ -162,6 +165,7 @@ export async function signOut() {
   } catch {
     /* 브라우저가 임시 저장소를 차단한 경우 메모리 키만 사용한다. */
   }
+  if (error) throw authError(error);
 }
 
 export function onSessionChange(callback) {
@@ -185,13 +189,14 @@ export function onSessionChange(callback) {
 }
 
 async function request(path, method = 'GET', body, signal, media = 'json') {
-  const session = await currentSession();
-  if (!identity(session)) throw apiError('authentication_required');
+  const receiptOnly = path === '/api/v1/privacy/receipt';
+  const session = receiptOnly ? null : await currentSession();
+  if (!receiptOnly && !identity(session)) throw apiError('authentication_required');
   let response, data;
   try {
     response = await fetch(path, {
       method,
-      headers: { Authorization: 'Bearer ' + session.access_token, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      headers: { ...(session ? { Authorization: 'Bearer ' + session.access_token } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
       body: body === undefined ? undefined : JSON.stringify(body),
       credentials: 'same-origin',
       cache: 'no-store',
@@ -217,6 +222,31 @@ export function listNotices({ limit, cursor, includeClosed } = {}) {
   if (cursor != null) query.set('cursor', cursor);
   if (includeClosed != null) query.set('includeClosed', String(includeClosed));
   return request('/api/v1/notices?' + query);
+}
+
+export function listDeletionItems(kind, before = null, signal) {
+  const params = new URLSearchParams({ kind });
+  if (before) params.set('before', before);
+  return request('/api/v1/privacy/items?' + params, 'GET', undefined, signal);
+}
+export function readDeletionImpact(scope, targetId, signal) {
+  return request('/api/v1/privacy/impact', 'POST', { scope, targetId }, signal);
+}
+export async function requestDataDeletion(scope, targetId, receiptId, signal) {
+  try {
+    return await request('/api/v1/privacy/requests', 'POST', { scope, targetId, receiptId, confirmed:true }, signal);
+  } catch (error) {
+    if (signal?.aborted || !['backend_unavailable','authentication_required'].includes(error?.code)) throw error;
+    // 계정 접수가 반영된 직후 세션이나 응답이 사라져도 같은 번호의 공개 기록으로 확인한다.
+    let receipt;
+    try { receipt = await readDeletionReceipt(receiptId, signal); }
+    catch { throw error; }
+    if (receipt?.receiptId !== receiptId || receipt.scope !== scope) throw error;
+    return receipt;
+  }
+}
+export function readDeletionReceipt(receiptId, signal) {
+  return request('/api/v1/privacy/receipt', 'POST', { receiptId }, signal);
 }
 
 export function listSearchRegions() {

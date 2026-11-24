@@ -47,7 +47,7 @@ python3 scripts/store_ingestion.py tests/fixtures/ingestion-v0.json \
 | 4. 삭제를 시작한다 | `request_analysis_upload_deletion(analysis_id, upload_id)` | 이 파일의 신규 업로드와 교체를 차단한다. |
 | 5. 객체와 등록을 정리한다 | Storage `remove([object_path])` 후 `finalize_analysis_upload_deletion(analysis_id, upload_id)` | 객체가 남아 있으면 완료를 보류한다. 중단되면 같은 파일 ID로 삭제를 재개한다. |
 
-분석·계정 전체 삭제, 파생 보고서와 백업의 삭제 정책은 후속 작업이다. [화면팀 연결 계약](../frontend-handoff.md) · [Supabase Storage 접근 제어](https://supabase.com/docs/guides/storage/security/access-control)
+분석·계정 전체를 삭제할 때는 **내 데이터 관리**에서 연관 자료의 영향을 확인한다. 서비스의 파일 삭제와 백업 사본 확인을 각각 기록한다. [개별 자료와 계정 삭제](data-deletion.md) · [Supabase Storage 접근 제어](https://supabase.com/docs/guides/storage/security/access-control)
 
 화면에서 파일을 열거나 다시 받을 때는 3번의 사용자 API 주소를 사용한다. 서울 개발 환경에서는 객체 삭제 후에도 이전에 읽은 Storage 원본 주소가 캐시된 바이트를 반환했다. API는 매 요청에서 등록 상태를 읽고, 접근이 허용된 경우에만 새 `cacheNonce`로 Storage에 요청한다. 원본 주소를 화면에 돌려주지 않는다. 사용자가 이미 내려받은 로컬 사본은 기기에 남을 수 있다. [Supabase CDN 캐시](https://supabase.com/docs/guides/storage/cdn/smart-cdn)
 

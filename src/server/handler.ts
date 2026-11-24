@@ -15,6 +15,7 @@ import { readFundingSelection } from './funding-request.js';
 import type { FundingSelection } from './funding-request.js';
 import { serveReport } from './report-request.js';
 import type { ReportOperation } from './report-request.js';
+import { serveDeletion, type DeletionOperation } from './data-deletion.js';
 
 export type Environment = Record<string, string | undefined>;
 export type Backend = {
@@ -35,6 +36,7 @@ export type Backend = {
   getComparison: (analysisId: string, runId: string, signal: AbortSignal) => Promise<ComparisonSnapshot>;
   analysisConversation: (operation: ChatOperation, signal: AbortSignal) => Promise<unknown>;
   savedReport: (operation: ReportOperation, signal: AbortSignal) => Promise<unknown>;
+  dataDeletion: (operation: DeletionOperation, signal: AbortSignal) => Promise<unknown>;
 };
 export type BackendConfig = { url: string; key: string; token: string };
 
@@ -82,6 +84,7 @@ export function createHandler(deps: {
     const conversation = path.match(conversationPath);
     const saveReport = path.match(saveReportPath);
     const savedReport = path.match(savedReportPath);
+    const privacy = /^\/api\/v1\/privacy\/(items|impact|requests|receipt)$/.exec(path)?.[1];
     const funding = path.match(fundingPlanPath);
     const snapshotService = path.match(snapshotServicePath);
     const commute = snapshotService?.[3] === 'commute';
@@ -90,7 +93,7 @@ export function createHandler(deps: {
     const directory = path === '/api/v1/notices';
     const regions = path === '/api/v1/notices/regions';
     const enqueues = run !== null && !run[2];
-    const methods = saveReport ? ['POST'] : savedReport?.[1] && !savedReport[2] ? ['GET', 'DELETE']
+    const methods = privacy ? [privacy === 'items' ? 'GET' : 'POST'] : saveReport ? ['POST'] : savedReport?.[1] && !savedReport[2] ? ['GET', 'DELETE']
       : conversation && !conversation[3] ? ['GET', 'POST']
       : search || funding || news || commute || enqueues || run?.[3] === 'cancel' || conversation?.[3] ? ['POST'] : ['GET'];
     const allowedMethods = [...methods, 'OPTIONS'].join(', ');
@@ -100,7 +103,7 @@ export function createHandler(deps: {
       'X-Content-Type-Options': 'nosniff',
       'X-Request-Id': requestId,
     });
-    if (search || directory || regions || funding || snapshotService || upload || run?.[3] === 'result' || conversation || saveReport || savedReport) {
+    if (privacy || search || directory || regions || funding || snapshotService || upload || run?.[3] === 'result' || conversation || saveReport || savedReport) {
       headers.set('Cache-Control', 'private, no-store');
       headers.set('Vary', 'Authorization, Origin');
       headers.set('Vercel-CDN-Cache-Control', 'no-store');
@@ -130,20 +133,22 @@ export function createHandler(deps: {
         return respond({ error: 'configuration_unavailable', requestId }, 503);
       }
     }
-    if (!upload && !run && !conversation && !saveReport && !savedReport && !search && !directory && !regions && !funding && !snapshotService && !['/api/v1/me','/api/ready'].includes(path)) return respond({ error: 'not_found', requestId }, 404);
+    if (!privacy && !upload && !run && !conversation && !saveReport && !savedReport && !search && !directory && !regions && !funding && !snapshotService && !['/api/v1/me','/api/ready'].includes(path)) return respond({ error: 'not_found', requestId }, 404);
 
     const authorization = request.headers.get('authorization');
     const match = authorization?.match(/^Bearer ([^\s]+)$/i);
-    if (!match) return respond({ error: 'authentication_required', requestId }, 401);
+    if (privacy !== 'receipt' && !match) return respond({ error: 'authentication_required', requestId }, 401);
     let backend: Backend;
     try {
-      backend = deps.createBackend(readConfig(deps.env, match[1]!));
+      backend = deps.createBackend(readConfig(deps.env, privacy === 'receipt' ? '' : match![1]!));
     } catch {
       return respond({ error: 'configuration_unavailable', requestId }, 503);
     }
     try {
+      if (privacy === 'receipt') return await serveDeletion(request, headers, privacy, backend.dataDeletion);
       const user = await backend.getUser();
       if (!user || user.isAnonymous) return respond({ error: 'authentication_required', requestId }, 401);
+      if (privacy) return await serveDeletion(request, headers, privacy, backend.dataDeletion);
       if (saveReport || savedReport) {
         return await serveReport(request, headers, { analysis: saveReport?.[1], run: saveReport?.[2],
           report: savedReport?.[1], pdf: savedReport?.[2] === 'pdf' }, backend.savedReport);

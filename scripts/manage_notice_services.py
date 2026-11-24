@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""개발 Mac에서 오늘의 청약 갱신과 분석 큐를 실행한다."""
+"""개발 Mac에서 오늘의 청약 갱신, 분석 큐와 데이터 삭제 작업을 실행한다."""
 import argparse
 import fcntl
 import getpass
@@ -20,6 +20,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from notice_run_capture import NoticeWorkerConfigurationError, live_notice_transports
+from process_data_deletion import process_once as process_deletion
 from run_analysis_worker import run_once
 from worker_rpc import WorkerRpc, WorkerRpcError
 
@@ -30,6 +31,7 @@ KST = timezone(timedelta(hours=9))
 WORKER_KEY = 'SUPABASE_WORKER_KEY'
 PROVIDER_KEY = 'DATA_GO_KR_SERVICE_KEY'
 LABELS = {role: 'kr.homecierge.development.notice-' + role for role in ('worker', 'directory')}
+LABELS['deletion'] = 'kr.homecierge.development.data-deletion'
 LAUNCHCTL = '/bin/launchctl'
 POLL_SECONDS = 30
 
@@ -68,14 +70,17 @@ def read_field(path, name, private=True):
     return entries[0] if entries and entries[0] else None
 
 
-def worker_env(secret_dir):
+def worker_env(secret_dir, require_provider=True):
     service = read_field(secret_dir / 'worker.env', WORKER_KEY)
-    provider = read_field(secret_dir / (PROVIDER_KEY + '.env'), PROVIDER_KEY)
     if not service:
         raise ValueError('waiting_for_worker_key')
+    env = {'APP_ENV': 'development', 'SUPABASE_URL': DEV_ORIGIN, WORKER_KEY: service}
+    if not require_provider:
+        return env
+    provider = read_field(secret_dir / (PROVIDER_KEY + '.env'), PROVIDER_KEY)
     if not provider:
         raise ValueError('waiting_for_provider_key')
-    return {'APP_ENV': 'development', 'SUPABASE_URL': DEV_ORIGIN, WORKER_KEY: service, PROVIDER_KEY: provider}
+    return {**env, PROVIDER_KEY: provider}
 
 
 def verify_worker(client):
@@ -154,10 +159,15 @@ def serve(secret_dir, role):
         while True:
             delay = POLL_SECONDS
             try:
-                env = worker_env(secret_dir)
+                env = worker_env(secret_dir, require_provider=role != 'deletion')
                 client = WorkerRpc(env)
                 if role == 'directory':
                     directory_tick(path, state, clock(), env, client)
+                elif role == 'deletion':
+                    outcome = process_deletion(client)
+                    record(path, state, outcome)
+                    if outcome == 'live_deleted':
+                        delay = 0
                 else:
                     os.environ[PROVIDER_KEY] = env[PROVIDER_KEY]
                     outcome = run_once(client, notice=live_notice_transports)['status']
@@ -275,7 +285,7 @@ def manage(root, command, api_env=None, requested_role=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
-    install = commands.add_parser('install', help='로그인 시 재개되는 두 개발 서비스를 설치하거나 갱신')
+    install = commands.add_parser('install', help='로그인 시 재개되는 개발 서비스를 설치하거나 갱신')
     install.add_argument('--api-env', type=Path, help='데이터포털 키 하나를 가져올 dotenv 파일')
     install.add_argument('--role', choices=LABELS, help='지정한 서비스만 설치하거나 갱신')
     commands.add_parser('set-key', help='서울 개발 프로젝트의 작업자 키를 숨김 입력하고 권한을 확인')

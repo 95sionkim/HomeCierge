@@ -719,6 +719,7 @@ export type Database = {
       }
     }
     Functions: {
+      advance_deletion_work: { Args: { p_receipt: string }; Returns: Json }
       cancel_analysis_run: {
         Args: { p_analysis_id: string; p_run_id: string }
         Returns: Json
@@ -767,10 +768,15 @@ export type Database = {
         Args: { p_change_id: string; p_decision: string }
         Returns: Json
       }
+      delete_personal_data: {
+        Args: { p_receipt: string; p_scope: string; p_target?: string }
+        Returns: Json
+      }
       delete_saved_analysis_report: {
         Args: { p_report_id: string }
         Returns: undefined
       }
+      deletion_work: { Args: { p_receipt?: string }; Returns: Json }
       enqueue_analysis_run: {
         Args: {
           p_analysis_id: string
@@ -855,6 +861,10 @@ export type Database = {
         Args: { p_analysis_id: string; p_run_id: string }
         Returns: Json
       }
+      list_deletion_items: {
+        Args: { p_before?: string; p_kind: string }
+        Returns: Json
+      }
       list_saved_analysis_reports: {
         Args: { p_before?: string }
         Returns: Json
@@ -908,6 +918,11 @@ export type Database = {
         Args: { p_generation: number; p_lease_token: string; p_run_id: string }
         Returns: Json
       }
+      read_deletion_impact: {
+        Args: { p_scope: string; p_target?: string }
+        Returns: Json
+      }
+      read_deletion_receipt: { Args: { p_receipt: string }; Returns: Json }
       read_notice_directory_index: { Args: never; Returns: Json }
       read_notice_search_index: { Args: never; Returns: Json }
       read_saved_analysis_report: {
@@ -915,6 +930,10 @@ export type Database = {
         Returns: Json
       }
       read_search_profile: { Args: { p_before?: string }; Returns: Json }
+      record_deletion_backup_review: {
+        Args: { p_receipt: string; p_verified_at: string }
+        Returns: Json
+      }
       register_analysis_upload: {
         Args: { analysis_id: string; upload_id: string }
         Returns: {
@@ -948,6 +967,7 @@ export type Database = {
         }
         Returns: Json
       }
+      request_account_deletion: { Args: { p_receipt: string }; Returns: Json }
       request_analysis_upload_deletion: {
         Args: { analysis_id: string; upload_id: string }
         Returns: {

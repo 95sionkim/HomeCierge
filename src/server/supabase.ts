@@ -21,7 +21,7 @@ export function createBackend(config: BackendConfig): Backend {
   const client = createClient<Database>(config.url, config.key, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
     global: {
-      headers: { Authorization: `Bearer ${config.token}` },
+      headers: config.token ? { Authorization: `Bearer ${config.token}` } : {},
       fetch: (input, init) => {
         const url = input instanceof Request ? input.url : String(input);
         // PDF 열기 제한은 getUploadContent에서 해제한다. 연결 종료 신호는 본문까지 전달한다.
@@ -38,12 +38,31 @@ export function createBackend(config: BackendConfig): Backend {
         if (error.status && error.status < 500 && error.status !== 429) return null;
         throw new Error('auth_unavailable');
       }
-      return data.user ? { id: data.user.id, isAnonymous: data.user.is_anonymous === true } : null;
+      if (!data.user || data.user.banned_until === 'infinity' ||
+          (data.user.banned_until && Date.parse(data.user.banned_until) > Date.now())) return null;
+      return { id: data.user.id, isAnonymous: data.user.is_anonymous === true };
     },
     async getProfile(id) {
       const { data, error } = await client.from('user_profiles')
         .select('user_id,search_conditions,commute_destination,revision,updated_at')
         .eq('user_id', id).maybeSingle();
+      if (error) throw new Error('database_unavailable');
+      return data;
+    },
+    async dataDeletion(op, signal) {
+      const query = op.action === 'items'
+        ? client.rpc('list_deletion_items', { p_kind:op.kind, ...(op.before ? { p_before:op.before } : {}) })
+        : op.action === 'receipt' ? client.rpc('read_deletion_receipt', { p_receipt:op.receiptId })
+        : op.action === 'impact' ? client.rpc('read_deletion_impact', { p_scope:op.scope, ...(op.targetId ? { p_target:op.targetId } : {}) })
+        : op.scope === 'account' ? client.rpc('request_account_deletion', { p_receipt:op.receiptId })
+        : client.rpc('delete_personal_data', { p_scope:op.scope, p_receipt:op.receiptId, ...(op.targetId ? { p_target:op.targetId } : {}) });
+      const { data, error } = await query.abortSignal(signal);
+      if (error?.code === 'PT404') throw new ApiError('deletion_not_found');
+      if (error?.code === 'PT409' && error.message === 'deletion_upload_scope_unverified')
+        throw new ApiError('deletion_upload_scope_unverified');
+      if (error?.code === 'PT409') throw new ApiError('deletion_conflict');
+      if (error?.code === '22023') throw new ApiError('invalid_deletion_input');
+      if (error?.code === '42501') throw new ApiError('authentication_required');
       if (error) throw new Error('database_unavailable');
       return data;
     },

@@ -16,6 +16,7 @@ import { checkNoticeSearch } from './smoke_notice_search.mjs';
 import { checkFundingPlan } from './smoke_funding_plan.mjs';
 import { checkProfileInBrowser, checkProfileRegion, checkSharedProfile } from './smoke_shared_profile.mjs';
 import { checkSavedReports, finishReportFixture, openReportInBrowser } from './smoke_saved_reports.mjs';
+import { checkDataDeletion, finishTestDeletion } from './smoke_data_deletion.mjs';
 import { checkLegalEvidence } from './smoke_legal_evidence.mjs';
 import { checkRegionalNews, syntheticNewsFetch } from './smoke_regional_news.mjs';
 import { checkNoticeAnalysis } from './smoke_notice_analysis.mjs';
@@ -528,6 +529,13 @@ async function run(config, capture, requestApi, apiPort) {
     }
     await saveSnapshot(admin, accounts[0], capture, captureKey, params => storeWithPython(config, params));
     await saveSnapshot(admin, accounts[1], capture, captureKey, params => storeConcurrently(admin, params));
+    if (process.argv.includes('--data-deletion')) {
+      const owner = accounts[0];
+      const saved = await finishReportFixture({owner,snapshotId:owner.snapshotId,config,requestApi,check,result,workerOnce});
+      await checkDataDeletion({ accounts, admin, config, apiPort, requestApi, check, result, saved, registerUpload, uploadObject,
+        pdf:makeSyntheticPdf(), newClient:async account => { const client = userClient(); await login(account,client); return client; } });
+      return failed;
+    }
     if (process.argv.includes('--saved-reports')) {
       const funding = await checkFundingPlan({ accounts, admin, capture, requestApi, check, result });
       const owner = { ...accounts[0], analysisId: funding.analysisId };
@@ -645,6 +653,7 @@ async function run(config, capture, requestApi, apiPort) {
     failed.push(be04Started && step === 'unexpected_failure' ? 'be04_unexpected_failure' : step);
   } finally {
     for (const account of accounts) {
+      if (account.deletionReceipt) await retryCleanup(() => finishTestDeletion(config, account.deletionReceipt, check, requestApi), failed);
       await retryCleanup(() => cleanUpUpload(account), failed);
       await retryCleanup(() => deleteAccount(admin, account, runId), failed);
     }
@@ -711,6 +720,8 @@ if (failures.length) {
     process.stderr.write(`${stage} smoke failed (${step})\n`);
   }
   process.exitCode = 1;
+} else if (process.argv.includes('--data-deletion')) {
+  process.stdout.write('Data deletion passed (two users, old sessions, bound retry, account, Storage, Auth and public receipt)\n');
 } else if (process.argv.includes('--saved-reports')) {
   process.stdout.write('S-07 passed (two authenticated users, duplicate save, fixed funding amounts, profile edit, browser reopen and PDF, deletion, cleanup)\n');
 } else {
