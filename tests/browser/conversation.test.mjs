@@ -944,10 +944,10 @@ test('comparison conversation renders AI explanation with model alongside rule-b
       pollCount += 1;
       const firstReply =
         pollCount === 1
-          ? { status: 'queued', model: 'gpt-6.1-sol', answer: null, citations: [], completedAt: null }
+          ? { status: 'queued', model: 'gpt-6.2-sol', answer: null, citations: [], completedAt: null }
           : {
               status: 'answered',
-              model: 'gpt-6.1-sol',
+              model: 'gpt-6.2-sol',
               answer: '가람동에서 공급면적 ±5% 기준으로 주변 단지 2곳을 확인했습니다. <img src=x onerror="window.__aiXss=1">',
               citations: [{ kind: 'comparison', reference: 'comparison/v1', label: '비교 결과 요약' }],
               completedAt: '2026-11-10T01:02:00Z',
@@ -977,7 +977,7 @@ test('comparison conversation renders AI explanation with model alongside rule-b
               createdAt: '2026-11-10T01:03:00Z',
               answer: '규칙 기반: 보류 항목 안내입니다.',
               proposal: null,
-              agentReply: { status: 'rejected', model: 'gpt-6.1-sol', answer: null, citations: [], completedAt: '2026-11-10T01:03:05Z' },
+              agentReply: { status: 'rejected', model: 'gpt-6.2-sol', answer: null, citations: [], completedAt: '2026-11-10T01:03:05Z' },
             },
             {
               id: tFailed,
@@ -987,7 +987,7 @@ test('comparison conversation renders AI explanation with model alongside rule-b
               createdAt: '2026-11-10T01:04:00Z',
               answer: '규칙 기반: 2026-10-10부터 2026-10-31까지입니다.',
               proposal: null,
-              agentReply: { status: 'failed', model: 'gpt-6.1-sol', answer: null, citations: [], completedAt: '2026-11-10T01:04:05Z' },
+              agentReply: { status: 'failed', model: 'gpt-6.2-sol', answer: null, citations: [], completedAt: '2026-11-10T01:04:05Z' },
             },
             {
               id: tExpired,
@@ -997,7 +997,7 @@ test('comparison conversation renders AI explanation with model alongside rule-b
               createdAt: '2026-11-10T01:05:00Z',
               answer: '규칙 기반: 비교 범위는 가람동입니다.',
               proposal: null,
-              agentReply: { status: 'expired', model: 'gpt-6.1-sol', answer: null, citations: [], completedAt: '2026-11-10T01:06:00Z' },
+              agentReply: { status: 'expired', model: 'gpt-6.2-sol', answer: null, citations: [], completedAt: '2026-11-10T01:06:00Z' },
             },
             {
               id: tNone,
@@ -1038,7 +1038,7 @@ test('comparison conversation renders AI explanation with model alongside rule-b
     const aiBlock = turn1.locator('.conv-msg-ai');
     await aiBlock.waitFor();
     await aiBlock.getByText('AI 설명').waitFor();
-    await aiBlock.getByText('gpt-6.1-sol').waitFor();
+    await aiBlock.getByText('gpt-6.2-sol').waitFor();
     await aiBlock.getByText('비교 결과 요약').waitFor();
     await turn1.locator('.conv-msg-agent').getByText('규칙 기반: 비교표에 포함된 주변 단지는 2곳입니다.').waitFor();
     assert.equal(await page.locator('.conv-ai-pending').count(), 0);

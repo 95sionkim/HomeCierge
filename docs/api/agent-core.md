@@ -33,7 +33,7 @@
 
 [에이전트 응답 마이그레이션](../../supabase/migrations/20261126140000_analysis_agent_replies.sql)은 두 개의 비공개 테이블을 추가한다(RLS 활성, 직접 테이블 권한 전부 회수).
 
-- `private.agent_settings`: 기능 사용 여부(`enabled`, 기본 `false`)와 모델(`model`, 기본 `gpt-6.1-sol`). 꺼져 있으면 기존 규칙 기반 비교 대화와 완전히 동일하게 동작하며 대기열 행을 만들지 않는다.
+- `private.agent_settings`: 기능 사용 여부(`enabled`, 기본 `false`)와 모델(`model`, 기본 `gpt-6.2-sol` — 2026-11-26 Q-43으로 `gpt-6.1-sol`에서 변경). 꺼져 있으면 기존 규칙 기반 비교 대화와 완전히 동일하게 동작하며 대기열 행을 만들지 않는다.
 - `private.analysis_agent_replies`: `turn_id`(FK `private.analysis_chat_turns(id) on delete cascade`), 상태(`queued`/`leased`/`answered`/`rejected`/`failed`/`expired`), 임대 정보, 검증된 `answer_text`와 `citations`, 사용량·비용·지연, 검증 결과(`validation_status`, `validation_reasons`)만 저장한다. **프롬프트 원문과 비교 결과 전체는 따로 저장하지 않는다.**
 - 작업자 RPC(`configure_agent_settings`, `claim_agent_reply`, `read_agent_reply_context`, `complete_agent_reply`, `fail_agent_reply`, `expire_stale_agent_replies`)는 `service_role` 전용이다.
 - `read_agent_reply_context`는 `public.source_registry.llm_permission = 'allowed'`인 출처의 값만 문맥에 포함하고, 허용되지 않은 출처의 값은 제외한 뒤 `llmSourcePolicy.restrictedSources`에 표시한다. `naver_news`와 사용자 업로드(`user_upload`)는 항상 LLM 입력에서 제외한다.
@@ -46,7 +46,7 @@ OpenAI Responses API 호출은 `store: false`, HTTPS 고정, 리디렉션 차단
 
 | 모델 ID | 입력 단가 (USD / 1M) | 출력 단가 (USD / 1M) | 비고 |
 | --- | --- | --- | --- |
-| `gpt-6.1-sol` | $2 | $10 | 기본 기준 모델 (Q-40) |
+| `gpt-6.2-sol` | $2 | $10 | 기본 기준 모델 (Q-40·Q-43, 2026-11-26 가격 확인) |
 | `gpt-6.1-terra` | $1 | $5 | 비용·속도 비교군 |
 | `gpt-6-luna` | $0.10 | $0.50 | 저비용 비교군 |
 | `gpt-6-astra` | $10 | $50 | 선택적 품질 비교군 |
@@ -67,12 +67,12 @@ python3 scripts/agent_cli.py \
   --comparison public/app/assets/comparison-example.json \
   --message "왜 이 거래만 포함됐어?" \
   --provider stub \
-  --model gpt-6.1-sol
+  --model gpt-6.2-sol
 ```
 
 ## 6. 현재 검수 범위와 한계
 
-- 이번 작업은 합성 비교 결과, `StubProvider`, 모의 HTTP 응답, PGlite DB, 합성 브라우저 세션으로 검증했다. 실제 OpenAI API 실호출, 모델 4종(`gpt-6.1-sol`/`terra`/`luna`/`astra`) 비교 평가, 원격 Supabase 마이그레이션 적용 및 실제 Auth 통합 검수는 별도 단계다.
+- 이번 작업은 합성 비교 결과, `StubProvider`, 모의 HTTP 응답, PGlite DB, 합성 브라우저 세션으로 검증했다. 실제 OpenAI API 실호출, 모델 4종(`gpt-6.2-sol`/`terra`/`luna`/`astra`) 비교 평가, 원격 Supabase 마이그레이션 적용 및 실제 Auth 통합 검수는 별도 단계다.
 - 2026-11-26 총괄이 개발 Mac에서 합성 `comparison-example.json`과 질문 "왜 이 거래만 포함됐어?"로 `--provider openai --model gpt-6.1-sol`을 한 번 실행했다. 상태 `answered`, 의도 `inclusion`, 검증 `passed`(날짜·면적·비율·건수 7개 대조), 입력 3,496·출력 460(추론 74) 토큰, 지연 11.3초, 추정 비용 US$0.0116이었다. 한 번의 합성 실행이며 모델 품질·지연·비용의 평가 결과가 아니다.
-- 같은 날 사용자 결정(Q-42)으로 서울 개발 DB에서 `naver_news`를 뺀 11개 출처의 `llm_permission`을 `allowed`로 바꾸고 `configure_agent_settings(true, 'gpt-6.1-sol')`로 기능을 켰다. 아래 문장은 작업 당시 상태다.
+- 같은 날 사용자 결정(Q-42)으로 서울 개발 DB에서 `naver_news`를 뺀 11개 출처의 `llm_permission`을 `allowed`로 바꾸고 `configure_agent_settings(true, 'gpt-6.1-sol')`로 기능을 켰다. 이어서 사용자 결정(Q-43)으로 기준 모델을 `gpt-6.2-sol`로 바꾸는 마이그레이션을 적용했고, 같은 합성 질문을 `--model gpt-6.2-sol`로 한 번 실행했다. 상태 `answered`, 검증 `passed`(7개 대조), 입력 3,645·출력 415 토큰, 지연 7.7초, 추정 비용 US$0.0114(단가 확인일 2026-11-26). 아래 문장은 작업 당시 상태다.
 - 기존 `public.source_registry.llm_permission` 값은 이번 작업에서 바꾸지 않았다(기본 `unknown`, `naver_news`는 `denied`). 실제 수집 공고·실거래 결과에 LLM 설명을 켜려면 운영 전 출처별 약관 근거를 확인하고 허용할 출처 목록을 사용자 결정으로 확정해야 한다.

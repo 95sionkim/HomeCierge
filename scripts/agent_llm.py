@@ -12,15 +12,16 @@ from urllib import error, parse, request
 ROOT = Path(__file__).resolve().parents[1]
 OPENAI_KEY_NAME = 'OPENAI_API_KEY'
 OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
-DEFAULT_MODEL = 'gpt-6.1-sol'
+# 2026-11-26 사용자 결정 Q-43: 기준 모델을 gpt-6.1-sol에서 gpt-6.2-sol로 바꿨다.
+DEFAULT_MODEL = 'gpt-6.2-sol'
 PRICING_AS_OF = '2026-11-12'
 
-# PRD §7.6.1 기준 단가표 (USD, 100만 토큰당 Standard·Short 기준, 확인일 2026-11-12)
+# PRD §7.6.1 기준 단가표 (USD, 100만 토큰당 Standard·Short 기준). asOf는 모델별 공식 가격 확인일이다.
 MODEL_PRICING = {
-    'gpt-6.1-sol': {'input': Decimal('2'), 'output': Decimal('10')},
-    'gpt-6.1-terra': {'input': Decimal('1'), 'output': Decimal('5')},
-    'gpt-6-luna': {'input': Decimal('0.10'), 'output': Decimal('0.50')},
-    'gpt-6-astra': {'input': Decimal('10'), 'output': Decimal('50')},
+    'gpt-6.2-sol': {'input': Decimal('2'), 'output': Decimal('10'), 'asOf': '2026-11-26'},
+    'gpt-6.1-terra': {'input': Decimal('1'), 'output': Decimal('5'), 'asOf': PRICING_AS_OF},
+    'gpt-6-luna': {'input': Decimal('0.10'), 'output': Decimal('0.50'), 'asOf': PRICING_AS_OF},
+    'gpt-6-astra': {'input': Decimal('10'), 'output': Decimal('50'), 'asOf': PRICING_AS_OF},
 }
 SUPPORTED_MODELS = tuple(MODEL_PRICING.keys())
 TOKENS_PER_UNIT = Decimal('1000000')
@@ -163,7 +164,7 @@ def build_usage_record(
         'latencyMs': lat_ms,
         'attempts': att,
         'estimatedCostUsd': estimate_cost_usd(model, in_tok, out_tok),
-        'pricingAsOf': PRICING_AS_OF,
+        'pricingAsOf': MODEL_PRICING.get(str(model), {}).get('asOf', PRICING_AS_OF),
         'currency': 'USD',
     }
 

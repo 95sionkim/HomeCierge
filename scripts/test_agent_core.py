@@ -102,21 +102,25 @@ def _make_http_error(code, headers=None, body=b'{"error":"synthetic"}'):
 class AgentLlmProviderTests(unittest.TestCase):
     def test_pricing_table_and_cost_estimation_match_prd(self):
         # PRD §7.6.1 단순 산정 예시: 입력 10,000 + 출력 2,000 -> Sol $0.04, Terra $0.02, Luna $0.002, Astra $0.20
-        self.assertEqual(agent_llm.DEFAULT_MODEL, 'gpt-6.1-sol')
+        self.assertEqual(agent_llm.DEFAULT_MODEL, 'gpt-6.2-sol')
         self.assertEqual(agent_llm.PRICING_AS_OF, '2026-11-12')
-        self.assertEqual(Decimal(agent_llm.estimate_cost_usd('gpt-6.1-sol', 10_000, 2_000)), Decimal('0.04'))
+        self.assertEqual(Decimal(agent_llm.estimate_cost_usd('gpt-6.2-sol', 10_000, 2_000)), Decimal('0.04'))
         self.assertEqual(Decimal(agent_llm.estimate_cost_usd('gpt-6.1-terra', 10_000, 2_000)), Decimal('0.02'))
         self.assertEqual(Decimal(agent_llm.estimate_cost_usd('gpt-6-luna', 10_000, 2_000)), Decimal('0.002'))
         self.assertEqual(Decimal(agent_llm.estimate_cost_usd('gpt-6-astra', 10_000, 2_000)), Decimal('0.20'))
 
         # reasoning_tokens는 output_tokens의 내역이므로 중복 과금하지 않는다.
         usage = agent_llm.build_usage_record(
-            'openai', 'gpt-6.1-sol',
+            'openai', 'gpt-6.2-sol',
             input_tokens=10_000, output_tokens=2_000, reasoning_tokens=1_200, latency_ms=420,
         )
         self.assertEqual(usage['reasoningTokens'], 1_200)
         self.assertEqual(Decimal(usage['estimatedCostUsd']), Decimal('0.04'))
-        self.assertEqual(usage['pricingAsOf'], '2026-11-12')
+        # 모델별 가격 확인일: gpt-6.2-sol은 2026-11-26(Q-43), 나머지는 PRD 확인일 2026-11-12다.
+        self.assertEqual(usage['pricingAsOf'], '2026-11-26')
+        terra = agent_llm.build_usage_record('openai', 'gpt-6.1-terra', input_tokens=1, output_tokens=1)
+        self.assertEqual(terra['pricingAsOf'], '2026-11-12')
+        self.assertNotIn('gpt-6.1-sol', agent_llm.SUPPORTED_MODELS)
         self.assertFalse(usage['synthetic'])
 
     def test_missing_api_key_fails_explicitly_without_stub_fallback(self):
@@ -187,7 +191,7 @@ class AgentLlmProviderTests(unittest.TestCase):
                 return nxt
 
         provider = agent_llm.OpenAIResponsesProvider(
-            model='gpt-6.1-sol',
+            model='gpt-6.2-sol',
             api_key=secret,
             timeout_seconds=15.0,
             max_retries=2,
@@ -215,7 +219,7 @@ class AgentLlmProviderTests(unittest.TestCase):
         self.assertEqual(timeout, 15.0)
         self.assertEqual(req.get_header('Authorization'), 'Bearer ' + secret)
         sent = json.loads(req.data.decode('utf-8'))
-        self.assertEqual(sent['model'], 'gpt-6.1-sol')
+        self.assertEqual(sent['model'], 'gpt-6.2-sol')
         self.assertIs(sent['store'], False)
         self.assertEqual(sent['text']['format']['type'], 'json_schema')
         self.assertIs(sent['text']['format']['strict'], True)
@@ -270,7 +274,7 @@ class AgentOrchestratorAndValidationTests(unittest.TestCase):
 
     def test_stub_provider_normal_turn_and_tool_call_loop(self):
         # 1) 기본 StubProvider 합성 실행
-        provider = agent_llm.StubProvider(model='gpt-6.1-sol')
+        provider = agent_llm.StubProvider(model='gpt-6.2-sol')
         result = agent_orchestrator.run_turn('왜 이 거래만 포함됐어?', self.context, provider)
         self.assertEqual(result['status'], 'answered')
         self.assertEqual(result['validation']['status'], 'passed')
@@ -554,13 +558,13 @@ class AgentCliAndWorkerTests(unittest.TestCase):
                 '--comparison', str(SYNTHETIC_COMPARISON_PATH),
                 '--message', '왜 이 거래만 포함됐어?',
                 '--provider', 'stub',
-                '--model', 'gpt-6.1-sol',
+                '--model', 'gpt-6.2-sol',
             ])
         self.assertEqual(code, 0)
         parsed = json.loads(buf.getvalue())
         self.assertEqual(parsed['status'], 'answered')
         self.assertTrue(parsed['usage']['synthetic'])
-        self.assertEqual(parsed['usage']['model'], 'gpt-6.1-sol')
+        self.assertEqual(parsed['usage']['model'], 'gpt-6.2-sol')
 
         # 키 없는 --provider openai는 대역으로 바꾸지 않고 llm_unavailable(종료코드 2)로 실패한다.
         err_buf = io.StringIO()
@@ -586,12 +590,12 @@ class AgentCliAndWorkerTests(unittest.TestCase):
             'runId': rid,
             'generation': 1,
             'leaseToken': token,
-            'model': 'gpt-6.1-sol',
+            'model': 'gpt-6.2-sol',
         }
         ctx = {
             'replyId': reply_id,
             'turnId': turn_id,
-            'model': 'gpt-6.1-sol',
+            'model': 'gpt-6.2-sol',
             'message': '왜 이 거래만 포함됐어?',
             'comparison': load_synthetic_comparison(),
             'llmSourcePolicy': {'dataOrigin': 'synthetic', 'allowedSources': [], 'restrictedSources': [], 'hasRestrictedSources': False, 'newsExcluded': True},

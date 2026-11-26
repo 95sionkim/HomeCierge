@@ -145,7 +145,7 @@ beforeEach(async () => {
     private.analysis_funding_schedule_snapshots, private.analysis_runs, public.analysis_input_snapshots,
     public.reports, public.funding_entries, public.analyses, public.chat_messages, public.chats,
     public.profile_change_requests, public.user_profiles, public.source_registry, auth.users cascade;
-    update private.agent_settings set enabled = false, model = 'gpt-6.1-sol';`);
+    update private.agent_settings set enabled = false, model = 'gpt-6.2-sol';`);
 });
 
 after(async () => {
@@ -173,7 +173,7 @@ test('private agent tables enable RLS with zero grants, store no raw prompt/resu
   const owner = await createOwner();
   for (const role of ['anon', 'authenticated']) {
     await as(role, role === 'authenticated' ? owner.userId : '');
-    await assert.rejects(rpc('configure_agent_settings', true, 'gpt-6.1-sol'), forbidden);
+    await assert.rejects(rpc('configure_agent_settings', true, 'gpt-6.2-sol'), forbidden);
     await assert.rejects(rpc('claim_agent_reply', 60), forbidden);
     await assert.rejects(rpc('expire_stale_agent_replies'), forbidden);
     await assert.rejects(rpc('read_agent_reply_context', randomUUID(), 1, randomUUID()), forbidden);
@@ -197,21 +197,45 @@ test('feature disabled by default creates no agent queue rows and preserves rule
   assert.equal((await one('select count(*)::int as n from private.analysis_agent_replies')).n, 0);
 });
 
+test('Q-43 baseline model is gpt-6.2-sol: settings reject gpt-6.1-sol while stored replies keep the old name', async () => {
+  await db.exec('reset role');
+  const settings = await one('select model, enabled from private.agent_settings');
+  assert.equal(settings.model, 'gpt-6.2-sol');
+  assert.equal(settings.enabled, false);
+  const column = await one(`select column_default from information_schema.columns
+    where table_schema = 'private' and table_name = 'agent_settings' and column_name = 'model'`);
+  assert.match(column.column_default, /gpt-6\.2-sol/);
+
+  await as('service_role');
+  await assert.rejects(rpc('configure_agent_settings', true, 'gpt-6.1-sol'), { code: '22023', message: 'invalid_agent_settings' });
+  for (const model of ['gpt-6.1-terra', 'gpt-6-luna', 'gpt-6-astra', 'gpt-6.2-sol']) {
+    assert.equal((await rpc('configure_agent_settings', false, model)).model, model);
+  }
+  assert.equal((await one(`select public.configure_agent_settings(false) as reply`)).reply.model, 'gpt-6.2-sol');
+
+  await db.exec('reset role');
+  await assert.rejects(db.query("update private.agent_settings set model = 'gpt-6.1-sol'"), { code: '23514' });
+  const replyCheck = await one(`select pg_get_constraintdef(oid) as def from pg_constraint
+    where conname = 'analysis_agent_replies_model_check'`);
+  assert.match(replyCheck.def, /gpt-6\.1-sol/);
+  assert.match(replyCheck.def, /gpt-6\.2-sol/);
+});
+
 test('queue, lease, answer/reject/fail, lease expiration, and cross-account 404 work accurately', async () => {
   const owner = await createOwner();
   const peer = await createOwner();
   const { runId } = await finishSyntheticRun(owner);
 
   await as('service_role');
-  const settings = await rpc('configure_agent_settings', true, 'gpt-6.1-sol');
+  const settings = await rpc('configure_agent_settings', true, 'gpt-6.2-sol');
   assert.equal(settings.enabled, true);
-  assert.equal(settings.model, 'gpt-6.1-sol');
+  assert.equal(settings.model, 'gpt-6.2-sol');
 
   // 1) 질문 제출 시 queued 대기열 생성 -> 작업자 임대 -> 완료
   await as('authenticated', owner.userId);
   const t1 = await rpc('submit_analysis_chat_turn', owner.analysisId, runId, randomUUID(), '왜 이 거래만 포함됐어?', 'inclusion');
   assert.equal(t1.turns[0].agentReply.status, 'queued');
-  assert.equal(t1.turns[0].agentReply.model, 'gpt-6.1-sol');
+  assert.equal(t1.turns[0].agentReply.model, 'gpt-6.2-sol');
   assert.equal(t1.turns[0].agentReply.answer, null);
 
   // 다른 계정의 조회는 404다.
@@ -243,7 +267,7 @@ test('queue, lease, answer/reject/fail, lease expiration, and cross-account 404 
   await as('authenticated', owner.userId);
   const afterDone = await rpc('read_analysis_conversation', owner.analysisId, runId);
   assert.equal(afterDone.turns[0].agentReply.status, 'answered');
-  assert.equal(afterDone.turns[0].agentReply.model, 'gpt-6.1-sol');
+  assert.equal(afterDone.turns[0].agentReply.model, 'gpt-6.2-sol');
   assert.equal(afterDone.turns[0].agentReply.answer, '비교표에 포함된 주변 단지는 2곳입니다.');
   assert.equal(afterDone.turns[0].agentReply.citations.length, 1);
 
@@ -281,7 +305,7 @@ test('read_agent_reply_context enforces source_registry.llm_permission = allowed
   const { runId: restrictedRunId } = await finishCollectedRun(owner, []);
 
   await as('service_role');
-  await rpc('configure_agent_settings', true, 'gpt-6.1-sol');
+  await rpc('configure_agent_settings', true, 'gpt-6.2-sol');
 
   await as('authenticated', owner.userId);
   await rpc('submit_analysis_chat_turn', owner.analysisId, restrictedRunId, randomUUID(), '분양가와 비교 거래 알려줘', 'price');
@@ -324,7 +348,7 @@ test('LLM condition proposal uses shared server validation, attaches strictly as
   const { runId } = await finishSyntheticRun(owner);
 
   await as('service_role');
-  await rpc('configure_agent_settings', true, 'gpt-6.1-sol');
+  await rpc('configure_agent_settings', true, 'gpt-6.2-sol');
 
   // 1) 규칙 기반이 help로 분류한 자연어 턴에 LLM이 유효한 조건 변경 제안(±3%, Q-41 상한 이내)을 첨부한다.
   await as('authenticated', owner.userId);
@@ -429,7 +453,7 @@ test('turn deletion cascade via resolve_turn_deletion_scope and account deletion
   const { runId: peerRunId } = await finishSyntheticRun(peer);
 
   await as('service_role');
-  await rpc('configure_agent_settings', true, 'gpt-6.1-sol');
+  await rpc('configure_agent_settings', true, 'gpt-6.2-sol');
 
   await as('authenticated', owner.userId);
   const t1 = await rpc('submit_analysis_chat_turn', owner.analysisId, runId, randomUUID(), '삭제할 턴 질문', 'scope');
