@@ -7,7 +7,7 @@ import { readRegionalNews } from './regional-news-request.js';
 import { parseNoticeSearchConditions, evaluateNoticeSearch } from './notice-search.js';
 import { evaluateNoticeDirectory, noticeRegionOptions, parseNoticeDirectoryQuery } from './notice-directory.js';
 import { readAnalysisRunOperation } from './analysis-runs.js';
-import type { AnalysisRun, AnalysisRunOperation, ComparisonSnapshot } from './analysis-runs.js';
+import type { AnalysisRun, AnalysisRunOperation, ComparisonEvidenceDetail, ComparisonSnapshot } from './analysis-runs.js';
 import { readConversation } from './analysis-conversation.js';
 import type { ChatOperation } from './analysis-conversation.js';
 import { calculateFundingPlan } from './funding-plan.js';
@@ -34,6 +34,7 @@ export type Backend = {
   prepareCommute: (analysisId: string, snapshotId: string, signal: AbortSignal) => Promise<unknown>;
   prepareRegionalNews: (analysisId: string, snapshotId: string, signal: AbortSignal) => Promise<unknown>;
   getComparison: (analysisId: string, runId: string, signal: AbortSignal) => Promise<ComparisonSnapshot>;
+  getComparisonEvidence: (analysisId: string, runId: string, signal: AbortSignal) => Promise<ComparisonEvidenceDetail>;
   analysisConversation: (operation: ChatOperation, signal: AbortSignal) => Promise<unknown>;
   savedReport: (operation: ReportOperation, signal: AbortSignal) => Promise<unknown>;
   dataDeletion: (operation: DeletionOperation, signal: AbortSignal) => Promise<unknown>;
@@ -41,7 +42,7 @@ export type Backend = {
 export type BackendConfig = { url: string; key: string; token: string };
 
 const uploadContentPath = new RegExp(`^/api/v1/analyses/(${uuidPattern})/uploads/(${uuidPattern})/content$`);
-const analysisRunPath = /^\/api\/v1\/analyses\/([^/]+)\/runs(?:\/([^/]+)(?:\/(cancel|result))?)?$/;
+const analysisRunPath = /^\/api\/v1\/analyses\/([^/]+)\/runs(?:\/([^/]+)(?:\/(cancel|result|evidence))?)?$/;
 const conversationPath = /^\/api\/v1\/analyses\/([^/]+)\/runs\/([^/]+)\/conversation(?:\/([^/]+)\/decision)?$/;
 const saveReportPath = /^\/api\/v1\/analyses\/([^/]+)\/runs\/([^/]+)\/reports$/;
 const savedReportPath = /^\/api\/v1\/reports(?:\/([^/]+)(?:\/(pdf))?)?$/;
@@ -103,7 +104,7 @@ export function createHandler(deps: {
       'X-Content-Type-Options': 'nosniff',
       'X-Request-Id': requestId,
     });
-    if (privacy || search || directory || regions || funding || snapshotService || upload || run?.[3] === 'result' || conversation || saveReport || savedReport) {
+    if (privacy || search || directory || regions || funding || snapshotService || upload || run?.[3] === 'result' || run?.[3] === 'evidence' || conversation || saveReport || savedReport) {
       headers.set('Cache-Control', 'private, no-store');
       headers.set('Vary', 'Authorization, Origin');
       headers.set('Vercel-CDN-Cache-Control', 'no-store');
@@ -212,9 +213,13 @@ export function createHandler(deps: {
         return respond(evaluateNoticeSearch(await readPublishedIndex(), conditions, asOf), 200);
       }
       if (run) {
+        if (run[3] === 'evidence' && url.search) throw new ApiError('invalid_run_input');
         const operation = await readAnalysisRunOperation(request, run[1], run[2], run[3] === 'cancel');
         if (run[3] === 'result' && operation.action === 'get') {
           return respond(await backend.getComparison(operation.analysisId, operation.runId, request.signal), 200);
+        }
+        if (run[3] === 'evidence' && operation.action === 'get') {
+          return respond(await backend.getComparisonEvidence(operation.analysisId, operation.runId, request.signal), 200);
         }
         const result = await backend.runAnalysis(operation, request.signal);
         if (operation.action === 'enqueue') {

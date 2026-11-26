@@ -1,9 +1,19 @@
 import * as api from './client.js';
 import { esc, icon, won, dateText, isoDate, errorText, reasonText } from './display.js';
 import { amountInput, evidence, planningReasons } from './planning-fields.js';
+import { evidenceChip } from './evidence-viewer.js';
 
 const items = { sale_price: '분양대금', required_options: '필수 옵션' };
 const stages = { deposit: '계약금', interim: '중도금', balance: '잔금' };
+function rawWon(value) {
+  const text = String(value ?? '');
+  return /^\d+$/.test(text) ? BigInt(text).toLocaleString('ko-KR') + '원' : null;
+}
+function timingLabel(t) {
+  return t?.date
+    ? dateText(t.date)
+    : { contract_signing: '계약 시', move_in: '입주 시' }[t?.trigger] || '정확한 날짜 미확인';
+}
 const statusText = {
   unavailable: '이 수집본에 확인된 납부 일정이 없습니다.',
   selection_unverified: '공고와 호실의 대응을 확인해야 합니다.',
@@ -27,17 +37,27 @@ const newDraft = (kind) => ({
   requestKey: crypto.randomUUID(),
 });
 function sourceAmount(component) {
+  const chip = evidenceChip(
+    component.evidence,
+    `funding:component:${component.item}`,
+    items[component.item] + ' 납부 금액',
+  );
+  const detail = evidence(component.evidence, items[component.item] + ' 근거');
   return `<section class="component"><div><h3>${items[component.item]}</h3><strong>${esc(amount(component.totalWon))}</strong></div>
     ${component.status !== 'confirmed' ? `<p class="field-help">${esc(reasons(component.reasons) || '이 항목의 공식 납부 근거가 필요합니다.')}</p>` : ''}
-    ${evidence(component.evidence, items[component.item] + ' 근거')}
-    ${component.installments.length ? `<details class="payment-parts"><summary>납부 항목 ${component.installments.length}건</summary>${component.installments.map(paymentLine).join('')}</details>` : ''}</section>`;
+    ${chip || detail ? `<div class="evidence-action-row">${chip}${detail}</div>` : ''}
+    ${component.installments.length ? `<details class="payment-parts"><summary>납부 항목 ${component.installments.length}건</summary>${component.installments.map((p, idx) => paymentLine(p, `comp:${component.item}:${idx}`)).join('')}</details>` : ''}</section>`;
 }
-function paymentLine(p) {
+function paymentLine(p, keyPrefix) {
   const t = p.timing;
-  const when = t.date
-    ? dateText(t.date)
-    : { contract_signing: '계약 시', move_in: '입주 시' }[t.trigger] || '정확한 날짜 미확인';
-  return `<div class="payment-line"><div>${esc(items[p.item])} · ${esc(stages[p.stage])}<small>${esc(when)}</small></div><div>${esc(amount(p.won))}${evidence(t.evidence, '납부일 근거')}</div></div>`;
+  const when = timingLabel(t);
+  const chip = evidenceChip(
+    t.evidence,
+    `funding:timing:${keyPrefix}`,
+    `${items[p.item]} ${stages[p.stage]} 납부일`,
+  );
+  const detail = evidence(t.evidence, '납부일 근거');
+  return `<div class="payment-line"><div>${esc(items[p.item])} · ${esc(stages[p.stage])}<small>${esc(when)}</small></div><div>${esc(amount(p.won))}${chip || detail ? `<div class="evidence-action-row">${chip}${detail}</div>` : ''}</div></div>`;
 }
 function checkpoint(label, cp) {
   return `<div class="checkpoint"><span>${label} 부족액</span><strong>${cp.shortfallWon == null ? '판정 보류' : esc(won(cp.shortfallWon))}</strong>
@@ -72,7 +92,7 @@ function timeline(plan, scenario) {
         .join('') || '<p class="group-empty">날짜별로 합산할 수 있는 납부 일정이 없습니다.</p>'
     }
     </section>
-    ${plan.undatedInstallments.length ? `<section class="planning-box undated"><div class="box-heading">${icon('calendar-clock')}<h2>날짜 미확정 납부</h2></div>${plan.undatedInstallments.map(paymentLine).join('')}</section>` : ''}`;
+    ${plan.undatedInstallments.length ? `<section class="planning-box undated"><div class="box-heading">${icon('calendar-clock')}<h2>날짜 미확정 납부</h2></div>${plan.undatedInstallments.map((p, idx) => paymentLine(p, `undated:${idx}`)).join('')}</section>` : ''}`;
 }
 function fundsPanel(s) {
   const d = s.draft;
@@ -306,5 +326,48 @@ export function createFundingPage({ root, render, onRoomSelected }) {
       }
     }
   });
-  return { reset, enter, view };
+  function getEvidenceItems() {
+    const plan = s.plan;
+    if (!plan || plan.scheduleStatus !== 'available') return [];
+    const list = [];
+    const roomPrefix = s.room ? s.room + ' ' : '';
+    for (const component of plan.components ?? []) {
+      if (component.evidence?.length) {
+        list.push({
+          id: `funding:component:${component.item}`,
+          label: `${roomPrefix}${items[component.item]} 납부 금액`,
+          displayValue: amount(component.totalWon),
+          rawValue: rawWon(component.totalWon),
+          status: component.status ?? 'unverified',
+          refs: component.evidence,
+        });
+      }
+      (component.installments ?? []).forEach((p, idx) => {
+        if (p.timing?.evidence?.length) {
+          list.push({
+            id: `funding:timing:comp:${component.item}:${idx}`,
+            label: `${roomPrefix}${items[p.item]} ${stages[p.stage]} 납부일`,
+            displayValue: timingLabel(p.timing) + (p.won != null ? ' · ' + won(p.won) : ''),
+            rawValue: rawWon(p.won),
+            status: p.timing.date ? 'confirmed' : 'held',
+            refs: p.timing.evidence,
+          });
+        }
+      });
+    }
+    (plan.undatedInstallments ?? []).forEach((p, idx) => {
+      if (p.timing?.evidence?.length) {
+        list.push({
+          id: `funding:timing:undated:${idx}`,
+          label: `${roomPrefix}${items[p.item]} ${stages[p.stage]} (날짜 미확정)`,
+          displayValue: timingLabel(p.timing) + (p.won != null ? ' · ' + won(p.won) : ''),
+          rawValue: rawWon(p.won),
+          status: 'held',
+          refs: p.timing.evidence,
+        });
+      }
+    });
+    return list;
+  }
+  return { reset, enter, view, getEvidenceItems };
 }

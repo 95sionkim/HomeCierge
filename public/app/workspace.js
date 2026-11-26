@@ -1,8 +1,10 @@
 import * as api from './client.js';
 import { esc, icon, dateText, todayKst, errorText, isoDate } from './display.js';
 import { directoryPanels, directoryView, homeView, emptyState } from './directory-view.js';
-import { analysisConditionBar, comparisonView, runView, sampleHeld } from './result-view.js';
+import { analysisConditionBar, comparisonEvidenceItems, comparisonView, runView, sampleHeld } from './result-view.js';
 import { marketView, tradeNames } from './trade-comparison.js';
+import { createComplexDetailSheet } from './complex-detail.js';
+import { createEvidenceViewerSheet } from './evidence-viewer.js';
 import { frame, authDialog, noticeDialog, sourceDialog, accountDialog } from './dialogs.js';
 import { createSearchPage } from './search-page.js';
 import { createFundingPage } from './funding-page.js';
@@ -17,6 +19,7 @@ import { reportExample } from '/vendor/planning-example.js';
 
 const root = document.querySelector('#app');
 const dialog = document.querySelector('#workspace-dialog');
+const evidenceSheet = document.querySelector('#evidence-sheet');
 const announcement = document.querySelector('#announcement');
 const state = {
   session: null,
@@ -26,6 +29,7 @@ const state = {
   dirError: null,
   run: null,
   comparison: null,
+  evidenceDetail: null,
   runError: null,
   sample: null,
   sampleError: null,
@@ -55,7 +59,10 @@ let epoch = 0,
 let dialogNotice = null,
   sendingStart = false,
   sessionSubscription;
-let demoDirectory, demoComparison;
+let demoDirectory, demoComparison, demoEvidenceBundle;
+let evidenceController = null,
+  evidenceCacheKey = null,
+  evidencePending = null;
 let analysisKey, resultLinkFocus, originRun = null;
 let profileDraft = null;
 let reportFundingChoice = null;
@@ -117,6 +124,55 @@ const conversationPanel = createConversationPanel({
     announce('승인한 조건으로 새 분석 실행으로 이동했습니다.');
   },
 });
+async function loadEvidence(runContext) {
+  if (!runContext || !state.session || state.suspended || state.sessionProblem) return null;
+  const { analysisId, runId, account } = runContext;
+  const key = `${analysisId}/${runId}/${account}`;
+  if (state.evidenceDetail && evidenceCacheKey === key) return state.evidenceDetail;
+  if (evidencePending && evidencePending.key === key) return evidencePending.promise;
+  evidenceController?.abort();
+  const controller = new AbortController();
+  evidenceController = controller;
+  const promise = (async () => {
+    const data = await api.getComparisonEvidence(analysisId, runId, controller.signal);
+    if (
+      data?.contractVersion !== 'comparison-evidence-detail/v1' ||
+      data.analysisId !== analysisId ||
+      data.runId !== runId
+    ) {
+      throw Object.assign(new Error('invalid evidence'), { code: 'backend_unavailable' });
+    }
+    if (epoch !== account || analysisKey !== `${analysisId}/${runId}`) return null;
+    state.evidenceDetail = data;
+    evidenceCacheKey = key;
+    return data;
+  })().finally(() => {
+    if (evidencePending?.promise === promise) evidencePending = null;
+    if (evidenceController === controller) evidenceController = null;
+  });
+  evidencePending = { key, promise };
+  return promise;
+}
+const complexDetailSheet = createComplexDetailSheet({
+  sheet: evidenceSheet,
+  announce,
+  loadEvidence,
+});
+const evidenceViewerSheet = createEvidenceViewerSheet({
+  sheet: evidenceSheet,
+  announce,
+  loadEvidence,
+  downloadUpload: (analysisId, uploadId) => api.downloadAnalysisUpload(analysisId, uploadId),
+});
+function clearEvidenceState() {
+  evidenceController?.abort();
+  evidenceController = null;
+  evidencePending = null;
+  evidenceCacheKey = null;
+  state.evidenceDetail = null;
+  complexDetailSheet.reset();
+  evidenceViewerSheet.reset();
+}
 const resultSections = { comparison: '비교 결과', funding: '호실 자금표', law: '법령 근거', news: '지역 뉴스', commute: '출퇴근 경로', report: '보고서' };
 const navs = [
   ['home', 'house', '홈'],
@@ -127,17 +183,19 @@ const navs = [
   ['profile', 'user-round', '공유 프로필'],
 ];
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+const samplePresets = new Set(['saved', 'expanded', 'held']);
 function readRoute() {
   const bits = location.hash.replace(/^#\/?/, '').split('/');
   if (bits.length === 1 && bits[0] === 'privacy') return { key:'privacy' };
   let section = 'comparison';
-  const sectionAt = bits[0] === 'sample' && bits[1] === 'saved' ? 2 : 3;
+  const isPreset = bits[0] === 'sample' && samplePresets.has(bits[1]);
+  const sectionAt = isPreset ? 2 : 3;
   if (['run', 'sample'].includes(bits[0]) && bits.length === sectionAt + 1 &&
       ['funding', 'law', 'news', 'commute', 'report'].includes(bits.at(-1))) section = bits.pop();
   if (bits[0] === 'reports' && bits.length === 2 && uuid.test(bits[1])) return { key: 'reports', reportId: bits[1].toLowerCase() };
   if (bits[0] === 'run' && bits.length === 3 && uuid.test(bits[1]) && uuid.test(bits[2]))
     return { key: 'run', analysisId: bits[1].toLowerCase(), runId: bits[2].toLowerCase(), section };
-  if (bits[0] === 'sample' && bits.length === 2 && bits[1] === 'saved') return { key: 'sample', saved: true, section };
+  if (isPreset && bits.length === 2) return { key: 'sample', saved: bits[1] === 'saved', preset: bits[1], section };
   if (bits[0] === 'sample' && bits.length === 3) {
     try {
       return { key: 'sample', noticeNo: decodeURIComponent(bits[1]), modelNo: decodeURIComponent(bits[2]), section };
@@ -196,6 +254,7 @@ function resetPrivate(keepPrivacy = false) {
     includeClosed: false,
     visible: 12,
   });
+  clearEvidenceState();
   closeDialog();
 }
 function setUser(user, force = false) {
@@ -256,6 +315,17 @@ async function getFixture(type) {
     else demoComparison = data;
   }
   return data;
+}
+async function getEvidenceFixture() {
+  if (!demoEvidenceBundle) {
+    const response = await fetch('/app/assets/comparison-evidence-example.json', { credentials: 'omit' });
+    if (!response.ok) throw new Error('evidence fixture unavailable');
+    const data = await response.json();
+    if (data?.dataOrigin !== 'synthetic' || data.contractVersion !== 'synthetic-evidence-examples/v1')
+      throw new Error('invalid evidence fixture');
+    demoEvidenceBundle = data;
+  }
+  return demoEvidenceBundle;
 }
 function validDirectory(d, origin) {
   if (
@@ -467,6 +537,8 @@ function focusedControl(node) {
     'data-view',
     'data-fund-scenario',
     'data-trade-kind',
+    'data-open-complex',
+    'data-open-evidence',
     'data-date',
     'data-month',
     'href',
@@ -525,6 +597,7 @@ function render() {
               null,
               state.tradeKind,
               route.section === 'comparison' ? conversationPanel.view() : '',
+              route.preset ?? null,
             )
           : emptyState('loader-circle', '예시 결과를 불러오고 있습니다.');
   else body = directoryView(state);
@@ -648,10 +721,25 @@ async function loadReferenceConditions() {
 }
 async function readSample(route, version) {
   try {
-    if (route.saved) {
-      const d = await getFixture('comparison');
+    if (route.preset === 'saved') {
+      const [d, bundle] = await Promise.all([
+        getFixture('comparison'),
+        getEvidenceFixture().catch(() => null),
+      ]);
       if (version !== routeVersion) return;
       state.sample = d;
+      state.evidenceDetail = bundle?.savedEvidence ?? null;
+    } else if (route.preset === 'expanded' || route.preset === 'held') {
+      const bundle = await getEvidenceFixture();
+      if (version !== routeVersion) return;
+      const scenario = bundle?.scenarios?.[route.preset];
+      if (
+        scenario?.comparison?.dataOrigin !== 'synthetic' ||
+        scenario.comparison.contractVersion !== 'comparison/v1'
+      )
+        throw new Error('sample not found');
+      state.sample = scenario.comparison;
+      state.evidenceDetail = scenario.evidence ?? null;
     } else {
       const dir = await getFixture('directory');
       if (version !== routeVersion) return;
@@ -659,6 +747,7 @@ async function readSample(route, version) {
         m = n?.models.find((x) => x.modelNo === route.modelNo && x.analysisInput);
       if (!m) throw new Error('sample not found');
       state.sample = sampleHeld(n, m, dir.asOf);
+      state.evidenceDetail = null;
     }
   } catch (error) {
     if (version === routeVersion) state.sampleError = error;
@@ -675,7 +764,7 @@ async function readSample(route, version) {
         ownerId: null,
         analysisId: null,
         runId: null,
-        sampleKey: route.saved ? 'saved' : route.noticeNo + '/' + route.modelNo,
+        sampleKey: route.preset ?? route.noticeNo + '/' + route.modelNo,
         comparison: state.sample,
         originRun: null,
       });
@@ -688,7 +777,7 @@ function isReference(route) {
 }
 function loadReference(route, name, snapshotId) {
   const page = route.section === 'commute' ? commutePage : referencePage;
-  page.enter({ section: route.section, guest: route.key === 'sample', saved: route.saved,
+  page.enter({ section: route.section, guest: route.key === 'sample', saved: Boolean(route.preset),
     ownerId: state.session?.id, analysisId: route.analysisId, snapshotId, name });
 }
 function loadFunding(route, result, snapshotId) {
@@ -702,7 +791,7 @@ function routeChanged(focus = false) {
   const route = readRoute();
   const version = ++routeVersion;
   const key = route.key === 'run' ? route.analysisId + '/' + route.runId :
-    route.key === 'sample' ? 'sample/' + (route.saved ? 'saved' : route.noticeNo + '/' + route.modelNo) : null;
+    route.key === 'sample' ? 'sample/' + (route.preset ?? route.noticeNo + '/' + route.modelNo) : null;
   if (key !== analysisKey) {
     analysisKey = key;
     reportFundingChoice = null;
@@ -725,6 +814,7 @@ function routeChanged(focus = false) {
   commutePage.reset();
   conversationPanel.reset();
   clearTimeout(pollTimer);
+  clearEvidenceState();
   closeDialog();
   state.run = null;
   state.conditionLookup = null;
@@ -797,6 +887,50 @@ root.addEventListener('click', (event) => {
       reviewFromProfile = { owner: state.session.id, proposal };
       navigate('#run/' + proposal.analysisId + '/' + proposal.runId);
     }
+    return;
+  }
+  if (control.dataset.openComplex) {
+    const route = readRoute();
+    const data = route.key === 'sample' ? state.sample : route.key === 'run' ? state.comparison : null;
+    if (!data || state.suspended || state.sessionProblem || state.runError) return;
+    evidenceViewerSheet.close({ restoreFocus: false });
+    const runContext =
+      route.key === 'run' && state.session
+        ? { analysisId: route.analysisId, runId: route.runId, account: epoch }
+        : null;
+    void complexDetailSheet.open({
+      comparison: data,
+      complexId: control.dataset.openComplex,
+      role: control.dataset.complexRole === 'target' ? 'target' : 'comparable',
+      tradeKind: state.tradeKind,
+      evidenceDetail: state.evidenceDetail,
+      trigger: control,
+      runContext,
+    });
+    return;
+  }
+  if (control.dataset.openEvidence) {
+    const route = readRoute();
+    const data = route.key === 'sample' ? state.sample : route.key === 'run' ? state.comparison : null;
+    if (!data || state.suspended || state.sessionProblem || state.runError) return;
+    complexDetailSheet.close({ restoreFocus: false });
+    const items =
+      route.section === 'funding' ? fundingPage.getEvidenceItems() : comparisonEvidenceItems(data);
+    if (!items.length) return;
+    const runContext =
+      route.key === 'run' && state.session
+        ? { analysisId: route.analysisId, runId: route.runId, account: epoch }
+        : null;
+    void evidenceViewerSheet.open({
+      items,
+      activeId: control.dataset.openEvidence,
+      target: data.target ?? null,
+      dataOrigin: data.dataOrigin ?? (route.key === 'sample' ? 'synthetic' : 'collected'),
+      analysisId: route.key === 'run' ? route.analysisId : null,
+      evidenceDetail: state.evidenceDetail,
+      trigger: control,
+      runContext,
+    });
     return;
   }
   if (notice !== undefined) {

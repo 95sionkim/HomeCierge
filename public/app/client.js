@@ -43,6 +43,7 @@ const publicErrors = new Set([
   'run_conflict',
   'comparison_not_available',
   'comparison_source_restricted',
+  'not_found',
   'invalid_conversation_input',
   'invalid_report_input',
   'report_not_found',
@@ -524,6 +525,19 @@ export function cancelRun(analysisId, runId) {
 }
 export function getResult(analysisId, runId) {
   return request(runPath(analysisId, runId) + '/result');
+}
+export function getComparisonEvidence(analysisId, runId, signal) {
+  return request(runPath(analysisId, runId) + '/evidence', 'GET', undefined, signal);
+}
+export function downloadAnalysisUpload(analysisId, uploadId, signal) {
+  if (!uuid.test(analysisId) || !uuid.test(uploadId)) throw apiError('invalid_run_input');
+  return request(
+    '/api/v1/analyses/' + analysisId + '/uploads/' + uploadId + '/content',
+    'GET',
+    undefined,
+    signal,
+    'pdf',
+  );
 }
 export function listSavedReports(signal, before = null) {
   if (before !== null && !uuid.test(before)) throw apiError('invalid_report_input');

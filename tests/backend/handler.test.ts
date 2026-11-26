@@ -25,6 +25,7 @@ const backend: Backend = {
   prepareCommute: async () => { throw new Error('unexpected_commute_request'); },
   prepareRegionalNews: async () => { throw new Error('unexpected_news_request'); },
   getComparison: async () => { throw new Error('unexpected_comparison_read'); },
+  getComparisonEvidence: async () => { throw new Error('unexpected_comparison_evidence_read'); },
   analysisConversation: async () => { throw new Error('unexpected_conversation_request'); },
 };
 const req = (path: string, headers: Record<string,string> = {}, method = 'GET') =>

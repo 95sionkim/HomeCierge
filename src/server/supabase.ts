@@ -3,7 +3,12 @@ import { isDeepStrictEqual } from 'node:util';
 import { createClient, StorageApiError } from '@supabase/supabase-js';
 import type { Database } from '../db/database.types.js';
 import { ApiError } from './http-input.js';
-import { parseAnalysisRun, parseComparisonSnapshot } from './analysis-runs.js';
+import {
+  buildComparisonEvidenceDetail,
+  extractComparisonUploadIds,
+  parseAnalysisRun,
+  parseComparisonSnapshot,
+} from './analysis-runs.js';
 import type { Backend, BackendConfig } from './handler.js';
 
 const uploadBucket = 'analysis-uploads';
@@ -184,6 +189,42 @@ export function createBackend(config: BackendConfig): Backend {
       const snapshot = parseComparisonSnapshot(data, analysisId, runId);
       if (!snapshot) throw new Error('invalid_comparison_response');
       return snapshot;
+    },
+    async getComparisonEvidence(analysisId, runId, signal) {
+      // 소유권·완료 상태와 출처 표시 권한을 기존 비교 RPC로 먼저 검증한다.
+      const { data, error } = await client.rpc('get_analysis_comparison', {
+        p_analysis_id: analysisId, p_run_id: runId,
+      }).abortSignal(signal);
+      if (error?.code === 'PT403') throw new ApiError('comparison_source_restricted');
+      if (error?.code === 'PT404') throw new ApiError('run_not_found');
+      if (error?.code === 'PT409') throw new ApiError('comparison_not_available');
+      if (error) throw new Error('database_unavailable');
+      const snapshot = parseComparisonSnapshot(data, analysisId, runId);
+      if (!snapshot) throw new Error('invalid_comparison_response');
+
+      const { data: snapRow, error: snapError } = await client.from('analysis_input_snapshots')
+        .select('id,analysis_id,data_origin,result_snapshot')
+        .eq('id', snapshot.snapshotId)
+        .eq('analysis_id', analysisId)
+        .abortSignal(signal)
+        .maybeSingle();
+      if (snapError) throw new Error('database_unavailable');
+
+      const uploadIds = extractComparisonUploadIds(snapshot, snapRow?.result_snapshot ?? null);
+      let uploadRows: Array<{ id: string; status: string }> = [];
+      if (uploadIds.length > 0) {
+        const { data: rows, error: uploadError } = await client.from('analysis_uploads')
+          .select('id,status')
+          .eq('analysis_id', analysisId)
+          .in('id', uploadIds)
+          .abortSignal(signal);
+        if (uploadError) throw new Error('database_unavailable');
+        uploadRows = rows ?? [];
+      }
+
+      const detail = buildComparisonEvidenceDetail(snapshot, snapRow, uploadRows);
+      if (!detail) throw new Error('invalid_comparison_response');
+      return detail;
     },
     async analysisConversation(op, signal) {
       const target = { p_analysis_id: op.analysisId, p_run_id: op.runId };

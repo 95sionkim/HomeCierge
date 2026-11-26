@@ -111,6 +111,7 @@ export function errorText(error) {
     run_conflict: '공고 정보 또는 실행 상태가 달라졌습니다. 최신 목록을 다시 확인하세요.',
     comparison_not_available: '아직 저장된 비교 결과가 없습니다. 실행 상태를 확인하세요.',
     comparison_source_restricted: '이 결과에 사용된 출처의 표시 권한을 확인 중입니다.',
+    not_found: '등록된 업로드 문서를 찾을 수 없습니다.',
     invalid_conversation_input: '질문은 1~800자 이내로 입력하고, 현재 분석 화면에서 다시 시도하세요.',
     conversation_period_unavailable: '요청한 기간은 현재 수집 자료로 비교할 수 없습니다. 기간을 조정해 다시 질문하세요.',
     conversation_conflict: '다른 대화나 결정이 먼저 처리됐습니다. 최신 대화 내역을 확인한 뒤 다시 진행하세요.',

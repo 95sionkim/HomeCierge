@@ -1,0 +1,958 @@
+{
+  "contractVersion": "synthetic-evidence-examples/v1",
+  "dataOrigin": "synthetic",
+  "savedEvidence": {
+    "contractVersion": "comparison-evidence-detail/v1",
+    "analysisId": "b0000000-0000-4000-8000-000000000001",
+    "runId": "b0000000-0000-4000-8000-000000000005",
+    "snapshotId": "b0000000-0000-4000-8000-000000000002",
+    "dataOrigin": "synthetic",
+    "noticeLink": null,
+    "documents": [
+      {
+        "id": "synthetic-notice-pdf",
+        "version": "synthetic-v1",
+        "versionShort": "synthetic-v1",
+        "source": "official",
+        "originCheck": "confirmed",
+        "status": "accepted",
+        "reasons": [],
+        "houseManageNo": "9900000001",
+        "noticeNo": "9900000042",
+        "edition": "synthetic-edition-1",
+        "officialUrl": null,
+        "uploadId": null,
+        "uploadContentPath": null,
+        "uploadStatus": null
+      }
+    ],
+    "tradeObservations": [
+      {
+        "recordId": "col-apt_trade-99999-202610",
+        "source": "apt_trade",
+        "page": 1,
+        "position": 1,
+        "tradeKind": "sale",
+        "contractDate": "2026-10-20",
+        "amountWon": "515000000",
+        "exclusiveAreaM2": "84.00",
+        "floor": "7",
+        "buildYear": null,
+        "dealingGbn": null,
+        "cancellationStatus": "not_marked",
+        "cancellationDate": null,
+        "identifiers": {
+          "aptNm": "합성 비교 A",
+          "aptSeq": "99999-100",
+          "sggCd": "99999",
+          "umdCd": "00100",
+          "umdNm": "가람동",
+          "jibun": "100"
+        }
+      },
+      {
+        "recordId": "col-apt_trade-99999-202610",
+        "source": "apt_trade",
+        "page": 1,
+        "position": 2,
+        "tradeKind": "sale",
+        "contractDate": "2026-10-21",
+        "amountWon": "515000000",
+        "exclusiveAreaM2": "84.00",
+        "floor": "8",
+        "buildYear": null,
+        "dealingGbn": null,
+        "cancellationStatus": "cancelled",
+        "cancellationDate": "26.10.29",
+        "identifiers": {
+          "aptNm": "합성 비교 A",
+          "aptSeq": "99999-100",
+          "sggCd": "99999",
+          "umdCd": "00100",
+          "umdNm": "가람동",
+          "jibun": "100"
+        }
+      },
+      {
+        "recordId": "col-apt_trade-99999-202610",
+        "source": "apt_trade",
+        "page": 2,
+        "position": 1,
+        "tradeKind": "sale",
+        "contractDate": "2026-10-09",
+        "amountWon": "515000000",
+        "exclusiveAreaM2": "84.00",
+        "floor": "9",
+        "buildYear": null,
+        "dealingGbn": null,
+        "cancellationStatus": "not_marked",
+        "cancellationDate": null,
+        "identifiers": {
+          "aptNm": "합성 비교 A",
+          "aptSeq": "99999-100",
+          "sggCd": "99999",
+          "umdCd": "00100",
+          "umdNm": "가람동",
+          "jibun": "100"
+        }
+      },
+      {
+        "recordId": "col-apt_rights-99999-202610",
+        "source": "apt_rights",
+        "page": 1,
+        "position": 1,
+        "tradeKind": "presale_right",
+        "contractDate": "2026-10-24",
+        "amountWon": "405000000",
+        "exclusiveAreaM2": "82.50",
+        "floor": "5",
+        "buildYear": null,
+        "dealingGbn": null,
+        "cancellationStatus": "not_marked",
+        "cancellationDate": null,
+        "identifiers": {
+          "aptNm": "합성 비교 B",
+          "sggCd": "99999",
+          "umdNm": "가람동",
+          "jibun": "201"
+        }
+      },
+      {
+        "recordId": "col-apt_rights-99999-202610",
+        "source": "apt_rights",
+        "page": 1,
+        "position": 2,
+        "tradeKind": "occupancy_right",
+        "contractDate": "2026-10-26",
+        "amountWon": "486000000",
+        "exclusiveAreaM2": "82.50",
+        "floor": "5",
+        "buildYear": null,
+        "dealingGbn": null,
+        "cancellationStatus": "not_marked",
+        "cancellationDate": null,
+        "identifiers": {
+          "aptNm": "합성 비교 B",
+          "sggCd": "99999",
+          "umdNm": "가람동",
+          "jibun": "201"
+        }
+      }
+    ]
+  },
+  "scenarios": {
+    "expanded": {
+      "comparison": {
+        "contractVersion": "comparison/v1",
+        "dataOrigin": "synthetic",
+        "completeness": "complete",
+        "appliedScope": "expansion",
+        "rankingComplete": true,
+        "target": {
+          "houseManageNo": "9900000002",
+          "noticeNo": "9900000043",
+          "edition": "synthetic-edition-2",
+          "name": "합성 누리 센트럴 아파트",
+          "modelNo": "01",
+          "houseType": "084.9811C",
+          "supplyArea": {
+            "status": "confirmed",
+            "basis": "supply",
+            "m2": "105.8939",
+            "evidence": [
+              {
+                "document": "synthetic-notice-pdf-2",
+                "version": "sha256:97987f527a961051724f6561aca34451e3131a23ae9e11a0c65ee53ddee1d98e",
+                "page": 4,
+                "evidenceIndex": 0
+              }
+            ],
+            "reasons": []
+          },
+          "complexId": "target-nuri",
+          "noticeEvidence": {
+            "source": "applyhome_apt",
+            "page": 1,
+            "position": 1,
+            "address": "합성시 가람구 가람동 592-39",
+            "linkEvidence": {
+              "source": "synthetic-complex-register",
+              "reference": "target-nuri"
+            }
+          }
+        },
+        "noticePrice": {
+          "status": "confirmed",
+          "scope": "selected_room",
+          "basis": "sale_price_plus_required_options",
+          "room": "101동 402호",
+          "won": "1243800000",
+          "minWon": null,
+          "maxWon": null,
+          "confirmedRooms": [
+            {
+              "room": "101동 402호",
+              "salePriceWon": "1222020000",
+              "requiredOptionsWon": "21780000",
+              "subtotalWon": "1243800000",
+              "evidence": {
+                "salePrice": [
+                  {
+                    "document": "synthetic-notice-pdf-2",
+                    "version": "sha256:97987f527a961051724f6561aca34451e3131a23ae9e11a0c65ee53ddee1d98e",
+                    "page": 4,
+                    "evidenceIndex": 1
+                  }
+                ],
+                "requiredOptions": [
+                  {
+                    "document": "synthetic-notice-pdf-2",
+                    "version": "sha256:97987f527a961051724f6561aca34451e3131a23ae9e11a0c65ee53ddee1d98e",
+                    "page": 5,
+                    "evidenceIndex": 2
+                  }
+                ]
+              }
+            }
+          ],
+          "heldRooms": [],
+          "reasons": []
+        },
+        "regionDecision": {
+          "priority": {
+            "kind": "dong",
+            "code": "9999900100",
+            "name": "가람동",
+            "requestRegionCodes": ["99999"],
+            "evidence": { "source": "synthetic-region-register", "reference": "garam" },
+            "conclusion": "normal_zero",
+            "confirmedCandidateCount": 0,
+            "unresolvedRows": 0,
+            "collectionStatus": "complete",
+            "screeningStatus": "complete",
+            "tradeKinds": {
+              "sale": { "conclusion": "normal_zero", "confirmedCandidateCount": 0, "unresolvedRows": 0, "collectionStatus": "complete", "recordIds": ["col-apt_trade-99999-202610"], "displayedCandidateCount": 0 },
+              "presale_right": { "conclusion": "normal_zero", "confirmedCandidateCount": 0, "unresolvedRows": 0, "collectionStatus": "complete", "recordIds": ["col-apt_rights-99999-202610"], "displayedCandidateCount": 0 },
+              "occupancy_right": { "conclusion": "normal_zero", "confirmedCandidateCount": 0, "unresolvedRows": 0, "collectionStatus": "complete", "recordIds": ["col-apt_rights-99999-202610"], "displayedCandidateCount": 0 }
+            }
+          },
+          "expansion": {
+            "kind": "district",
+            "code": "99999",
+            "name": "가람구",
+            "requestRegionCodes": ["99999"],
+            "evidence": { "source": "synthetic-region-register", "reference": "district-99999" },
+            "conclusion": "candidates_found",
+            "confirmedCandidateCount": 2,
+            "unresolvedRows": 0,
+            "collectionStatus": "complete",
+            "screeningStatus": "complete",
+            "tradeKinds": {
+              "sale": { "conclusion": "candidates_found", "confirmedCandidateCount": 2, "unresolvedRows": 0, "collectionStatus": "complete", "recordIds": ["col-apt_trade-99999-202610"], "displayedCandidateCount": 2 },
+              "presale_right": { "conclusion": "normal_zero", "confirmedCandidateCount": 0, "unresolvedRows": 0, "collectionStatus": "complete", "recordIds": ["col-apt_rights-99999-202610"], "displayedCandidateCount": 0 },
+              "occupancy_right": { "conclusion": "normal_zero", "confirmedCandidateCount": 0, "unresolvedRows": 0, "collectionStatus": "complete", "recordIds": ["col-apt_rights-99999-202610"], "displayedCandidateCount": 0 }
+            }
+          },
+          "reasonCode": "priority_normal_zero"
+        },
+        "tradeKinds": {
+          "sale": { "conclusion": "candidates_found", "confirmedCandidateCount": 2, "unresolvedRows": 0, "collectionStatus": "complete", "recordIds": ["col-apt_trade-99999-202610"], "displayedCandidateCount": 2 },
+          "presale_right": { "conclusion": "normal_zero", "confirmedCandidateCount": 0, "unresolvedRows": 0, "collectionStatus": "complete", "recordIds": ["col-apt_rights-99999-202610"], "displayedCandidateCount": 0 },
+          "occupancy_right": { "conclusion": "normal_zero", "confirmedCandidateCount": 0, "unresolvedRows": 0, "collectionStatus": "complete", "recordIds": ["col-apt_rights-99999-202610"], "displayedCandidateCount": 0 }
+        },
+        "conditions": {
+          "asOf": "2026-11-10",
+          "period": {
+            "status": "confirmed",
+            "source": "default_recent_year",
+            "asOf": "2026-11-10",
+            "start": "2025-11-11",
+            "end": "2026-11-10",
+            "bounds": "inclusive",
+            "months": ["202610"],
+            "inProgressMonth": null,
+            "decision": null
+          },
+          "area": { "basis": "supply", "tolerancePercent": "5", "minM2": "100.599205", "maxM2": "111.188595" },
+          "tradeKinds": ["sale", "presale_right", "occupancy_right"],
+          "maxComparables": 5,
+          "limitations": ["reporting_delays", "later_corrections_or_cancellations"]
+        },
+        "comparables": [
+          {
+            "complexId": "exp-d",
+            "name": "합성 확대 단지 D",
+            "localityCode": "9999900200",
+            "supplyAreaM2": "106.00",
+            "areaDifferenceM2": "0.1061",
+            "identityEvidence": { "source": "kapt", "reference": "A99000001" },
+            "regionEvidence": { "source": "synthetic-region-register", "reference": "nuri" },
+            "distance": {
+              "kind": "straight_line",
+              "status": "confirmed",
+              "meters": 920.4,
+              "evidence": [{ "source": "synthetic-coordinate-register", "reference": "exp-d" }]
+            },
+            "rank": 1,
+            "selectionReason": "area_difference_then_straight_line",
+            "tradeStats": {
+              "sale": {
+                "status": "confirmed",
+                "priceMeaning": "sale_transaction_amount",
+                "count": 3,
+                "minWon": "1260000000",
+                "maxWon": "1410000000",
+                "medianWon": "1340000000",
+                "smallSample": false,
+                "observations": [
+                  {
+                    "recordId": "col-apt_trade-99999-202610",
+                    "source": "apt_trade",
+                    "page": 1,
+                    "position": 1,
+                    "contractDate": "2026-10-12",
+                    "exclusiveAreaM2": "84.90",
+                    "floor": "15",
+                    "buildYear": "2008",
+                    "collectedAt": "2026-11-10T01:00:02Z",
+                    "evidence": { "source": "synthetic-area-register", "reference": "exp-d/84.90" },
+                    "won": "1410000000"
+                  },
+                  {
+                    "recordId": "col-apt_trade-99999-202610",
+                    "source": "apt_trade",
+                    "page": 1,
+                    "position": 2,
+                    "contractDate": "2026-09-03",
+                    "exclusiveAreaM2": "84.90",
+                    "floor": "8",
+                    "buildYear": "2008",
+                    "collectedAt": "2026-11-10T01:00:02Z",
+                    "evidence": { "source": "synthetic-area-register", "reference": "exp-d/84.90" },
+                    "won": "1340000000"
+                  },
+                  {
+                    "recordId": "col-apt_trade-99999-202610",
+                    "source": "apt_trade",
+                    "page": 1,
+                    "position": 3,
+                    "contractDate": "2026-07-21",
+                    "exclusiveAreaM2": "84.90",
+                    "floor": "3",
+                    "buildYear": "2008",
+                    "collectedAt": "2026-11-10T01:00:02Z",
+                    "evidence": { "source": "synthetic-area-register", "reference": "exp-d/84.90" },
+                    "won": "1260000000"
+                  }
+                ]
+              }
+            },
+            "characteristics": [
+              { "field": "householdCount", "status": "confirmed", "value": 612, "evidence": { "source": "kapt", "reference": "A99000001" } },
+              { "field": "householdCount", "status": "confirmed", "value": 613, "evidence": { "source": "building_register", "reference": "BR-99000001" } },
+              { "field": "approvalDate", "status": "confirmed", "value": "2008-05-15", "evidence": { "source": "kapt", "reference": "A99000001" } }
+            ]
+          },
+          {
+            "complexId": "exp-e",
+            "name": "합성 확대 단지 E",
+            "localityCode": "9999900300",
+            "supplyAreaM2": "108.50",
+            "areaDifferenceM2": "2.6061",
+            "identityEvidence": { "source": "synthetic-complex-register", "reference": "exp-e" },
+            "regionEvidence": { "source": "synthetic-region-register", "reference": "maru" },
+            "distance": { "kind": "straight_line", "status": "unverified", "meters": null, "evidence": [] },
+            "rank": 2,
+            "selectionReason": "area_difference_then_straight_line",
+            "tradeStats": {
+              "sale": {
+                "status": "confirmed",
+                "priceMeaning": "sale_transaction_amount",
+                "count": 1,
+                "minWon": "1180000000",
+                "maxWon": "1180000000",
+                "medianWon": "1180000000",
+                "smallSample": true,
+                "observations": [
+                  {
+                    "recordId": "col-apt_trade-99999-202610",
+                    "source": "apt_trade",
+                    "page": 1,
+                    "position": 6,
+                    "contractDate": "2026-10-05",
+                    "exclusiveAreaM2": "84.50",
+                    "floor": "11",
+                    "buildYear": "2004",
+                    "collectedAt": "2026-11-10T01:00:02Z",
+                    "evidence": { "source": "synthetic-area-register", "reference": "exp-e/84.50" },
+                    "won": "1180000000"
+                  }
+                ]
+              }
+            },
+            "characteristics": [
+              { "field": "householdCount", "status": "failed", "errorCode": "04", "evidence": { "source": "kapt", "reference": "kapt-err-04" } }
+            ]
+          }
+        ],
+        "targetReferences": [
+          {
+            "complexId": "target-nuri",
+            "name": "합성 누리 센트럴 아파트",
+            "localityCode": "9999900100",
+            "supplyAreaM2": "105.8939",
+            "areaDifferenceM2": "0",
+            "identityEvidence": { "source": "synthetic-complex-register", "reference": "target-nuri" },
+            "regionEvidence": { "source": "synthetic-region-register", "reference": "garam" },
+            "distance": { "kind": "straight_line", "status": "confirmed", "meters": 0, "evidence": [] },
+            "rank": null,
+            "selectionReason": "target_reference",
+            "tradeStats": {
+              "occupancy_right": {
+                "status": "confirmed",
+                "priceMeaning": "reported_rights_transaction_amount",
+                "count": 1,
+                "minWon": "1210000000",
+                "maxWon": "1210000000",
+                "medianWon": "1210000000",
+                "smallSample": true,
+                "observations": [
+                  {
+                    "recordId": "col-apt_rights-99999-202610",
+                    "source": "apt_rights",
+                    "page": 1,
+                    "position": 1,
+                    "contractDate": "2026-10-01",
+                    "exclusiveAreaM2": "84.98",
+                    "floor": "6",
+                    "buildYear": null,
+                    "collectedAt": "2026-11-10T01:00:01Z",
+                    "evidence": { "source": "synthetic-area-register", "reference": "target-nuri/84.98" },
+                    "won": "1210000000"
+                  }
+                ]
+              }
+            },
+            "characteristics": []
+          }
+        ],
+        "holds": [],
+        "exclusions": [
+          {
+            "reasonCode": "outside_supply_area",
+            "scope": "priority",
+            "subject": "trade",
+            "tradeKind": "sale",
+            "reference": { "recordId": "col-apt_trade-99999-202610", "source": "apt_trade", "page": 1, "position": 7 },
+            "complexId": null,
+            "localityCode": "9999900100",
+            "supplyAreaM2": "74.50"
+          },
+          {
+            "reasonCode": "cancelled_trade",
+            "scope": "expansion",
+            "subject": "trade",
+            "tradeKind": "sale",
+            "reference": { "recordId": "col-apt_trade-99999-202610", "source": "apt_trade", "page": 1, "position": 4 },
+            "complexId": null,
+            "localityCode": "9999900200"
+          },
+          {
+            "reasonCode": "outside_supply_area",
+            "scope": "expansion",
+            "subject": "trade",
+            "tradeKind": "sale",
+            "reference": { "recordId": "col-apt_trade-99999-202610", "source": "apt_trade", "page": 1, "position": 5 },
+            "complexId": "exp-d",
+            "localityCode": "9999900200",
+            "supplyAreaM2": "132.40"
+          },
+          {
+            "reasonCode": "target_complex_trade",
+            "scope": "expansion",
+            "subject": "trade",
+            "tradeKind": "occupancy_right",
+            "reference": { "recordId": "col-apt_rights-99999-202610", "source": "apt_rights", "page": 1, "position": 1 },
+            "complexId": "target-nuri",
+            "localityCode": "9999900100"
+          }
+        ],
+        "collections": [
+          {
+            "recordId": "col-apt_trade-99999-202610",
+            "source": "apt_trade",
+            "tradeKinds": ["sale"],
+            "requestRegionCode": "99999",
+            "month": "2026-10",
+            "status": "complete",
+            "reasons": [],
+            "reportedTotalCount": 7,
+            "rowsReceived": 7,
+            "pagesExpected": 1,
+            "totalCountChanged": false,
+            "missingPages": [],
+            "collectedAt": "2026-11-10T01:00:02Z",
+            "error": null
+          },
+          {
+            "recordId": "col-apt_rights-99999-202610",
+            "source": "apt_rights",
+            "tradeKinds": ["presale_right", "occupancy_right"],
+            "requestRegionCode": "99999",
+            "month": "2026-10",
+            "status": "complete",
+            "reasons": [],
+            "reportedTotalCount": 1,
+            "rowsReceived": 1,
+            "pagesExpected": 1,
+            "totalCountChanged": false,
+            "missingPages": [],
+            "collectedAt": "2026-11-10T01:00:01Z",
+            "error": null
+          }
+        ]
+      },
+      "evidence": {
+        "contractVersion": "comparison-evidence-detail/v1",
+        "analysisId": "b0000000-0000-4000-8000-000000000011",
+        "runId": "b0000000-0000-4000-8000-000000000012",
+        "snapshotId": "b0000000-0000-4000-8000-000000000013",
+        "dataOrigin": "synthetic",
+        "noticeLink": null,
+        "documents": [
+          {
+            "id": "synthetic-notice-pdf-2",
+            "version": "sha256:97987f527a961051724f6561aca34451e3131a23ae9e11a0c65ee53ddee1d98e",
+            "versionShort": "sha256:97987f527a96…",
+            "source": "official",
+            "originCheck": "confirmed",
+            "status": "accepted",
+            "reasons": [],
+            "houseManageNo": "9900000002",
+            "noticeNo": "9900000043",
+            "edition": "synthetic-edition-2",
+            "officialUrl": null,
+            "uploadId": null,
+            "uploadContentPath": null,
+            "uploadStatus": null
+          }
+        ],
+        "tradeObservations": [
+          {
+            "recordId": "col-apt_trade-99999-202610",
+            "source": "apt_trade",
+            "page": 1,
+            "position": 1,
+            "tradeKind": "sale",
+            "contractDate": "2026-10-12",
+            "amountWon": "1410000000",
+            "exclusiveAreaM2": "84.90",
+            "floor": "15",
+            "buildYear": "2008",
+            "dealingGbn": "중개거래",
+            "cancellationStatus": "not_marked",
+            "cancellationDate": null,
+            "identifiers": {
+              "aptNm": "합성 확대 단지 D",
+              "aptSeq": "99999-2001",
+              "sggCd": "99999",
+              "umdCd": "00200",
+              "umdNm": "누리동",
+              "jibun": "210-3",
+              "roadNm": "합성누리로",
+              "roadNmBonbun": "00120",
+              "roadNmBubun": "00000"
+            }
+          },
+          {
+            "recordId": "col-apt_trade-99999-202610",
+            "source": "apt_trade",
+            "page": 1,
+            "position": 2,
+            "tradeKind": "sale",
+            "contractDate": "2026-09-03",
+            "amountWon": "1340000000",
+            "exclusiveAreaM2": "84.90",
+            "floor": "8",
+            "buildYear": "2008",
+            "dealingGbn": "중개거래",
+            "cancellationStatus": "not_marked",
+            "cancellationDate": null,
+            "identifiers": {
+              "aptNm": "합성 확대 단지 D",
+              "aptSeq": "99999-2001",
+              "sggCd": "99999",
+              "umdCd": "00200",
+              "umdNm": "누리동",
+              "jibun": "210-3",
+              "roadNm": "합성누리로",
+              "roadNmBonbun": "00120",
+              "roadNmBubun": "00000"
+            }
+          },
+          {
+            "recordId": "col-apt_trade-99999-202610",
+            "source": "apt_trade",
+            "page": 1,
+            "position": 3,
+            "tradeKind": "sale",
+            "contractDate": "2026-07-21",
+            "amountWon": "1260000000",
+            "exclusiveAreaM2": "84.90",
+            "floor": "3",
+            "buildYear": "2008",
+            "dealingGbn": "중개거래",
+            "cancellationStatus": "not_marked",
+            "cancellationDate": null,
+            "identifiers": {
+              "aptNm": "합성 확대 단지 D",
+              "aptSeq": "99999-2001",
+              "sggCd": "99999",
+              "umdCd": "00200",
+              "umdNm": "누리동",
+              "jibun": "210-3",
+              "roadNm": "합성누리로",
+              "roadNmBonbun": "00120",
+              "roadNmBubun": "00000"
+            }
+          },
+          {
+            "recordId": "col-apt_trade-99999-202610",
+            "source": "apt_trade",
+            "page": 1,
+            "position": 4,
+            "tradeKind": "sale",
+            "contractDate": "2026-05-18",
+            "amountWon": "1395000000",
+            "exclusiveAreaM2": "84.90",
+            "floor": "21",
+            "buildYear": "2008",
+            "dealingGbn": "중개거래",
+            "cancellationStatus": "cancelled",
+            "cancellationDate": "26.06.02",
+            "identifiers": {
+              "aptNm": "합성 확대 단지 D",
+              "aptSeq": "99999-2001",
+              "sggCd": "99999",
+              "umdCd": "00200",
+              "umdNm": "누리동",
+              "jibun": "210-3",
+              "roadNm": "합성누리로",
+              "roadNmBonbun": "00120",
+              "roadNmBubun": "00000"
+            }
+          },
+          {
+            "recordId": "col-apt_trade-99999-202610",
+            "source": "apt_trade",
+            "page": 1,
+            "position": 5,
+            "tradeKind": "sale",
+            "contractDate": "2026-08-14",
+            "amountWon": "1620000000",
+            "exclusiveAreaM2": "104.20",
+            "floor": "14",
+            "buildYear": "2008",
+            "dealingGbn": "중개거래",
+            "cancellationStatus": "not_marked",
+            "cancellationDate": null,
+            "identifiers": {
+              "aptNm": "합성 확대 단지 D",
+              "aptSeq": "99999-2001",
+              "sggCd": "99999",
+              "umdCd": "00200",
+              "umdNm": "누리동",
+              "jibun": "210-3",
+              "roadNm": "합성누리로",
+              "roadNmBonbun": "00120",
+              "roadNmBubun": "00000"
+            }
+          },
+          {
+            "recordId": "col-apt_trade-99999-202610",
+            "source": "apt_trade",
+            "page": 1,
+            "position": 6,
+            "tradeKind": "sale",
+            "contractDate": "2026-10-05",
+            "amountWon": "1180000000",
+            "exclusiveAreaM2": "84.50",
+            "floor": "11",
+            "buildYear": "2004",
+            "dealingGbn": "중개거래",
+            "cancellationStatus": "not_marked",
+            "cancellationDate": null,
+            "identifiers": {
+              "aptNm": "합성 확대 단지 E",
+              "aptSeq": "99999-3002",
+              "sggCd": "99999",
+              "umdCd": "00300",
+              "umdNm": "마루동",
+              "jibun": "45-1"
+            }
+          },
+          {
+            "recordId": "col-apt_trade-99999-202610",
+            "source": "apt_trade",
+            "page": 1,
+            "position": 7,
+            "tradeKind": "sale",
+            "contractDate": "2026-10-08",
+            "amountWon": "840000000",
+            "exclusiveAreaM2": "59.80",
+            "floor": "4",
+            "buildYear": "2010",
+            "dealingGbn": "중개거래",
+            "cancellationStatus": "not_marked",
+            "cancellationDate": null,
+            "identifiers": {
+              "aptNm": "합성 가람 소형 단지",
+              "aptSeq": "99999-1099",
+              "sggCd": "99999",
+              "umdCd": "00100",
+              "umdNm": "가람동",
+              "jibun": "510"
+            }
+          },
+          {
+            "recordId": "col-apt_rights-99999-202610",
+            "source": "apt_rights",
+            "page": 1,
+            "position": 1,
+            "tradeKind": "occupancy_right",
+            "contractDate": "2026-10-01",
+            "amountWon": "1210000000",
+            "exclusiveAreaM2": "84.98",
+            "floor": "6",
+            "buildYear": null,
+            "dealingGbn": null,
+            "cancellationStatus": "not_marked",
+            "cancellationDate": null,
+            "identifiers": {
+              "aptNm": "합성 누리 센트럴 아파트",
+              "sggCd": "99999",
+              "umdNm": "가람동",
+              "jibun": "592-39"
+            }
+          }
+        ]
+      }
+    },
+    "held": {
+      "comparison": {
+        "contractVersion": "comparison/v1",
+        "dataOrigin": "synthetic",
+        "completeness": "partial",
+        "appliedScope": "priority",
+        "rankingComplete": false,
+        "target": {
+          "houseManageNo": "9900000003",
+          "noticeNo": "9900000044",
+          "edition": "synthetic-edition-3",
+          "name": "합성 가람동 보류 예시 아파트",
+          "modelNo": "01",
+          "houseType": "084.9811C",
+          "supplyArea": {
+            "status": "confirmed",
+            "basis": "supply",
+            "m2": "105.8939",
+            "evidence": [
+              {
+                "document": "synthetic-notice-pdf-3",
+                "version": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "page": 4,
+                "evidenceIndex": 0
+              }
+            ],
+            "reasons": []
+          },
+          "complexId": "target-held",
+          "noticeEvidence": {
+            "source": "applyhome_apt",
+            "page": 1,
+            "position": 1,
+            "address": "합성시 가람구 가람동 100",
+            "linkEvidence": { "source": "synthetic-complex-register", "reference": "target-held" }
+          }
+        },
+        "noticePrice": {
+          "status": "confirmed",
+          "scope": "confirmed_rooms",
+          "basis": "sale_price_plus_required_options",
+          "room": null,
+          "won": null,
+          "minWon": "1243800000",
+          "maxWon": "1243800000",
+          "confirmedRooms": [
+            {
+              "room": "101동 402호",
+              "salePriceWon": "1222020000",
+              "requiredOptionsWon": "21780000",
+              "subtotalWon": "1243800000",
+              "evidence": {
+                "salePrice": [
+                  {
+                    "document": "synthetic-notice-pdf-3",
+                    "version": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "page": 4,
+                    "evidenceIndex": 1
+                  }
+                ],
+                "requiredOptions": [
+                  {
+                    "document": "synthetic-notice-pdf-3",
+                    "version": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "page": 5,
+                    "evidenceIndex": 2
+                  }
+                ]
+              }
+            }
+          ],
+          "heldRooms": [],
+          "reasons": []
+        },
+        "regionDecision": {
+          "priority": {
+            "kind": "dong",
+            "code": "9999900100",
+            "name": "가람동",
+            "requestRegionCodes": ["99999"],
+            "evidence": { "source": "synthetic-region-register", "reference": "garam" },
+            "conclusion": "held",
+            "confirmedCandidateCount": 0,
+            "unresolvedRows": 3,
+            "collectionStatus": "partial",
+            "screeningStatus": "incomplete",
+            "tradeKinds": {
+              "sale": { "conclusion": "held", "confirmedCandidateCount": 0, "unresolvedRows": 3, "collectionStatus": "complete", "recordIds": ["col-apt_trade-99999-202610"], "displayedCandidateCount": 0 },
+              "presale_right": { "conclusion": "normal_zero", "confirmedCandidateCount": 0, "unresolvedRows": 0, "collectionStatus": "complete", "recordIds": ["col-apt_rights-99999-202610"], "displayedCandidateCount": 0 },
+              "occupancy_right": { "conclusion": "lookup_failed", "confirmedCandidateCount": 0, "unresolvedRows": 0, "collectionStatus": "failed", "recordIds": ["col-apt_rights-99999-202609"], "displayedCandidateCount": 0 }
+            }
+          },
+          "expansion": null,
+          "reasonCode": "priority_held"
+        },
+        "tradeKinds": {
+          "sale": { "conclusion": "held", "confirmedCandidateCount": 0, "unresolvedRows": 3, "collectionStatus": "complete", "recordIds": ["col-apt_trade-99999-202610"], "displayedCandidateCount": 0 },
+          "presale_right": { "conclusion": "normal_zero", "confirmedCandidateCount": 0, "unresolvedRows": 0, "collectionStatus": "complete", "recordIds": ["col-apt_rights-99999-202610"], "displayedCandidateCount": 0 },
+          "occupancy_right": { "conclusion": "lookup_failed", "confirmedCandidateCount": 0, "unresolvedRows": 0, "collectionStatus": "failed", "recordIds": ["col-apt_rights-99999-202609"], "displayedCandidateCount": 0 }
+        },
+        "conditions": {
+          "asOf": "2026-11-10",
+          "period": {
+            "status": "confirmed",
+            "source": "default_recent_year",
+            "asOf": "2026-11-10",
+            "start": "2025-11-11",
+            "end": "2026-11-10",
+            "bounds": "inclusive",
+            "months": ["202609", "202610"],
+            "inProgressMonth": null,
+            "decision": null
+          },
+          "area": { "basis": "supply", "tolerancePercent": "5", "minM2": "100.599205", "maxM2": "111.188595" },
+          "tradeKinds": ["sale", "presale_right", "occupancy_right"],
+          "maxComparables": 5,
+          "limitations": ["reporting_delays", "later_corrections_or_cancellations"]
+        },
+        "comparables": [],
+        "targetReferences": [],
+        "holds": [
+          { "reasonCode": "trade_supply_area_unverified", "scope": "priority", "subject": "trade", "tradeKind": "sale", "decisionId": "D-01" },
+          { "reasonCode": "trade_supply_area_unverified", "scope": "priority", "subject": "trade", "tradeKind": "sale", "decisionId": "D-01" },
+          { "reasonCode": "trade_link_unverified", "scope": "priority", "subject": "trade", "tradeKind": "sale" },
+          { "reasonCode": "collection_failed", "scope": "priority", "subject": "collection", "recordId": "col-apt_rights-99999-202609", "source": "apt_rights", "tradeKinds": ["occupancy_right"] }
+        ],
+        "exclusions": [
+          {
+            "reasonCode": "cancelled_trade",
+            "scope": "priority",
+            "subject": "trade",
+            "tradeKind": "sale",
+            "reference": { "recordId": "col-apt_trade-99999-202610", "source": "apt_trade", "page": 1, "position": 1 },
+            "complexId": null,
+            "localityCode": "9999900100"
+          }
+        ],
+        "collections": [
+          {
+            "recordId": "col-apt_trade-99999-202610",
+            "source": "apt_trade",
+            "tradeKinds": ["sale"],
+            "requestRegionCode": "99999",
+            "month": "2026-10",
+            "status": "complete",
+            "reasons": [],
+            "reportedTotalCount": 4,
+            "rowsReceived": 4,
+            "pagesExpected": 1,
+            "totalCountChanged": false,
+            "missingPages": [],
+            "collectedAt": "2026-11-10T01:00:02Z",
+            "error": null
+          },
+          {
+            "recordId": "col-apt_rights-99999-202610",
+            "source": "apt_rights",
+            "tradeKinds": ["presale_right"],
+            "requestRegionCode": "99999",
+            "month": "2026-10",
+            "status": "empty",
+            "reasons": [],
+            "reportedTotalCount": 0,
+            "rowsReceived": 0,
+            "pagesExpected": 1,
+            "totalCountChanged": false,
+            "missingPages": [],
+            "collectedAt": "2026-11-10T01:00:01Z",
+            "error": null
+          },
+          {
+            "recordId": "col-apt_rights-99999-202609",
+            "source": "apt_rights",
+            "tradeKinds": ["occupancy_right"],
+            "requestRegionCode": "99999",
+            "month": "2026-09",
+            "status": "failed",
+            "reasons": ["upstream_unavailable"],
+            "reportedTotalCount": null,
+            "rowsReceived": 0,
+            "pagesExpected": null,
+            "totalCountChanged": false,
+            "missingPages": [],
+            "collectedAt": null,
+            "error": { "code": "upstream_unavailable", "layer": "http" }
+          }
+        ]
+      },
+      "evidence": {
+        "contractVersion": "comparison-evidence-detail/v1",
+        "analysisId": "b0000000-0000-4000-8000-000000000021",
+        "runId": "b0000000-0000-4000-8000-000000000022",
+        "snapshotId": "b0000000-0000-4000-8000-000000000023",
+        "dataOrigin": "synthetic",
+        "noticeLink": null,
+        "documents": [
+          {
+            "id": "synthetic-notice-pdf-3",
+            "version": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "versionShort": "sha256:bbbbbbbbbbbb…",
+            "source": "official",
+            "originCheck": "confirmed",
+            "status": "accepted",
+            "reasons": [],
+            "houseManageNo": "9900000003",
+            "noticeNo": "9900000044",
+            "edition": "synthetic-edition-3",
+            "officialUrl": null,
+            "uploadId": null,
+            "uploadContentPath": null,
+            "uploadStatus": null
+          }
+        ],
+        "tradeObservations": []
+      }
+    }
+  }
+}

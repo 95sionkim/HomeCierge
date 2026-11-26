@@ -47,16 +47,25 @@ function statsTable(rows, records, name, price) {
   return `<div class="trade-scroll" role="region" tabindex="0" aria-label="${esc(name)}"><table role="table" class="data-table trade-table comparison-table">
     <caption class="sr-only">${esc(name)}. 가격 단위는 만 원입니다.</caption><thead><tr><th scope="col">단지 · 공급면적</th><th scope="col">확인 상태</th><th scope="col">건수</th><th scope="col">최저</th><th scope="col">중위</th><th scope="col">최고</th></tr></thead>
     <tbody>${price ? `<tr class="notice-price-row"><th scope="row">공고 소계</th><td colspan="5">분양가 + 필수 옵션 <strong>${esc(priceLabel(price))}</strong></td></tr>` : ''}
-    ${rows.map(({ name, area, stat, range }) => `<tr><th scope="row">${esc(name)}<small>공급 ${esc(supplyLabel(area))}</small></th>
+    ${rows.map(({ complexId, role, name, area, stat, range }) => `<tr><th scope="row">${
+      complexId
+        ? `<button type="button" class="complex-row-trigger" data-open-complex="${esc(complexId)}" data-complex-role="${esc(role)}"><span>${esc(name)}</span><span class="complex-row-hint">상세</span></button>`
+        : esc(name)
+    }<small>공급 ${esc(supplyLabel(area))}</small></th>
       <td>${!range ? badge('unknown', 'circle-help', '미확인') : stat.status === 'provisional' ? badge('partial', 'circle-pause', '잠정') : badge('verified', 'circle-check', '확정')}${range ? observationSource(stat, records) : ''}</td>
       <td><span class="mobile-column-label" aria-hidden="true">건수</span>${range ? stat.count + '건' : '—'}${range && stat.smallSample ? '<small>소표본</small>' : ''}</td>
       ${['min', 'mid', 'max'].map((k, index) => `<td${range ? ' title="' + esc(won(range[k])) + '"' : ''}><span class="mobile-column-label" aria-hidden="true">${['최저', '중위', '최고'][index]}</span>${range ? manwon(range[k]) : '—'}</td>`).join('')}</tr>`).join('')}
     </tbody></table></div>`;
 }
 
-function rowsFor(candidates, kind) {
+function rowsFor(candidates, kind, role) {
   return (candidates ?? []).map(c => ({
-    name: c.name || '단지명 미확인', area: c.supplyAreaM2, stat: c.tradeStats?.[kind], range: tradeRange(c.tradeStats?.[kind]),
+    complexId: typeof c.complexId === 'string' && c.complexId ? c.complexId : null,
+    role,
+    name: c.name || '단지명 미확인',
+    area: c.supplyAreaM2,
+    stat: c.tradeStats?.[kind],
+    range: tradeRange(c.tradeStats?.[kind]),
   }));
 }
 
@@ -64,8 +73,8 @@ export function marketView(data, kind) {
   const configured = Array.isArray(data.conditions?.tradeKinds) ? data.conditions.tradeKinds : Object.keys(tradeNames);
   const kinds = Object.keys(tradeNames).filter(key => configured.includes(key));
   const active = kinds.includes(kind) ? kind : kinds[0];
-  const rows = rowsFor(data.comparables, active);
-  const own = rowsFor(data.targetReferences, active);
+  const rows = rowsFor(data.comparables, active, 'comparable');
+  const own = rowsFor(data.targetReferences, active, 'target');
   const price = noticeRange(data.noticePrice);
   const records = new Map((data.collections ?? []).map(r => [r.recordId, r]));
   const verifiedZero = kinds.filter(k => {

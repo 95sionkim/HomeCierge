@@ -49,6 +49,19 @@ python3 scripts/run_analysis_worker.py --demo
 
 기존 수집본으로 실행하면 같은 저장본을 참조하고 새 실행의 비교 결과를 기록한다. 수집본 연결과 비교 결과, 실행 완료는 같은 DB 트랜잭션에서 확정한다. 작업자가 취소되거나 임대를 잃으면 새 결과를 기록할 수 없다. 사용자 API에서 비교 결과는 `private, no-store`로 응답한다. 개발 실행기는 수집본과 근거를 합친 RPC 응답을 최대 32 MiB까지 읽는다. 이 크기를 넘기는 자료의 분할 처리는 후속 운영 과제다.
 
+## 단지 식별 근거와 문서 원문 정보를 읽는다
+
+완료된 실행의 O-4 단지 상세와 O-5 원문 근거 시트는 `GET /api/v1/analyses/{analysisId}/runs/{runId}/evidence`로 저장 수집본(`analysis_input_snapshots`)의 참조 메타데이터를 읽는다. 요청은 사용자 세션의 Bearer 토큰을 사용하며 `private, no-store`로 응답한다. 응답을 구성하기 전에 `/result`와 같은 `get_analysis_comparison` 권한 검사를 먼저 통과하므로, 다른 계정의 실행은 404 `run_not_found`, 저장된 결과가 없으면 409 `comparison_not_available`, 출처 표시 권한이 제한되면 403 `comparison_source_restricted`를 반환한다.
+
+| 응답 필드 (`comparison-evidence-detail/v1`) | 화면에서 사용하는 용도 |
+| --- | --- |
+| `analysisId`, `runId`, `snapshotId`, `dataOrigin` | 열어 둔 실행·수집본과 합성(`synthetic`)/수집(`collected`) 구분을 대조한다. |
+| `noticeLink` | `dataOrigin = "collected"`이고 청약홈 공식 상세 주소 형식이 검증된 경우에만 반환한다. |
+| `documents[]` | 문서 식별자(`id`), 전체·단축 판본(`version`, `versionShort`), 확보 경로(`source`: `official`/`upload`/`unknown`), 회차 검증(`originCheck`), 채택 상태(`status`: `accepted`/`held`/`rejected`)와 사유(`reasons`)를 제공한다. 공식 공고 첨부는 재호스팅하지 않고 검증된 청약홈 공식 URL(`officialUrl`)만 제공하며, 본인 계정에 `registered` 상태로 등록된 업로드 문서에만 `/api/v1/analyses/{analysisId}/uploads/{uploadId}/content` 경로(`uploadContentPath`)를 제공한다. 삭제되었거나 미등록인 업로드에는 다운로드 경로를 내보내지 않는다. |
+| `tradeObservations[]` | `comparables`, `targetReferences`, `exclusions`, `holds`에서 참조한 거래 위치(`recordId`, `source`, `page`, `position`)에 한해 계약일·신고금액·전용면적·층·건축년도·해제 여부와 허용된 식별 근거(`aptNm`, `aptSeq`, `sggCd`, `umdCd`, `umdNm`, `jibun`, `roadNm` 등)만 반환한다. 비교 결과에서 참조하지 않은 원거래나 내부 필드는 포함하지 않는다. |
+
+합성 브라우저와 백엔드 테스트는 비로그인 예시(`#sample/saved`, `#sample/expanded`, `#sample/held`)와 모의 세션으로 S-04·O-4·O-5 동작과 권한 경계를 확인한다. 실제 공고·실거래의 수락 기준 검증은 별도 검수 단계에 해당한다.
+
 ## 비교 결과에 질문하고 계약 기간을 변경한다
 
 로그인한 사용자는 비교표에서 “왜 이 거래만 포함됐어?”라고 묻고, “더 알려줘”로 해당 결과에 포함된 거래의 종류·계약일·신고금액을 확인할 수 있다. 답변은 열어 둔 실행의 저장값을 읽는다. 비교 단지 수와 거래 건수를 구분하고, 보류 사유와 출처의 현재 표시 권한을 확인한다.
