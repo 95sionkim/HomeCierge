@@ -31,7 +31,6 @@ export function requestJson(requestApi, path, { token, method = 'GET', body, hea
 }
 
 export async function expectJson(reply, status, check, step) {
-  check(reply.status === status, `${step}_status`);
   if (reply.status !== status) {
     // 실패 원인을 남기되 응답 본문 전체나 토큰은 출력하지 않는다. 오류 코드만 적는다.
     let code = 'unknown';
@@ -41,6 +40,7 @@ export async function expectJson(reply, status, check, step) {
     } catch { /* JSON이 아니면 코드 없이 상태만 적는다. */ }
     process.stderr.write(`${step}: expected ${status}, got ${reply.status} (${String(code).slice(0, 80)})\n`);
   }
+  check(reply.status === status, `${step}_status`);
   try {
     return await reply.json();
   } catch {
