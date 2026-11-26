@@ -119,9 +119,11 @@ function documentPages(items: unknown): string[] {
         const ref = obj(v),
           id = token(ref.document),
           version = token(ref.version);
-        return id && version && number(ref.page) && ref.page > 0
-          ? [id + ' · ' + version + ' · ' + ref.page + '쪽']
-          : [];
+        if (!id || !version || !number(ref.page) || ref.page <= 0) return [];
+        if (id.startsWith('upload:')) {
+          return ['사용자 업로드 · ' + id.slice(7) + ' · ' + version + ' · ' + ref.page + '쪽'];
+        }
+        return [id + ' · ' + version + ' · ' + ref.page + '쪽'];
       }),
     ),
   ];
@@ -317,7 +319,7 @@ function comparisonSections(c: Comparison, p: Part) {
   for (const r of array(price.confirmedRooms))
     for (const group of ['salePrice', 'requiredOptions'])
       for (const ref of documentPages(obj(obj(r).evidence)[group])) refs.add(ref);
-  for (const ref of refs) field(evidence, '공고문 판본·쪽', ref);
+  for (const ref of refs) field(evidence, ref.startsWith('사용자 업로드 · ') ? '사용자 업로드 근거' : '공고문 판본·쪽', ref);
   const dataRows = c.collections.map((v) => {
     const item = obj(v);
     const states: Record<string, string> = {

@@ -18,7 +18,9 @@ from store_ingestion import save_snapshot
 
 def read_owned_upload(analysis_id, upload_id, token, port=3001, *, opener=None):
     """기존 사용자 API에서 현재 계정이 읽을 수 있는 PDF만 메모리로 받는다."""
-    path = f'/api/v1/analyses/{UUID(analysis_id)}/uploads/{UUID(upload_id)}/content'
+    canonical_analysis_id = str(UUID(analysis_id))
+    canonical_upload_id = str(UUID(upload_id))
+    path = f'/api/v1/analyses/{canonical_analysis_id}/uploads/{canonical_upload_id}/content'
     if not token or not 1 <= port <= 65535:
         raise ValueError('업로드 보완에 사용자 세션과 로컬 API 포트가 필요합니다.')
     call = request.Request(f'http://127.0.0.1:{port}{path}', headers={
@@ -35,7 +37,7 @@ def read_owned_upload(analysis_id, upload_id, token, port=3001, *, opener=None):
         return None
     except (OSError, http.client.HTTPException):
         return None
-    return {'id': upload_id, 'content': content} if 0 < len(content) <= MAX_PDF_BYTES else None
+    return {'id': canonical_upload_id, 'content': content} if 0 < len(content) <= MAX_PDF_BYTES else None
 
 
 def live_api_transport():

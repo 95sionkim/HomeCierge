@@ -798,6 +798,15 @@ export type Database = {
         }
         Returns: Json
       }
+      enqueue_upload_supplement_run: {
+        Args: {
+          p_analysis_id: string
+          p_base_run_id: string
+          p_idempotency_key: string
+          p_upload_id: string
+        }
+        Returns: Json
+      }
       fail_analysis_run: {
         Args: {
           p_generation: number
@@ -874,6 +883,10 @@ export type Database = {
         Args: { p_analysis_id: string; p_run_id: string }
         Returns: Json
       }
+      get_upload_supplement_run: {
+        Args: { p_analysis_id: string; p_run_id: string }
+        Returns: Json
+      }
       list_chats: {
         Args: { p_before?: string; p_limit?: number }
         Returns: Json
@@ -884,6 +897,15 @@ export type Database = {
       }
       list_saved_analysis_reports: {
         Args: { p_before?: string }
+        Returns: Json
+      }
+      lookup_official_notice_document_index: {
+        Args: {
+          p_generation: number
+          p_lease_token: string
+          p_run_id: string
+          p_sha256: string
+        }
         Returns: Json
       }
       post_chat_message: {
@@ -959,6 +981,14 @@ export type Database = {
         Returns: Json
       }
       read_search_profile: { Args: { p_before?: string }; Returns: Json }
+      read_upload_supplement_context: {
+        Args: { p_analysis_id: string; p_run_id: string }
+        Returns: Json
+      }
+      read_upload_supplement_work: {
+        Args: { p_generation: number; p_lease_token: string; p_run_id: string }
+        Returns: Json
+      }
       record_deletion_backup_review: {
         Args: { p_receipt: string; p_verified_at: string }
         Returns: Json

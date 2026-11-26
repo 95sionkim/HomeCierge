@@ -119,7 +119,7 @@ def review_catalog_documents(target, catalog, *, official_index=None, read_uploa
         metadata = {key: doc[key] for key in ('id', 'version', 'source', 'originCheck',
                                               'houseManageNo', 'noticeNo', 'edition')}
         reasons = list(doc['reasons'])
-        status = 'held'
+        status = 'rejected' if doc['originCheck'] == 'conflict' else 'held'
         if doc['adoption'] in ('standalone', 'with_set') and doc['originCheck'] == 'confirmed':
             requires_set = requires_set or doc['adoption'] == 'with_set'
             try:

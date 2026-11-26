@@ -8,12 +8,16 @@
 외부 호출 직전마다 작업 시간·호출 예산과 임대를 확인한다.
 """
 import copy
+import hashlib
+import os
 import re
 import time
 from dataclasses import dataclass
 from datetime import date
 from http.client import HTTPException
 from typing import Callable, Optional
+from urllib import error as urllib_error, parse as urllib_parse, request as urllib_request
+from uuid import UUID
 
 from compare_trades import compare_snapshot
 from ingestion_notices import NOTICE_SOURCES
@@ -21,11 +25,21 @@ from ingestion_pages import request_unit
 from ingestion_trades import SOURCE_KINDS, TRADE_KINDS, trade_period
 from replay_ingestion import collect_notice_catalog, ingest
 from store_ingestion import payment_schedule_snapshot, snapshot_input
-from worker_rpc import WorkerRpcError
+from worker_rpc import WorkerRpcError, WorkerRpcResponseTooLarge
 
 
 SELECTION_KEYS = frozenset(('kind', 'noticeSource', 'houseManageNo', 'noticeNo', 'edition', 'modelNo'))
+UPLOAD_SUPPLEMENT_SELECTION_KEYS = frozenset((
+    'kind', 'baseRunId', 'uploadId', 'noticeSource', 'houseManageNo', 'noticeNo', 'edition', 'modelNo',
+))
 CAPTURE_KEYS = frozenset(('asOf', 'requestRegionCodes', 'allowOfficialPdf'))
+MAX_UPLOAD_SUPPLEMENT_WORK_BYTES = 32 * 1024 * 1024
+UPLOAD_BUCKET = 'analysis-uploads'
+UPLOAD_OBJECT_PATH = re.compile(
+    r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/'
+    r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/'
+    r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.pdf'
+)
 PAGE_SIZE = 100
 MAX_ATTEMPTS = 3  # DB claim_analysis_run의 최대 인수 횟수와 같다.
 # 한 번 더 조회하면 해소될 수 있는 상류 장애. 인증 거절·업무 오류·형식 오류는 재시도하지 않는다.
@@ -71,6 +85,7 @@ class NoticeTransports:
     sleep: Callable = time.sleep
     inspect: Optional[Callable] = None  # 검사용 PDF 판독기. None이면 inspect_notice_pdf
     limits: Optional[dict] = None  # LIMITS 일부를 덮어쓴다
+    upload: Optional[Callable] = None  # read(upload_id, object_path) -> {'id': upload_id, 'content': bytes} | None
 
 
 class CaptureGuard:
@@ -205,7 +220,82 @@ def _gaps(records):
     return [record for record in records if record.get('status') not in ('complete', 'empty')]
 
 
-def capture_notice(plan, transports, guard, generation):
+def _canonical_uuid(value):
+    if not isinstance(value, str):
+        raise ValueError('UUID 문자열이 필요합니다.')
+    parsed = str(UUID(value))
+    if parsed != value.lower():
+        raise ValueError('정규 UUID 형식이 아닙니다.')
+    return parsed
+
+
+def upload_supplement_plan(selection, work):
+    """업로드 보완 큐 선택과 DB가 고정한 업로드·조건·공식 해시 색인을 대조한다."""
+    if (not isinstance(selection, dict) or set(selection) != UPLOAD_SUPPLEMENT_SELECTION_KEYS
+            or selection['kind'] != 'upload_supplement'
+            or selection['noticeSource'] not in NOTICE_SOURCES
+            or not _matches(selection['edition'], EDITION) or not _matches(selection['modelNo'], MODEL_NO)
+            or not all(_matches(selection[key], NOTICE_NO) for key in ('houseManageNo', 'noticeNo'))):
+        raise NoticeRunFailure('notice_selection_unverified')
+    base_run_id = _canonical_uuid(selection['baseRunId'])
+    upload_id = _canonical_uuid(selection['uploadId'])
+    date.fromisoformat(selection['edition'])
+    if not isinstance(work, dict):
+        raise NoticeRunFailure('notice_selection_unverified')
+    capture, conditions = work.get('noticeCapture'), work.get('conditions')
+    upload = work.get('upload')
+    official_index = work.get('officialIndex')
+    regions = capture.get('requestRegionCodes') if isinstance(capture, dict) else None
+    if (not isinstance(capture, dict) or set(capture) != CAPTURE_KEYS
+            or type(capture['allowOfficialPdf']) is not bool or not isinstance(regions, list)
+            or len(regions) != 1 or not _matches(regions[0], LAWD)):
+        raise NoticeRunFailure('notice_selection_unverified')
+    if (not isinstance(upload, dict) or set(upload) != {'uploadId', 'objectPath'}
+            or upload.get('uploadId') != upload_id
+            or not _matches(upload.get('objectPath'), UPLOAD_OBJECT_PATH)
+            or not upload['objectPath'].endswith('/' + upload_id + '.pdf')):
+        raise NoticeRunFailure('upload_unavailable')
+    if not isinstance(official_index, list):
+        raise NoticeRunFailure('notice_selection_unverified')
+    trade_period(capture['asOf'])
+    evidence = work.get('evidence')
+    if (not isinstance(conditions, dict) or work.get('useSyntheticFixture') is not False
+            or (evidence is not None and not isinstance(evidence, dict))):
+        raise NoticeRunFailure('notice_selection_unverified')
+    source = selection['noticeSource']
+    target = {key: selection[key] for key in ('houseManageNo', 'noticeNo', 'edition')}
+    comparison = conditions.get('comparison')
+    housing_type = conditions.get('housingType')
+    declared_models = [conditions.get('modelNo', selection['modelNo'])]
+    if isinstance(housing_type, dict) and 'modelNo' in housing_type:
+        declared_models.append(housing_type['modelNo'])
+    if (work.get('selectionBindingIssue') is not None
+            or conditions.get('ingestion_target') != dict(target, noticeSource=source)
+            or not isinstance(comparison, dict) or comparison.get('modelNo') != selection['modelNo']
+            or any(model_no != selection['modelNo'] for model_no in declared_models)):
+        raise NoticeRunFailure('notice_selection_unverified')
+    request = {'noticeSource': source, 'target': target,
+               'asOf': capture['asOf'], 'requestRegionCodes': list(regions), 'tradeKinds': list(TRADE_KINDS),
+               'pageSize': PAGE_SIZE}
+    return {
+        'request': request, 'modelNo': selection['modelNo'], 'allowOfficialPdf': capture['allowOfficialPdf'],
+        'comparison': comparison, 'evidence': evidence, 'baseRunId': base_run_id,
+        'upload': {'uploadId': upload_id, 'objectPath': upload['objectPath']},
+        'officialIndex': list(official_index),
+    }
+
+
+def _detail_only_pdf_transport(transport):
+    """공식 PDF 저장 권한이 없을 때 상세 페이지 첨부 목록만 확인하고 공식 첨부 바이트는 내려받지 않는다."""
+    def fetch(url, *, max_bytes, timeout):
+        parsed = urllib_parse.urlsplit(url)
+        if parsed.path.lower().endswith('/getatchmnfl.do'):
+            return {'status': 403, 'headers': {}, 'body': b''}
+        return transport(url, max_bytes=max_bytes, timeout=timeout)
+    return fetch
+
+
+def capture_notice(plan, transports, guard, generation, *, official_index=(), read_upload=None):
     """선택 공고의 고정 요청, 수집본과 같은 판본에서 점검한 납부 일정을 돌려준다."""
     request, model_no = plan['request'], plan['modelNo']
     api = guard.api(transports.api)
@@ -228,14 +318,18 @@ def capture_notice(plan, transports, guard, generation):
 
     review = None
     schedules = None
-    if plan['allowOfficialPdf']:
+    if plan['allowOfficialPdf'] or read_upload is not None:
         from notice_document_review import review_catalog_documents
-        pdf = guard.pdf(transports.pdf)
+        pdf_source = transports.pdf if plan['allowOfficialPdf'] else _detail_only_pdf_transport(transports.pdf)
+        pdf = guard.pdf(pdf_source)
         options = {} if transports.inspect is None else {'inspect': transports.inspect}
 
         def review(target, current):
             nonlocal schedules
-            checked = review_catalog_documents(target, current, fetch=pdf, monotonic=transports.clock, **options)
+            checked = review_catalog_documents(
+                target, current, official_index=official_index, read_upload=read_upload,
+                fetch=pdf, monotonic=transports.clock, **options,
+            )
             schedules = payment_schedule_snapshot(checked['review']['paymentSchedules'])
             return checked
 
@@ -283,8 +377,154 @@ def prepare_notice_comparison(selection, work, *, generation, transports, renew,
     return inputs, capture, comparison, schedules
 
 
+def _merge_official_index(*groups):
+    merged, seen = [], set()
+    for rows in groups:
+        if not isinstance(rows, (list, tuple)):
+            continue
+        for row in rows:
+            key = (row.get('id'), row.get('sha256'), row.get('edition')) if isinstance(row, dict) else None
+            if key is not None and key[0] is not None and key in seen:
+                continue
+            if key is not None and key[0] is not None:
+                seen.add(key)
+            merged.append(row)
+    return merged
+
+
+def prepare_upload_supplement_comparison(
+    selection, work, *, generation, transports, renew, lease_seconds, lookup_index=None,
+):
+    """read_upload_supplement_work 응답으로 업로드 대조·점검과 comparison/v1을 만든다."""
+    try:
+        plan = upload_supplement_plan(selection, work)
+    except (KeyError, TypeError, ValueError):
+        raise NoticeRunFailure('notice_selection_unverified') from None
+    if callable(transports):
+        transports = transports()
+    if not isinstance(transports, NoticeTransports) or not callable(transports.upload):
+        raise NoticeWorkerConfigurationError('업로드 보완 수집 전송을 확인할 수 없습니다.')
+    limits = dict(LIMITS, **(transports.limits or {}))
+    guard = CaptureGuard(renew, lease_seconds=lease_seconds, clock=transports.clock, sleep=transports.sleep,
+                         limits=limits)
+    guard.confirm_lease()
+    upload_meta = plan['upload']
+    try:
+        received = transports.upload(upload_meta['uploadId'], upload_meta['objectPath'])
+    except CaptureStopped:
+        raise
+    except Exception:
+        raise NoticeRunFailure('upload_unavailable') from None
+    if (not isinstance(received, dict) or set(received) != {'id', 'content'}
+            or received.get('id') != upload_meta['uploadId']
+            or not isinstance(received.get('content'), bytes) or len(received['content']) == 0):
+        raise NoticeRunFailure('upload_unavailable')
+
+    from notice_pdf_acquisition import MAX_PDF_BYTES
+    content = received['content']
+    official_index = list(plan['officialIndex'])
+    if lookup_index is not None and len(content) <= MAX_PDF_BYTES:
+        # 브라우저가 보낸 해시는 신뢰하지 않고 작업자가 바이트에서 직접 계산한 SHA-256으로 공식 색인을 대조한다.
+        digest = hashlib.sha256(content).hexdigest()
+        guard.confirm_lease()
+        try:
+            extra = lookup_index(digest)
+        except WorkerRpcError as exc:
+            raise CaptureStopped(exc) from None
+        official_index = _merge_official_index(official_index, extra)
+
+    try:
+        inputs, capture, schedules = capture_notice(
+            plan, transports, guard, generation,
+            official_index=official_index, read_upload={'id': upload_meta['uploadId'], 'content': content},
+        )
+        comparison = compare_snapshot(capture, plan['comparison'], plan['evidence'])
+    except (AttributeError, HTTPException, KeyError, OSError, RuntimeError, TypeError, ValueError):
+        raise NoticeRunFailure('notice_feed_unavailable') from None
+    guard.confirm_lease()
+    return inputs, capture, comparison, schedules
+
+
+def execute_upload_supplement_lease(client, lease, selection, lease_seconds, transports):
+    """업로드 보완 실행 한 건을 작업자 임대 안에서 검증·점검·원자 저장한다."""
+    if transports is None:
+        raise NoticeWorkerConfigurationError('업로드 보완 실행을 처리하려면 --live 또는 공고·업로드 전송이 필요합니다.')
+
+    def renew(seconds):
+        reply = client.post('renew_analysis_run', {**lease, 'p_lease_seconds': seconds})
+        if (not isinstance(reply, dict) or reply.get('runId') != lease['p_run_id']
+                or reply.get('status') != 'running' or type(reply.get('attempt')) is not int
+                or reply['attempt'] != lease['p_generation']):
+            raise WorkerRpcError()
+
+    def lookup_index(sha256_hex):
+        return client.post('lookup_official_notice_document_index', {**lease, 'p_sha256': sha256_hex})
+
+    try:
+        try:
+            work = client.post('read_upload_supplement_work', lease, limit=MAX_UPLOAD_SUPPLEMENT_WORK_BYTES)
+        except WorkerRpcResponseTooLarge:
+            raise NoticeRunFailure('notice_capture_limit', False) from None
+        inputs, capture, comparison, schedules = prepare_upload_supplement_comparison(
+            selection, work, generation=lease['p_generation'], transports=transports,
+            renew=renew, lease_seconds=lease_seconds, lookup_index=lookup_index,
+        )
+        payload = {**lease, 'p_input': inputs, 'p_result': capture, 'p_comparison': comparison}
+        if schedules is not None:
+            return client.post('finish_notice_with_funding', dict(payload, p_schedules=schedules))
+        return client.post('finish_analysis_comparison', payload)
+    except CaptureStopped as exc:
+        if exc.rpc_error is not None:
+            raise exc.rpc_error from None
+        code, retryable = 'notice_capture_limit', False
+    except NoticeRunFailure as exc:
+        code, retryable = exc.code, exc.retryable
+    except WorkerRpcError as exc:
+        if exc.code in ('42501', 'PT403') or exc.status == 403:
+            code, retryable = 'notice_source_restricted', False
+        elif exc.code == 'PT422':
+            code, retryable = 'upload_unavailable', False
+        elif exc.code == '22023':
+            return client.post('fail_analysis_run', {**lease, 'p_retryable': False})
+        elif exc.status == 413:
+            code, retryable = 'notice_capture_limit', False
+        elif exc.status == 429:
+            code, retryable = 'notice_feed_unavailable', True
+        else:
+            raise
+    return client.post('fail_notice_analysis_run', {**lease, 'p_error_code': code, 'p_retryable': retryable})
+
+
+def read_worker_storage_upload(env, upload_id, object_path, *, opener=None, timeout=20):
+    """DB가 검증한 비공개 analysis-uploads 경로에서 작업자 키로 소유자 PDF 바이트를 읽는다."""
+    from notice_pdf_acquisition import MAX_PDF_BYTES
+    from probe_apis import NoRedirect
+    from worker_rpc import WorkerRpc
+
+    uid = _canonical_uuid(upload_id)
+    if not _matches(object_path, UPLOAD_OBJECT_PATH) or not object_path.endswith('/' + uid + '.pdf'):
+        return None
+    rpc_cfg = WorkerRpc(env)
+    url = urllib_parse.urljoin(rpc_cfg.base, f'/storage/v1/object/{UPLOAD_BUCKET}/{object_path}')
+    headers = {k: v for k, v in rpc_cfg.headers.items() if k != 'Content-Type'}
+    headers['Cache-Control'] = 'no-store'
+    req = urllib_request.Request(url, method='GET', headers=headers)
+    transport = opener or urllib_request.build_opener(urllib_request.ProxyHandler({}), NoRedirect())
+    try:
+        with transport.open(req, timeout=timeout) as response:
+            if response.status != 200:
+                return None
+            content = response.read(MAX_PDF_BYTES + 1)
+    except urllib_error.HTTPError as exc:
+        exc.close()
+        return None
+    except (OSError, HTTPException):
+        return None
+    return {'id': uid, 'content': content} if len(content) > 0 else None
+
+
 def live_notice_transports():
-    """선택된 공고의 공공데이터 전송을 만들고, 공식 문서 전송은 첫 허용 요청까지 미룬다."""
+    """선택된 공고의 공공데이터 전송을 만들고, 공식 문서·업로드 전송은 첫 허용 요청까지 미룬다."""
     from review_notice_documents import live_api_transport
     try:
         api = live_api_transport()
@@ -301,4 +541,7 @@ def live_notice_transports():
             pdf = make_live_fetch()
         return pdf(url, max_bytes=max_bytes, timeout=timeout)
 
-    return NoticeTransports(api=api, pdf=fetch_pdf)
+    def fetch_upload(upload_id, object_path):
+        return read_worker_storage_upload(os.environ, upload_id, object_path)
+
+    return NoticeTransports(api=api, pdf=fetch_pdf, upload=fetch_upload)

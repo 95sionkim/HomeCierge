@@ -31,9 +31,21 @@ python3 scripts/review_notice_documents.py --live --request /path/to/selected-no
 
 공식 색인의 각 행에는 이전 공식 첨부의 `id`, `sha256`, `houseManageNo`, `noticeNo`, `edition`, `role`이 필요하다. 보관이 허용된 서버 기록 중 `source=official`, `originCheck=confirmed`이고 해시가 있는 행을 사용한다. 현재 첨부 목록 자체를 확인할 수 없어 정정 적용 여부가 미확인인 경우, 이전 판과 해시가 맞는 업로드도 단독으로 채택하지 않는다.
 
-주변 실거래와 문서 점검 결과를 함께 저장하려면 전체 BE-02 요청에 `--save --owner-id … --analysis-id … --capture-key …`를 지정한다. 문서 점검에서 납부 일정 목록을 받으면 `save_funding_schedule_snapshot`이 같은 트랜잭션에서 BE-03 수집본과 해당 일정을 저장한다. 근거 버전과 값별 페이지는 `catalog`에서 확인한다. 출처 보관 조건을 충족해야 저장할 수 있고, 실사용자 업로드에서 파생된 값의 영속 저장은 소유 파일과 파생 자료 삭제를 연결할 때까지 보류한다. [수집본 보관 조건](ingestion-storage.md)
+주변 실거래와 문서 점검 결과를 함께 저장하려면 전체 BE-02 요청에 `--save --owner-id … --analysis-id … --capture-key …`를 지정한다. 문서 점검에서 납부 일정 목록을 받으면 `save_funding_schedule_snapshot`이 같은 트랜잭션에서 BE-03 수집본과 해당 일정을 저장한다. 근거 버전과 값별 페이지는 `catalog`에서 확인한다. 실사용자 업로드에서 파생된 값은 같은 소유자·분석의 `registered` 업로드에 `upload:<uploadId>`로 바인딩되고 파생 자료 삭제(`private.snapshot_upload_bindings`, `private.upload_supplement_runs`)에 연결된 경우에만 영속 저장할 수 있다. 미바인딩·삭제 요청·타인 업로드는 `ingestion_upload_binding_required`로 계속 차단한다. [수집본 보관 조건](ingestion-storage.md)
 
-저장 응답이 유실되면 작업자는 이미 읽은 조건·결과·수집 키를 그대로 한 번 다시 전송한다. 작업자가 종료된 뒤에는 소유자의 분석과 수집 키로 기존 스냅샷을 먼저 확인한다. 새로 실조회하면 수집 시각이 바뀌므로 새 수집 키를 사용한다. 사용자 화면에서 이 문서 작업을 직접 접수하는 경로는 공고 탐색과 함께 연결할 예정이다.
+저장 응답이 유실되면 작업자는 이미 읽은 조건·결과·수집 키를 그대로 한 번 다시 전송한다. 작업자가 종료된 뒤에는 소유자의 분석과 수집 키로 기존 스냅샷을 먼저 확인한다. 새로 실조회하면 수집 시각이 바뀌므로 새 수집 키를 사용한다.
+
+## 화면에서 업로드 보완을 접수하고 점검한다
+
+완료된 실수집 공고 분석에서 공식 PDF 확보 실패·판본 미확인·가격/면적/일정 보류 사유가 있으면 결과 화면에 **공고 PDF로 보완** 패널을 표시한다. 사용자는 기존 비공개 버킷 계약(`register_analysis_upload` → `analysis-uploads` 업로드)으로 PDF(`application/pdf`, 최대 50MiB)를 올린 뒤 보완 실행을 접수한다. 브라우저가 보낸 해시·채택 상태·공고 판정 필드는 API가 400으로 거부한다.
+
+| 요청 | 역할과 응답 |
+| --- | --- |
+| `GET /api/v1/analyses/{analysisId}/runs/{runId}/upload-supplement` | 해당 실행의 보완 필요 여부, 확보 실패·보류 사유, 대상 공고·회차·주택형·호실, 문서 대조 상태와 최근 보완 이력을 조회(`upload-supplement-context/v1`). |
+| `POST /api/v1/analyses/{analysisId}/runs/{baseRunId}/upload-supplement` | `Idempotency-Key: <UUID>`와 `{"uploadId":"<UUID>"}`만 받아 같은 공고·주택형·호실의 새 `upload_supplement` 실행을 접수. 202와 `Location`, `upload-supplement-run/v1` 반환. 같은 키·입력 재전송은 같은 실행 반환, 충돌 409, 미적재 파일 409(`upload_file_missing`), 타 계정 404. |
+| `GET /api/v1/analyses/{analysisId}/upload-supplements/{runId}` | 보완 실행의 진행 상태(`queued`/`running`/`retry_wait`/`finished`/`failed`/`cancelled`)와 문서 대조·점검 요약을 조회. |
+
+모든 경로는 사용자 JWT와 RLS를 유지하고 `Cache-Control: private, no-store`로 응답한다. 작업자는 `read_upload_supplement_work`와 `lookup_official_notice_document_index`로 고정된 업로드 경로와 서버 공식 해시 색인(`private.official_notice_document_index`)을 읽고, 비공개 버킷에서 직접 읽은 PDF 바이트의 SHA-256을 공식 상세·첨부 식별자·이전 공식 해시와 대조한다. 공식 대조와 자동 점검을 통과한 값만 수집본·납부 일정·비교 재계산에 반영하고 값별 출처를 `사용자 업로드 · 파일 ID · 판본 해시 · 쪽` 형식으로 표시한다. 다른 회차·해시 불일치·출처 미확인·정정 판본 미확인은 해당 값을 보류하고 독립 확인된 공고 기본 정보는 유지한다. 보완 실행과 작업자 경로는 합성 PDF·모의 전송·PGlite·로컬 브라우저에서 검사했으며, 실제 청약홈·운영 인증 통합 검수나 PRD 수락 기준 최종 통과를 뜻하지 않는다. [실행 계약](analysis-runs.md) · [업로드 개별 삭제](data-deletion.md)
 
 ## 화면이 읽을 값을 구분한다
 

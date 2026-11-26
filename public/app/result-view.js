@@ -187,7 +187,7 @@ const sampleScenarioLinks = [
   ['held', '확대 보류 (#sample/held)'],
 ];
 
-export function comparisonView(data, title, tradeKind = 'sale', conversationHtml = '', samplePreset = null) {
+export function comparisonView(data, title, tradeKind = 'sale', conversationHtml = '', samplePreset = null, supplementHtml = '') {
   if (!data || data.contractVersion !== 'comparison/v1')
     return emptyState('circle-help', '결과를 표시할 수 없습니다.', '확인 가능한 분석 결과 형식이 필요합니다.');
   const complete = data.completeness === 'complete', partial = data.completeness === 'partial';
@@ -210,7 +210,7 @@ export function comparisonView(data, title, tradeKind = 'sale', conversationHtml
     : '';
   const stage = `<div class="comparison-stage"><header class="section-header result-heading"><div><h1>${esc(data.target?.name || title || '분석 결과')}</h1><p>${esc(summary)}</p></div>
     <div class="tag-row">${badge(complete ? 'verified' : partial ? 'partial' : 'unknown', complete ? 'shield-check' : 'circle-pause', complete ? '비교 검산 완료' : partial ? '일부 보류' : '비교 보류')}${data.dataOrigin === 'synthetic' ? badge('closed', 'layers', '합성 자료') : ''}${jumpButton}</div></header>
-    ${presetNav}${holdPanel(data)}${comparisonScopeView(data)}<div class="comparison-layout"><div id="market-view">${marketView(data, tradeKind)}</div><aside class="result-stack" aria-label="선택 공고의 금액과 근거">${priceView(data)}${evidenceView(data)}</aside></div></div>`;
+    ${presetNav}${holdPanel(data)}${supplementHtml}${comparisonScopeView(data)}<div class="comparison-layout"><div id="market-view">${marketView(data, tradeKind)}</div><aside class="result-stack" aria-label="선택 공고의 금액과 근거">${priceView(data)}${evidenceView(data)}</aside></div></div>`;
   return `<section data-run-status="finished" data-result-status="${esc(data.completeness)}"${conversationHtml ? ' class="comparison-workspace"' : ''}>${stage}${conversationHtml}</section>`;
 }
 
@@ -244,7 +244,7 @@ export function sampleHeld(n, m, asOf) {
   };
 }
 
-export function runView(state, conversationHtml = '', originRun = null) {
+export function runView(state, conversationHtml = '', originRun = null, supplementHtml = '') {
   const { run, comparison, runError, session } = state;
   if (!session)
     return emptyState(
@@ -268,7 +268,7 @@ export function runView(state, conversationHtml = '', originRun = null) {
       x.edition === run.input?.edition,
   );
   const title = n?.title ?? state.analyses?.find((x) => x.runId === run.runId)?.title ?? '청약 분석';
-  if (run.status === 'finished' && comparison) return comparisonView(comparison, title, state.tradeKind, conversationHtml);
+  if (run.status === 'finished' && comparison) return comparisonView(comparison, title, state.tradeKind, conversationHtml, null, supplementHtml);
   const active = ['queued', 'running', 'retry_wait'].includes(run.status);
   const originLink =
     originRun && originRun.analysisId === run.analysisId && originRun.toRunId === run.runId

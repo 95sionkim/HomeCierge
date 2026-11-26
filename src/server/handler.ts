@@ -18,6 +18,8 @@ import type { FundingSelection } from './funding-request.js';
 import { serveReport } from './report-request.js';
 import type { ReportOperation } from './report-request.js';
 import { serveDeletion, type DeletionOperation } from './data-deletion.js';
+import { readUploadSupplementOperation } from './upload-supplement.js';
+import type { UploadSupplementContext, UploadSupplementOperation, UploadSupplementRun } from './upload-supplement.js';
 
 export type Environment = Record<string, string | undefined>;
 export type Backend = {
@@ -30,6 +32,10 @@ export type Backend = {
     signal: AbortSignal;
   }) => Promise<ReadableStream<Uint8Array> | null>;
   runAnalysis: (operation: AnalysisRunOperation, signal: AbortSignal) => Promise<AnalysisRun>;
+  uploadSupplement?: (
+    operation: UploadSupplementOperation,
+    signal: AbortSignal,
+  ) => Promise<UploadSupplementContext | UploadSupplementRun>;
   getNoticeSearchIndex: (signal: AbortSignal, purpose: 'directory' | 'search') => Promise<unknown>;
   getFundingInputs: (selection: FundingSelection, signal: AbortSignal) => Promise<unknown>;
   getLegalEvidence: (analysisId: string, snapshotId: string, signal: AbortSignal) => Promise<unknown>;
@@ -46,6 +52,8 @@ export type BackendConfig = { url: string; key: string; token: string };
 
 const uploadContentPath = new RegExp(`^/api/v1/analyses/(${uuidPattern})/uploads/(${uuidPattern})/content$`);
 const analysisRunPath = /^\/api\/v1\/analyses\/([^/]+)\/runs(?:\/([^/]+)(?:\/(cancel|result|evidence))?)?$/;
+const uploadSupplementBasePath = /^\/api\/v1\/analyses\/([^/]+)\/runs\/([^/]+)\/upload-supplement$/;
+const uploadSupplementRunPath = /^\/api\/v1\/analyses\/([^/]+)\/upload-supplements\/([^/]+)$/;
 const conversationPath = /^\/api\/v1\/analyses\/([^/]+)\/runs\/([^/]+)\/conversation(?:\/([^/]+)\/decision)?$/;
 const saveReportPath = /^\/api\/v1\/analyses\/([^/]+)\/runs\/([^/]+)\/reports$/;
 const savedReportPath = /^\/api\/v1\/reports(?:\/([^/]+)(?:\/(pdf))?)?$/;
@@ -86,6 +94,8 @@ export function createHandler(deps: {
     const path = url.pathname;
     const upload = path.match(uploadContentPath);
     const run = path.match(analysisRunPath);
+    const supplementBase = path.match(uploadSupplementBasePath);
+    const supplementRun = path.match(uploadSupplementRunPath);
     const conversation = path.match(conversationPath);
     const saveReport = path.match(saveReportPath);
     const savedReport = path.match(savedReportPath);
@@ -99,13 +109,14 @@ export function createHandler(deps: {
     const regions = path === '/api/v1/notices/regions';
     const lookup = path === '/api/v1/notices/lookup';
     const chatHome = path.match(chatHomePath);
-    const enqueues = run !== null && !run[2];
+    const enqueues = (run !== null && !run[2]) || (supplementBase !== null && request.method === 'POST');
     const createsChat = chatHome !== null && !chatHome[1];
     const startsChatAnalysis = chatHome?.[2] === 'analyses';
     const methods = privacy ? [privacy === 'items' ? 'GET' : 'POST'] : saveReport ? ['POST'] : savedReport?.[1] && !savedReport[2] ? ['GET', 'DELETE']
+      : supplementBase ? ['GET', 'POST']
       : chatHome ? (!chatHome[1] ? ['GET', 'POST'] : !chatHome[2] ? ['GET', 'PATCH'] : ['POST'])
       : conversation && !conversation[3] ? ['GET', 'POST']
-      : search || funding || news || commute || enqueues || run?.[3] === 'cancel' || conversation?.[3] ? ['POST'] : ['GET'];
+      : search || funding || news || commute || (run !== null && !run[2]) || run?.[3] === 'cancel' || conversation?.[3] ? ['POST'] : ['GET'];
     const allowedMethods = [...methods, 'OPTIONS'].join(', ');
     const headers = new Headers({
       'Cache-Control': 'no-store',
@@ -113,7 +124,7 @@ export function createHandler(deps: {
       'X-Content-Type-Options': 'nosniff',
       'X-Request-Id': requestId,
     });
-    if (privacy || search || directory || regions || lookup || chatHome || funding || snapshotService || upload || run?.[3] === 'result' || run?.[3] === 'evidence' || conversation || saveReport || savedReport) {
+    if (privacy || search || directory || regions || lookup || chatHome || funding || snapshotService || upload || supplementBase || supplementRun || run?.[3] === 'result' || run?.[3] === 'evidence' || conversation || saveReport || savedReport) {
       headers.set('Cache-Control', 'private, no-store');
       headers.set('Vary', 'Authorization, Origin');
       headers.set('Vercel-CDN-Cache-Control', 'no-store');
@@ -125,8 +136,8 @@ export function createHandler(deps: {
       if (origin !== url.origin && !allowed.includes(origin)) return respond({ error: 'origin_not_allowed', requestId }, 403);
       headers.set('Access-Control-Allow-Origin', origin);
       headers.set('Access-Control-Allow-Methods', allowedMethods);
-      headers.set('Access-Control-Allow-Headers', enqueues ? 'Authorization, Content-Type, Idempotency-Key' : 'Authorization, Content-Type');
-      if (enqueues || saveReport || createsChat || startsChatAnalysis) headers.set('Access-Control-Expose-Headers', 'Location');
+      headers.set('Access-Control-Allow-Headers', enqueues || supplementBase ? 'Authorization, Content-Type, Idempotency-Key' : 'Authorization, Content-Type');
+      if (enqueues || supplementBase || saveReport || createsChat || startsChatAnalysis) headers.set('Access-Control-Expose-Headers', 'Location');
     }
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     if (!methods.includes(request.method)) {
@@ -143,7 +154,7 @@ export function createHandler(deps: {
         return respond({ error: 'configuration_unavailable', requestId }, 503);
       }
     }
-    if (!privacy && !upload && !run && !conversation && !saveReport && !savedReport && !search && !directory && !regions && !lookup && !chatHome && !funding && !snapshotService && !['/api/v1/me','/api/ready'].includes(path)) return respond({ error: 'not_found', requestId }, 404);
+    if (!privacy && !upload && !run && !supplementBase && !supplementRun && !conversation && !saveReport && !savedReport && !search && !directory && !regions && !lookup && !chatHome && !funding && !snapshotService && !['/api/v1/me','/api/ready'].includes(path)) return respond({ error: 'not_found', requestId }, 404);
 
     const authorization = request.headers.get('authorization');
     const match = authorization?.match(/^Bearer ([^\s]+)$/i);
@@ -235,6 +246,21 @@ export function createHandler(deps: {
         const conditions = parseNoticeSearchConditions(await readJsonRequest(request, 'invalid_search_input'));
         if (!conditions) throw new ApiError('invalid_search_input');
         return respond(evaluateNoticeSearch(await readPublishedIndex(), conditions, asOf), 200);
+      }
+      if (supplementBase || supplementRun) {
+        if (!backend.uploadSupplement) throw new Error('upload_supplement_unavailable');
+        const operation = await readUploadSupplementOperation(
+          request,
+          supplementBase
+            ? { kind: 'base', analysisId: supplementBase[1]!, runId: supplementBase[2]! }
+            : { kind: 'run', analysisId: supplementRun![1]!, runId: supplementRun![2]! },
+        );
+        const result = await backend.uploadSupplement(operation, request.signal);
+        if (operation.action === 'enqueue' && result.contractVersion === 'upload-supplement-run/v1') {
+          headers.set('Location', `/api/v1/analyses/${result.analysisId}/upload-supplements/${result.runId}`);
+          return respond(result, 202);
+        }
+        return respond(result, 200);
       }
       if (run) {
         if (run[3] === 'evidence' && url.search) throw new ApiError('invalid_run_input');

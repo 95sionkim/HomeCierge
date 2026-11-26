@@ -1,4 +1,6 @@
 import { ApiError, isUuid, readBody, readJsonRequest, uuidPattern } from './http-input.js';
+import { parseUploadSupplementInput } from './upload-supplement.js';
+import type { UploadSupplementInput } from './upload-supplement.js';
 export { uuidPattern };
 const runStatuses = ['queued', 'running', 'retry_wait', 'finished', 'failed', 'cancelled'] as const;
 
@@ -10,14 +12,15 @@ type NoticeInput = {
   edition: string;
   modelNo: string;
 };
-type AnalysisRunInput = NoticeInput | { kind: 'snapshot'; snapshotId: string } | { kind: 'synthetic'; fixture: 'ingestion-v0' };
+type EnqueueableRunInput = NoticeInput | { kind: 'snapshot'; snapshotId: string } | { kind: 'synthetic'; fixture: 'ingestion-v0' };
+type AnalysisRunInput = EnqueueableRunInput | UploadSupplementInput;
 type RunStatus = typeof runStatuses[number];
 const noticeFailureCodes = [
   'notice_selection_unverified', 'notice_feed_unavailable', 'notice_source_restricted', 'notice_capture_limit',
 ] as const;
-type RunFailureCode = 'run_internal_error' | 'run_deadline_exceeded' | typeof noticeFailureCodes[number];
+type RunFailureCode = 'run_internal_error' | 'run_deadline_exceeded' | typeof noticeFailureCodes[number] | 'upload_unavailable';
 export type AnalysisRunOperation =
-  | { action: 'enqueue'; analysisId: string; idempotencyKey: string; input: AnalysisRunInput }
+  | { action: 'enqueue'; analysisId: string; idempotencyKey: string; input: EnqueueableRunInput }
   | { action: 'get' | 'cancel'; analysisId: string; runId: string };
 export type AnalysisRun = {
   runId: string;
@@ -463,8 +466,11 @@ export function buildComparisonEvidenceDetail(
   };
 }
 
-function parseInput(value: unknown): AnalysisRunInput | null {
+function parseInput(value: unknown, allowSupplement = false): AnalysisRunInput | null {
   if (!isRecord(value)) return null;
+  if (allowSupplement && value.kind === 'upload_supplement') {
+    return parseUploadSupplementInput(value);
+  }
   if (value.kind === 'notice') {
     const { noticeSource, houseManageNo, noticeNo, edition, modelNo } = value;
     if (Object.keys(value).length !== 6 || (noticeSource !== 'applyhome_apt' && noticeSource !== 'applyhome_remainder')
@@ -499,8 +505,8 @@ export async function readAnalysisRunOperation(
   const key = request.headers.get('idempotency-key');
   if (!isUuid(key)) throw new ApiError('invalid_run_input');
   const body = await readJsonRequest(request, 'invalid_run_input');
-  const input = isRecord(body) && Object.keys(body).length === 1 ? parseInput(body.input) : null;
-  if (!input) throw new ApiError('invalid_run_input');
+  const input = isRecord(body) && Object.keys(body).length === 1 ? parseInput(body.input, false) : null;
+  if (!input || input.kind === 'upload_supplement') throw new ApiError('invalid_run_input');
   return { ...analysis, action: 'enqueue', idempotencyKey: key.toLowerCase(), input };
 }
 
@@ -514,13 +520,14 @@ function isTimestamp(value: unknown): value is string {
 
 function isRunFailure(code: unknown, input: AnalysisRunInput): code is RunFailureCode {
   return code === 'run_internal_error' || code === 'run_deadline_exceeded'
-    || (input.kind === 'notice' && noticeFailureCodes.some(known => known === code));
+    || ((input.kind === 'notice' || input.kind === 'upload_supplement') && noticeFailureCodes.some(known => known === code))
+    || (input.kind === 'upload_supplement' && code === 'upload_unavailable');
 }
 
 export function parseAnalysisRun(value: unknown): AnalysisRun | null {
   if (!isRecord(value)) return null;
   const { runId, analysisId, status, attempt, submittedAt, finishedAt, snapshotId, errorCode } = value;
-  const input = parseInput(value.input);
+  const input = parseInput(value.input, true);
   if (!isUuid(runId) || !isUuid(analysisId) || !isRunStatus(status) || !input
     || typeof attempt !== 'number' || !Number.isSafeInteger(attempt) || attempt < 0
     || !isTimestamp(submittedAt) || (finishedAt !== null && !isTimestamp(finishedAt))

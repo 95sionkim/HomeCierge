@@ -44,6 +44,8 @@
 
 접수 시점의 한국 날짜, 공고·주택형과 공식 지역이 실행에 고정된다. 작업자는 해당 공고와 주택형을 확인한 뒤 그 지역의 기본 최근 1년 매매·분양권·입주권을 수집한다. PDF 이용 조건이 확인된 환경에서만 문서를 요청한다. 공식 모델을 다시 확인할 수 없으면 작업을 마치고 그 이유를 기록한다. 거래를 조회했더라도 공급면적 근거가 부족하면 결과에 보류를 표시한다. [오늘 목록과 선택 규칙](notice-directory.md)
 
+공식 PDF 확보 실패·판본 미확인 분석을 소유자 PDF로 보완할 때는 일반 `/runs`가 아니라 전용 경로(`POST /api/v1/analyses/{analysisId}/runs/{baseRunId}/upload-supplement`)에 `Idempotency-Key`와 `{"uploadId":"<UUID>"}`만 전달한다. 서버는 같은 공고·주택형·호실로 `kind: "upload_supplement"` 실행을 생성하고 202와 조회 `Location`(`GET /api/v1/analyses/{analysisId}/upload-supplements/{runId}`)을 반환한다. 일반 `/runs` 경로로 `kind: "upload_supplement"`를 직접 접수하면 400으로 거부한다. [업로드 보완 계약](notice-documents.md#화면에서-업로드-보완을-접수하고-점검한다)
+
 ### 상태와 오류를 표시한다
 
 세 경로는 `runId`, `analysisId`, `input`, `status`, `attempt`, `submittedAt`, `finishedAt`, `snapshotId`, `errorCode`를 같은 형태로 반환한다. 접수 시 `attempt`는 0이다. 종료 전의 `finishedAt`, 자료가 준비되기 전의 `snapshotId`, 실패 사유가 없는 `errorCode`는 모두 `null`이다.
@@ -55,7 +57,7 @@
 | `failed` | 실행 실패. `run_internal_error` 또는 `run_deadline_exceeded`를 읽고 새 실행을 제안할 수 있다. |
 | `cancelled` | 사용자가 취소함. 이전에 저장해 둔 다른 실행의 수집본은 계속 읽을 수 있다. |
 
-공고 선택 실행에서 `failed`이면 `errorCode`도 읽는다. `notice_selection_unverified`는 공고나 주택형을 다시 확인해야 한다는 뜻이다. `notice_feed_unavailable`은 제공기관 조회 실패, `notice_source_restricted`는 사용 권한 보류, `notice_capture_limit`은 수집 시간·요청 한도 도달이다. 접수 자체가 409이면 `notice_index_not_ready`, `notice_edition_mismatch`, `notice_model_not_found` 등 응답 사유에 따라 목록을 갱신해 다시 선택한다. `analysis_notice_selection_conflict`일 때는 이전 분석의 선택을 유지하고 새 초안에서 시작한다.
+공고 선택 실행에서 `failed`이면 `errorCode`도 읽는다. `notice_selection_unverified`는 공고나 주택형을 다시 확인해야 한다는 뜻이다. `notice_feed_unavailable`은 제공기관 조회 실패, `notice_source_restricted`는 사용 권한 보류, `notice_capture_limit`은 수집 시간·요청 한도 도달, `upload_unavailable`은 보완 실행에 고정된 업로드 파일을 비공개 저장소에서 읽을 수 없거나 삭제된 상태다. 접수 자체가 409이면 `notice_index_not_ready`, `notice_edition_mismatch`, `notice_model_not_found` 등 응답 사유에 따라 목록을 갱신해 다시 선택한다. `analysis_notice_selection_conflict`일 때는 이전 분석의 선택을 유지하고 새 초안에서 시작한다.
 
 현재 실행기의 `finished`는 수집본과 비교 결과가 저장됐다는 뜻이다. 실거래의 공급면적 대응, 지역 확대와 자료의 완전성은 결과 주소에서 확인한다. 이전 실행기가 수집본만 저장한 경우 같은 주소에서 409가 반환된다. [저장된 비교 결과](comparison-v1.md)
 

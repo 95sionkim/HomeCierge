@@ -24,14 +24,27 @@ export function evidence(refs, label = '금액 근거') {
     docs.get(key).pages.add(ref.page);
   }
   if (!docs.size) return '';
-  const summaries = [...docs.values()].map((d) => ({
-    ...d,
-    pages: [...d.pages].sort((a, b) => a - b).join('·'),
-  }));
+  const summaries = [...docs.values()].map((d) => {
+    const isUpload = d.document.startsWith('upload:');
+    return {
+      ...d,
+      isUpload,
+      fileId: isUpload ? d.document.slice(7) : null,
+      pages: [...d.pages].sort((a, b) => a - b).join('·'),
+    };
+  });
   const short =
-    summaries.length === 1 ? '공고문 ' + summaries[0].pages + '쪽' : '문서 ' + summaries.length + '개';
+    summaries.length === 1
+      ? (summaries[0].isUpload ? '사용자 업로드 ' : '공고문 ') + summaries[0].pages + '쪽'
+      : '문서 ' + summaries.length + '개';
   return `<details class="evidence-disclosure"><summary aria-label="${esc(label)} · ${esc(short)}">${icon('file-text')}${esc(short)}${icon('chevron-down')}</summary>
-    <div class="evidence-content"><strong>${esc(label)}</strong>${summaries.map((d) => `<dl><dt>문서</dt><dd>${esc(d.document)}</dd><dt>판본</dt><dd>${esc(d.version)}</dd><dt>근거 쪽</dt><dd>${esc(d.pages)}쪽</dd></dl>`).join('')}</div></details>`;
+    <div class="evidence-content"><strong>${esc(label)}</strong>${summaries
+      .map((d) =>
+        d.isUpload
+          ? `<p class="upload-provenance-summary">사용자 업로드 · ${esc(d.fileId)} · ${esc(d.version)} · ${esc(d.pages)}쪽</p><dl><dt>출처</dt><dd>사용자 업로드</dd><dt>파일 ID</dt><dd class="code">${esc(d.fileId)}</dd><dt>판본 해시</dt><dd class="code">${esc(d.version)}</dd><dt>근거 쪽</dt><dd>${esc(d.pages)}쪽</dd></dl>`
+          : `<dl><dt>문서</dt><dd>${esc(d.document)}</dd><dt>판본</dt><dd>${esc(d.version)}</dd><dt>근거 쪽</dt><dd>${esc(d.pages)}쪽</dd></dl>`,
+      )
+      .join('')}</div></details>`;
 }
 
 export const sourceNames = { applyhome_apt: '청약홈 아파트', applyhome_remainder: '청약홈 잔여세대' };

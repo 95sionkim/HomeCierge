@@ -13,7 +13,8 @@ from compare_trades import ALLOWED_CONDITION_KEYS, MAX_COMPARABLES, compare_snap
 from ingestion_pages import loads_source_json
 from ingestion_trades import TRADE_KINDS
 from notice_run_capture import (
-    CaptureStopped, NoticeRunFailure, NoticeWorkerConfigurationError, live_notice_transports, prepare_notice_comparison,
+    CaptureStopped, NoticeRunFailure, NoticeWorkerConfigurationError,
+    execute_upload_supplement_lease, live_notice_transports, prepare_notice_comparison,
 )
 from replay_ingestion import replay
 from store_ingestion import snapshot_input
@@ -214,6 +215,8 @@ def execute_notice_lease(client, lease, selection, lease_seconds, transports):
 def execute_lease(client, lease, selection, lease_seconds, notice=None):
     if isinstance(selection, dict) and selection.get('kind') == 'notice':
         return execute_notice_lease(client, lease, selection, lease_seconds, notice)
+    if isinstance(selection, dict) and selection.get('kind') == 'upload_supplement':
+        return execute_upload_supplement_lease(client, lease, selection, lease_seconds, notice)
     try:
         try:
             work = client.post('read_comparison_work', lease, limit=MAX_COMPARISON_INPUT_BYTES)

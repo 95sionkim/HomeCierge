@@ -59,6 +59,13 @@ const publicErrors = new Set([
   'conversation_period_unavailable',
   'conversation_condition_unavailable',
   'conversation_conflict',
+  'invalid_upload_supplement_input',
+  'upload_not_found',
+  'upload_not_available',
+  'upload_file_missing',
+  'upload_supplement_base_not_ready',
+  'upload_supplement_not_eligible',
+  'upload_supplement_conflict',
   'backend_unavailable',
 ]);
 
@@ -194,7 +201,7 @@ export function onSessionChange(callback) {
   };
 }
 
-async function request(path, method = 'GET', body, signal, media = 'json') {
+async function request(path, method = 'GET', body, signal, media = 'json', extraHeaders = null) {
   const receiptOnly = path === '/api/v1/privacy/receipt';
   const session = receiptOnly ? null : await currentSession();
   if (!receiptOnly && !identity(session)) throw apiError('authentication_required');
@@ -202,7 +209,11 @@ async function request(path, method = 'GET', body, signal, media = 'json') {
   try {
     response = await fetch(path, {
       method,
-      headers: { ...(session ? { Authorization: 'Bearer ' + session.access_token } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      headers: {
+        ...(session ? { Authorization: 'Bearer ' + session.access_token } : {}),
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        ...(extraHeaders ?? {}),
+      },
       body: body === undefined ? undefined : JSON.stringify(body),
       credentials: 'same-origin',
       cache: 'no-store',
@@ -661,6 +672,83 @@ export function decideConversationProposal(analysisId, runId, turnId, decision, 
     runPath(analysisId, runId) + '/conversation/' + encodeURIComponent(turnId) + '/decision',
     'POST',
     { decision },
+    signal,
+  );
+}
+
+export function getUploadSupplementContext(analysisId, runId, signal) {
+  if (!uuid.test(analysisId) || !uuid.test(runId)) throw apiError('invalid_upload_supplement_input');
+  return request(runPath(analysisId, runId) + '/upload-supplement', 'GET', undefined, signal);
+}
+
+export async function uploadAnalysisPdf(analysisId, uploadId, file, signal, onStage = null) {
+  if (!uuid.test(analysisId) || !uuid.test(uploadId)) throw apiError('invalid_upload_supplement_input');
+  if (!file || typeof file.size !== 'number' || file.size <= 0) throw apiError('upload_invalid_file');
+  if (file.size > 50 * 1024 * 1024) throw apiError('upload_too_large');
+  const session = await currentSession();
+  const owner = identity(session);
+  if (!owner) throw apiError('authentication_required');
+  const sdk = await client();
+  signal?.throwIfAborted();
+  onStage?.('registering');
+  let reg = sdk
+    .rpc('register_analysis_upload', { analysis_id: analysisId, upload_id: uploadId })
+    .setHeader('Authorization', 'Bearer ' + session.access_token);
+  if (signal) reg = reg.abortSignal(signal);
+  const { data: registered, error: regError } = await reg;
+  signal?.throwIfAborted();
+  if (regError) {
+    if (regError.code === '42501') throw apiError('authentication_required');
+    if (regError.code === 'PT404' || regError.code === '23503') throw apiError('run_not_found');
+    if (regError.code === 'PT409' || regError.code === '23505') throw apiError('upload_supplement_conflict');
+    throw databaseError(regError);
+  }
+  if (registered?.status && registered.status !== 'registered') {
+    throw apiError('upload_not_available');
+  }
+  const objectPath = registered?.object_path;
+  const expectedPath = `${owner.id.toLowerCase()}/${analysisId.toLowerCase()}/${uploadId.toLowerCase()}.pdf`;
+  if (typeof objectPath !== 'string' || objectPath.toLowerCase() !== expectedPath) {
+    throw apiError('backend_unavailable');
+  }
+  onStage?.('uploading');
+  const { error: uploadError } = await sdk.storage.from('analysis-uploads').upload(objectPath, file, {
+    contentType: 'application/pdf',
+    cacheControl: '0',
+    upsert: false,
+  });
+  signal?.throwIfAborted();
+  if (uploadError) {
+    const status = Number(uploadError.statusCode ?? uploadError.status ?? 0);
+    if (status === 401 || status === 403) throw apiError('authentication_required');
+    if (status === 413) throw apiError('upload_too_large');
+    if (status === 415) throw apiError('upload_invalid_file');
+    if (status === 409) throw apiError('upload_supplement_conflict');
+    throw apiError('upload_storage_failed');
+  }
+  return { uploadId: uploadId.toLowerCase(), objectPath };
+}
+
+export function enqueueUploadSupplement(analysisId, baseRunId, uploadId, idempotencyKey, signal) {
+  if (!uuid.test(analysisId) || !uuid.test(baseRunId) || !uuid.test(uploadId) || !uuid.test(idempotencyKey)) {
+    throw apiError('invalid_upload_supplement_input');
+  }
+  return request(
+    runPath(analysisId, baseRunId) + '/upload-supplement',
+    'POST',
+    { uploadId: uploadId.toLowerCase() },
+    signal,
+    'json',
+    { 'Idempotency-Key': idempotencyKey.toLowerCase() },
+  );
+}
+
+export function getUploadSupplementRun(analysisId, runId, signal) {
+  if (!uuid.test(analysisId) || !uuid.test(runId)) throw apiError('invalid_upload_supplement_input');
+  return request(
+    '/api/v1/analyses/' + analysisId.toLowerCase() + '/upload-supplements/' + runId.toLowerCase(),
+    'GET',
+    undefined,
     signal,
   );
 }

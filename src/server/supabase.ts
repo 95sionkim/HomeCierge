@@ -9,6 +9,7 @@ import {
   parseAnalysisRun,
   parseComparisonSnapshot,
 } from './analysis-runs.js';
+import { parseUploadSupplementContext, parseUploadSupplementRun } from './upload-supplement.js';
 import type { Backend, BackendConfig } from './handler.js';
 
 const uploadBucket = 'analysis-uploads';
@@ -159,6 +160,64 @@ export function createBackend(config: BackendConfig): Backend {
       }
       if (!matches) throw new Error('invalid_run_response');
       return run;
+    },
+    async uploadSupplement(operation, signal) {
+      const rpc = operation.action === 'context'
+        ? client.rpc('read_upload_supplement_context', {
+          p_analysis_id: operation.analysisId,
+          p_run_id: operation.runId,
+        })
+        : operation.action === 'enqueue'
+          ? client.rpc('enqueue_upload_supplement_run', {
+            p_analysis_id: operation.analysisId,
+            p_base_run_id: operation.baseRunId,
+            p_upload_id: operation.uploadId,
+            p_idempotency_key: operation.idempotencyKey,
+          })
+          : client.rpc('get_upload_supplement_run', {
+            p_analysis_id: operation.analysisId,
+            p_run_id: operation.runId,
+          });
+      const { data, error } = await rpc.abortSignal(signal);
+      if (error) {
+        if (error.code === '42501' && error.message === 'authentication_required') throw new ApiError('authentication_required');
+        if (error.code === 'PT403') {
+          throw new ApiError(error.message === 'notice_source_restricted'
+            ? 'notice_source_restricted' : 'comparison_source_restricted');
+        }
+        if (error.code === 'PT404') {
+          throw new ApiError(error.message === 'upload_not_found' ? 'upload_not_found' : 'run_not_found');
+        }
+        if (error.code === 'PT409') {
+          if (error.message === 'upload_not_available') throw new ApiError('upload_not_available');
+          if (error.message === 'upload_file_missing') throw new ApiError('upload_file_missing');
+          if (error.message === 'upload_supplement_base_not_ready') throw new ApiError('upload_supplement_base_not_ready');
+          if (error.message === 'upload_supplement_not_eligible') throw new ApiError('upload_supplement_not_eligible');
+          throw new ApiError('upload_supplement_conflict');
+        }
+        if (error.code === 'PT429') throw new ApiError('run_rate_limited');
+        if (error.code === '22023') throw new ApiError('invalid_upload_supplement_input');
+        throw new Error('database_unavailable');
+      }
+      if (operation.action === 'context') {
+        const parsed = parseUploadSupplementContext(data);
+        if (!parsed || parsed.analysisId !== operation.analysisId || parsed.runId !== operation.runId) {
+          throw new Error('invalid_upload_supplement_response');
+        }
+        return parsed;
+      }
+      const parsed = parseUploadSupplementRun(data);
+      if (!parsed || parsed.analysisId !== operation.analysisId) {
+        throw new Error('invalid_upload_supplement_response');
+      }
+      if (operation.action === 'enqueue') {
+        if (parsed.baseRunId !== operation.baseRunId || parsed.uploadId !== operation.uploadId) {
+          throw new Error('invalid_upload_supplement_response');
+        }
+      } else if (parsed.runId !== operation.runId) {
+        throw new Error('invalid_upload_supplement_response');
+      }
+      return parsed;
     },
     async getNoticeSearchIndex(signal, purpose) {
       const rpc = purpose === 'directory' ? 'read_notice_directory_index' : 'read_notice_search_index';

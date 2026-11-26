@@ -16,6 +16,7 @@ import { createProfilePage } from './profile-page.js';
 import { createProfileReview } from './profile-review.js';
 import { createReportPage } from './report-page.js';
 import { createPrivacyPage } from './privacy-page.js';
+import { createUploadSupplementPanel } from './upload-supplement.js';
 import { createChatHome } from './chat-home.js';
 import { createChatView } from './chat-view.js';
 import { reportExample } from '/vendor/planning-example.js';
@@ -169,6 +170,17 @@ const conversationPanel = createConversationPanel({
     announce('승인한 조건으로 새 분석 실행으로 이동했습니다.');
   },
 });
+const uploadSupplementPanel = createUploadSupplementPanel({
+  root,
+  render,
+  announce,
+  user: () => state.session,
+  onRunFinished({ analysisId, runId, fromRunId }) {
+    originRun = { analysisId, fromRunId, toRunId: runId };
+    void loadHistory();
+    navigate('#run/' + analysisId + '/' + runId);
+  },
+});
 async function loadEvidence(runContext) {
   if (!runContext || !state.session || state.suspended || state.sessionProblem) return null;
   const { analysisId, runId, account } = runContext;
@@ -293,6 +305,7 @@ function resetPrivate(keepPrivacy = false) {
   referencePage.reset();
   commutePage.reset();
   conversationPanel.reset();
+  uploadSupplementPanel.reset();
   conditionEditor.close();
   ++epoch;
   ++dirVersion;
@@ -648,7 +661,12 @@ function render() {
   else if (route.key === 'run')
     body = state.authPending
       ? emptyState('loader-circle', '세션을 확인하고 있습니다.')
-      : runView(state, route.section === 'comparison' ? conversationPanel.view() : '', originRun);
+      : runView(
+          state,
+          route.section === 'comparison' ? conversationPanel.view() : '',
+          originRun,
+          route.section === 'comparison' ? uploadSupplementPanel.view() : '',
+        );
   else if (route.key === 'sample')
     body = state.session
       ? emptyState(
@@ -748,6 +766,11 @@ async function readRun(route, version = routeVersion) {
           runId: route.runId,
           comparison: state.comparison,
           originRun,
+        });
+        uploadSupplementPanel.enter({
+          ownerId: state.session.id,
+          analysisId: route.analysisId,
+          runId: route.runId,
         });
         if (reviewFromProfile?.owner === state.session.id && reviewFromProfile.proposal.analysisId === route.analysisId &&
             reviewFromProfile.proposal.runId === route.runId) {
@@ -889,6 +912,7 @@ function routeChanged(focus = false) {
   referencePage.reset();
   commutePage.reset();
   conversationPanel.reset();
+  uploadSupplementPanel.reset();
   conditionEditor.close();
   clearTimeout(pollTimer);
   clearEvidenceState();

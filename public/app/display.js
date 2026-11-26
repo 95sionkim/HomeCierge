@@ -145,6 +145,16 @@ export function errorText(error) {
     notice_model_unverified: '선택한 주택형을 확인한 뒤 분석할 수 있습니다.',
     notice_region_unverified: '공고의 공식 소재지를 확인한 뒤 분석할 수 있습니다.',
     analysis_notice_selection_conflict: '분석에 저장된 공고 조건과 선택한 주택형이 다릅니다.',
+    invalid_upload_supplement_input: '업로드 보완 요청 형식을 확인한 뒤 다시 시도하세요.',
+    upload_not_found: '이 계정에서 등록된 업로드 파일을 찾지 못했습니다. PDF를 다시 선택해 주세요.',
+    upload_not_available: '삭제되었거나 사용할 수 없는 업로드 파일입니다. 새 PDF를 올려 주세요.',
+    upload_file_missing: '비공개 저장소에서 업로드한 PDF를 찾지 못했습니다. 파일을 다시 올려 주세요.',
+    upload_supplement_base_not_ready: '완료된 공고 분석 결과에서만 PDF 보완을 요청할 수 있습니다.',
+    upload_supplement_not_eligible: '이 분석에서는 공고 PDF 보완을 지원하지 않습니다.',
+    upload_supplement_conflict: '다른 업로드 보완 요청과 충돌했습니다. 상태를 새로고침한 뒤 다시 시도하세요.',
+    upload_invalid_file: 'PDF 파일(.pdf, application/pdf)만 올릴 수 있습니다.',
+    upload_too_large: '파일 크기는 50MiB 이하여야 합니다.',
+    upload_storage_failed: '비공개 저장소에 PDF를 올리지 못했습니다. 잠시 후 다시 시도하세요.',
   };
   return text[code] ?? reasonText(code) ?? '요청을 마치지 못했습니다. 연결을 확인하고 다시 시도하세요.';
 }
