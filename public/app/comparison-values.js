@@ -92,6 +92,11 @@ export function reasonText(code) {
     notice_capture_limit: '이번 수집의 시간 또는 조회 횟수 한도에 도달했습니다.',
     run_internal_error: '분석을 마치지 못했습니다. 공고를 다시 선택해 시작하세요.',
     run_deadline_exceeded: '분석 시간이 지나 종료됐습니다. 공고를 다시 선택해 시작하세요.',
+    area_tolerance_invalid: '공급면적 허용 범위는 0% 초과 50% 이하의 양수여야 합니다.',
+    area_change_confirmation_required: '공급면적 허용 범위 변경은 사용자 확인이 필요합니다.',
+    replacement_target_required: '교체할 기존 비교 단지를 지정해야 합니다.',
+    replacement_candidate_ineligible: '선택한 단지가 현재 비교 기준을 통과하지 못해 교체하지 않았습니다.',
+    replacement_request_conflict: '중복되거나 충돌하는 단지 교체 요청을 보류했습니다.',
   };
   return typeof code === 'string' && Object.hasOwn(labels, code) ? labels[code] : null;
 }

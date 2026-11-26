@@ -57,6 +57,7 @@ const publicErrors = new Set([
   'deletion_upload_scope_unverified',
   'invalid_deletion_input',
   'conversation_period_unavailable',
+  'conversation_condition_unavailable',
   'conversation_conflict',
   'backend_unavailable',
 ]);
@@ -640,6 +641,13 @@ export function sendConversationMessage(analysisId, runId, requestId, message, s
   const count = Array.from(message).length;
   if (count < 1 || count > 800) throw apiError('invalid_conversation_input');
   return request(runPath(analysisId, runId) + '/conversation', 'POST', { requestId, message }, signal);
+}
+export function sendConditionProposal(analysisId, runId, requestId, message, conditions, signal) {
+  if (!uuid.test(requestId) || typeof message !== 'string' || !conditions || typeof conditions !== 'object' || Array.isArray(conditions))
+    throw apiError('invalid_conversation_input');
+  const count = Array.from(message).length;
+  if (count < 1 || count > 800) throw apiError('invalid_conversation_input');
+  return request(runPath(analysisId, runId) + '/conversation', 'POST', { requestId, message, conditions }, signal);
 }
 export function decideConversationProposal(analysisId, runId, turnId, decision, signal) {
   if (

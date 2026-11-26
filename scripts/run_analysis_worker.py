@@ -9,8 +9,9 @@ import time
 from pathlib import Path
 from uuid import UUID
 
-from compare_trades import compare_snapshot
+from compare_trades import ALLOWED_CONDITION_KEYS, MAX_COMPARABLES, compare_snapshot
 from ingestion_pages import loads_source_json
+from ingestion_trades import TRADE_KINDS
 from notice_run_capture import (
     CaptureStopped, NoticeRunFailure, NoticeWorkerConfigurationError, live_notice_transports, prepare_notice_comparison,
 )
@@ -59,11 +60,58 @@ def _approved_comparison_period(selection, work):
     return period
 
 
+def _approved_comparison_conditions(selection, work, comparison_period):
+    # 정상 실행은 comparisonConditions 필드를 생략한다. 존재하면 스냅샷의 유효한 조건 재계산 객체여야 한다.
+    if 'comparisonConditions' not in work:
+        return None
+    if not _is_snapshot_selection(selection):
+        raise ValueError('비교 조건 재계산은 저장된 수집본 실행에서만 사용할 수 있습니다.')
+    conditions = work['comparisonConditions']
+    if (not isinstance(conditions, dict) or not conditions
+            or not set(conditions) <= ALLOWED_CONDITION_KEYS):
+        raise ValueError('승인된 비교 조건 형식이 올바르지 않습니다.')
+    if 'period' in conditions:
+        period = conditions['period']
+        if (not isinstance(period, dict) or set(period) != {'start', 'end'}
+                or not isinstance(period['start'], str) or not isinstance(period['end'], str)):
+            raise ValueError('승인된 비교 조건의 기간 형식이 올바르지 않습니다.')
+        if comparison_period is not None and comparison_period != period:
+            raise ValueError('승인된 비교 기간과 비교 조건의 기간이 일치하지 않습니다.')
+    if 'areaTolerancePercent' in conditions:
+        if not isinstance(conditions['areaTolerancePercent'], str):
+            raise ValueError('승인된 공급면적 허용 범위는 문자열이어야 합니다.')
+    if 'tradeKinds' in conditions:
+        kinds = conditions['tradeKinds']
+        if (not isinstance(kinds, list) or not kinds
+                or any(not isinstance(kind, str) or kind not in TRADE_KINDS for kind in kinds)
+                or len(kinds) != len(set(kinds))):
+            raise ValueError('승인된 거래 종류 형식이 올바르지 않습니다.')
+    if 'replacements' in conditions:
+        replacements = conditions['replacements']
+        if not isinstance(replacements, list) or len(replacements) > MAX_COMPARABLES:
+            raise ValueError('승인된 단지 교체 목록 형식이 올바르지 않습니다.')
+        seen_in, seen_out = set(), set()
+        for pair in replacements:
+            if (not isinstance(pair, dict) or set(pair) != {'complexId', 'replaceComplexId'}
+                    or not isinstance(pair['complexId'], str) or not isinstance(pair['replaceComplexId'], str)):
+                raise ValueError('승인된 단지 교체 항목 형식이 올바르지 않습니다.')
+            incoming, outgoing = pair['complexId'], pair['replaceComplexId']
+            if (not incoming or not outgoing or incoming == outgoing
+                    or incoming in seen_in or outgoing in seen_out):
+                raise ValueError('승인된 단지 교체 항목이 중복되었거나 올바르지 않습니다.')
+            seen_in.add(incoming)
+            seen_out.add(outgoing)
+        if seen_in & seen_out:
+            raise ValueError('승인된 단지 교체 항목이 서로 충돌합니다.')
+    return conditions
+
+
 def prepare_comparison(selection, work):
     # 사용자에게 허용한 선택과 서비스가 검수한 지역·단지·면적 근거는 별개의 입력이다.
     if not isinstance(work, dict):
         raise ValueError('비교 입력을 확인할 수 없습니다.')
     comparison_period = _approved_comparison_period(selection, work)
+    comparison_conditions = _approved_comparison_conditions(selection, work, comparison_period)
     conditions = work['conditions']
     evidence = work['evidence']
     ingestion = work['ingestion']
@@ -91,6 +139,7 @@ def prepare_comparison(selection, work):
     comparison = compare_snapshot(
         ingestion, conditions.get('comparison', {}), evidence,
         binding_issue=binding_issue, comparison_period=comparison_period,
+        comparison_conditions=comparison_conditions,
     )
     return inputs, new_capture, comparison
 
@@ -131,7 +180,7 @@ def execute_notice_lease(client, lease, selection, lease_seconds, transports):
             work = client.post('read_comparison_work', lease, limit=MAX_COMPARISON_INPUT_BYTES)
         except WorkerRpcResponseTooLarge:
             raise NoticeRunFailure('notice_capture_limit', False) from None
-        if not isinstance(work, dict) or 'comparisonPeriod' in work:
+        if not isinstance(work, dict) or 'comparisonPeriod' in work or 'comparisonConditions' in work:
             raise NoticeRunFailure('notice_selection_unverified', False)
         inputs, capture, comparison, schedules = prepare_notice_comparison(
             selection, work, generation=lease['p_generation'], transports=transports,

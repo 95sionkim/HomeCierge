@@ -272,6 +272,8 @@ export function createBackend(config: BackendConfig): Backend {
       const rpc = op.action === 'read' ? client.rpc('read_analysis_conversation', target)
         : op.action === 'decide' ? client.rpc('decide_analysis_chat_turn', {
           ...target, p_turn_id: op.turnId, p_decision: op.decision,
+        }) : op.action === 'submit_conditions' ? client.rpc('submit_analysis_condition_turn', {
+          ...target, p_request_id: op.requestId, p_message: op.message, p_conditions: op.conditions,
         }) : client.rpc('submit_analysis_chat_turn', {
           ...target, p_request_id: op.requestId, p_message: op.message, p_intent: op.intent,
           ...(op.period && { p_start: op.period.start, p_end: op.period.end }),
@@ -283,6 +285,7 @@ export function createBackend(config: BackendConfig): Backend {
       if (error?.code === 'PT409') {
         if (error.message === 'analysis_comparison_not_ready') throw new ApiError('comparison_not_available');
         if (error.message === 'analysis_chat_period_unavailable') throw new ApiError('conversation_period_unavailable');
+        if (error.message === 'analysis_chat_condition_unavailable') throw new ApiError('conversation_condition_unavailable');
         throw new ApiError('conversation_conflict');
       }
       if (error?.code === 'PT429') throw new ApiError('run_rate_limited');

@@ -36,6 +36,23 @@
   position: sticky; top: 0; z-index: 2; background: var(--canvas);
   padding-top: 8px; margin-top: -8px; margin-bottom: 24px;
 }
+.condition-bar-wrap {
+  display: flex; align-items: flex-start; gap: 10px;
+}
+.condition-bar-wrap > .condition-bar {
+  flex: 1 1 auto; min-width: 0;
+}
+.condition-edit-btn {
+  flex: none; min-height: 44px; margin-top: 8px; white-space: nowrap;
+}
+.manual-replace-tag {
+  display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px;
+  background: var(--primary-soft); color: var(--primary); font-size: 11px; font-weight: 650;
+  vertical-align: middle;
+}
+.hold-actions {
+  margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px;
+}
 .condition-bar {
   border: 1px solid var(--line); background: var(--surface); border-radius: 16px;
 }
@@ -159,6 +176,12 @@
 }
 @media (max-width: 760px) {
   .analysis-context { margin-bottom: 18px; }
+  .condition-bar-wrap { gap: 8px; }
+  .condition-edit-btn { min-height: 44px; min-width: 44px; margin-top: 4px; padding-inline: 10px; justify-content: center; }
+  .condition-edit-btn .condition-edit-label {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
   .condition-key { padding-right: 12px; gap: 5px; }
   .condition-bar summary { min-height: 48px; padding-inline: 12px; }
   .condition-period { display: none; }
@@ -451,10 +474,13 @@
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .conv-diff-row {
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
+  grid-template-columns: 76px minmax(0, 1fr);
   column-gap: 10px;
   row-gap: 2px;
   align-items: baseline;

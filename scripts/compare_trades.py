@@ -26,6 +26,9 @@ else:
 TARGET_KEYS = ('houseManageNo', 'noticeNo', 'edition')
 PRICE_BASIS = 'sale_price_plus_required_options'
 DEFAULT_TOLERANCE = Decimal('5')
+MAX_AREA_TOLERANCE = Decimal('50')
+MAX_COMPLEX_ID_LENGTH = 120
+ALLOWED_CONDITION_KEYS = frozenset({'period', 'areaTolerancePercent', 'tradeKinds', 'replacements'})
 MAX_COMPARABLES = 5
 MEAN_EARTH_RADIUS_M = 6_371_008.8
 
@@ -83,6 +86,29 @@ def _area(value):
 
 def _as_decimal_string(value):
     return format(value, 'f')
+
+
+def _canonical_decimal_string(value):
+    text = format(value, 'f')
+    if '.' in text:
+        text = text.rstrip('0').rstrip('.')
+    return text or '0'
+
+
+def _approved_tolerance_decimal(value):
+    if not _matches(r'(?:0|[1-9][0-9]*)(?:\.[0-9]{1,4})?', value):
+        return None
+    amount = Decimal(value)
+    if amount <= 0 or amount > MAX_AREA_TOLERANCE:
+        return None
+    return Decimal(_canonical_decimal_string(amount))
+
+
+def _complex_id_text(value):
+    if (not isinstance(value, str) or not value or value != value.strip()
+            or len(value) > MAX_COMPLEX_ID_LENGTH or re.search(r'[\x00-\x1f\x7f]', value)):
+        return None
+    return value
 
 
 def _won(value, *, allow_zero=False):
@@ -245,11 +271,13 @@ def _notice_price(catalog, model, selection, documents):
     return result
 
 
-def _area_conditions(supply, selection, holds):
+def _area_conditions(supply, selection, holds, *, approved_tolerance=None):
     percent = DEFAULT_TOLERANCE
-    if 'areaTolerancePercent' in selection:
+    if approved_tolerance is not None:
+        percent = approved_tolerance
+    elif 'areaTolerancePercent' in selection:
         proposed = _area_decimal(selection['areaTolerancePercent'])
-        if proposed is None:
+        if proposed is None or proposed <= 0:
             holds.append(_hold('area_tolerance_invalid', subject='selection'))
         elif proposed == DEFAULT_TOLERANCE or selection.get('areaChangeConfirmed') is True:
             percent = proposed
@@ -290,6 +318,61 @@ def _comparison_period(ingestion, override):
     if not (original['start'] <= period['start'] and period['end'] <= original['end']):
         raise ValueError('승인된 비교 기간이 원본 수집본의 거래 기간 범위를 벗어났습니다.')
     return period
+
+
+def _comparison_conditions(ingestion, comparison_period, comparison_conditions):
+    override_period = None if comparison_period is None else _comparison_period(ingestion, comparison_period)
+    if comparison_conditions is None:
+        return {'period': override_period, 'areaTolerancePercent': None, 'tradeKinds': None, 'replacements': None}
+    if (not isinstance(comparison_conditions, dict) or not comparison_conditions
+            or not set(comparison_conditions) <= ALLOWED_CONDITION_KEYS):
+        raise ValueError('승인된 비교 조건 형식이 올바르지 않습니다.')
+    if 'period' in comparison_conditions:
+        cond_period = _comparison_period(ingestion, comparison_conditions['period'])
+        if override_period is not None and override_period != cond_period:
+            raise ValueError('승인된 비교 기간과 비교 조건의 기간이 일치하지 않습니다.')
+        override_period = cond_period
+    area_tolerance = None
+    if 'areaTolerancePercent' in comparison_conditions:
+        area_tolerance = _approved_tolerance_decimal(comparison_conditions['areaTolerancePercent'])
+        if area_tolerance is None:
+            raise ValueError('승인된 공급면적 허용 범위가 올바르지 않습니다.')
+    trade_kinds = None
+    if 'tradeKinds' in comparison_conditions:
+        requested_kinds = comparison_conditions['tradeKinds']
+        original_kinds = ingestion.get('tradeKinds')
+        if (not _unique_values(requested_kinds, lambda kind: kind in TRADE_KINDS)
+                or not _unique_values(original_kinds, lambda kind: kind in TRADE_KINDS)
+                or not set(requested_kinds) <= set(original_kinds)):
+            raise ValueError('승인된 거래 종류가 원본 수집본의 범위를 벗어났습니다.')
+        trade_kinds = [kind for kind in TRADE_KINDS if kind in requested_kinds]
+    replacements = None
+    if 'replacements' in comparison_conditions:
+        raw_replacements = comparison_conditions['replacements']
+        if not isinstance(raw_replacements, list) or len(raw_replacements) > MAX_COMPARABLES:
+            raise ValueError('승인된 단지 교체 목록 형식이 올바르지 않습니다.')
+        seen_in, seen_out, normalized = set(), set(), []
+        for item in raw_replacements:
+            if not isinstance(item, dict) or set(item) != {'complexId', 'replaceComplexId'}:
+                raise ValueError('승인된 단지 교체 항목에는 complexId와 replaceComplexId만 지정해야 합니다.')
+            incoming = _complex_id_text(item['complexId'])
+            outgoing = _complex_id_text(item['replaceComplexId'])
+            if (incoming is None or outgoing is None or incoming == outgoing
+                    or incoming in seen_in or outgoing in seen_out):
+                raise ValueError('승인된 단지 교체 항목이 중복되었거나 올바르지 않습니다.')
+            seen_in.add(incoming)
+            seen_out.add(outgoing)
+            normalized.append({'complexId': incoming, 'replaceComplexId': outgoing})
+        if seen_in & seen_out:
+            raise ValueError('승인된 단지 교체 항목이 서로 충돌합니다.')
+        normalized.sort(key=lambda pair: (pair['replaceComplexId'], pair['complexId']))
+        replacements = normalized
+    return {
+        'period': override_period,
+        'areaTolerancePercent': area_tolerance,
+        'tradeKinds': trade_kinds,
+        'replacements': replacements,
+    }
 
 
 def _unique_values(value, valid):
@@ -454,9 +537,11 @@ def _read_batches(ingestion, period, trade_kinds):
 
     coverage, observations, replayed = {}, [], set()
     months = set(period['months'])
+    captured_all = ingestion.get('tradeKinds')
     for key, group in groups.items():
         source, code, month = key
         kinds = [kind for kind in trade_kinds if kind in SOURCE_KINDS[source]]
+        captured_kinds = [kind for kind in captured_all if kind in SOURCE_KINDS[source]] if isinstance(captured_all, list) else kinds
         if not kinds or code not in ingestion['requestRegionCodes'] or month.replace('-', '') not in months:
             continue
         record, batch = group[0]
@@ -475,7 +560,7 @@ def _read_batches(ingestion, period, trade_kinds):
         flags = _reasons(batch.get('reasons'))
         complete = (
             record.get('status') in ('complete', 'empty') and isinstance(batch.get('trades'), list)
-            and isinstance(batch.get('reasons'), list) and not batch['reasons'] and record.get('tradeKinds') == kinds
+            and isinstance(batch.get('reasons'), list) and not batch['reasons'] and record.get('tradeKinds') == captured_kinds
             and type(reported) is int and _number(record.get('rowsReceived')) and reported == record['rowsReceived']
             and reported == len(rows) == len(positions) == len(locators)
             and record.get('totalCountChanged') is False and record.get('missingPages') == []
@@ -893,12 +978,19 @@ def _rank(candidates, role, provisional):
     return selected, holds
 
 
-def _replace(selected, candidates, selection, complexes, localities, role):
-    if 'replacements' not in selection:
+def _replace(selected, candidates, selection, complexes, localities, role,
+             *, approved_replacements=None, active_holds=(), active_exclusions=()):
+    if approved_replacements is not None:
+        raw_changes = approved_replacements
+    elif 'replacements' in selection:
+        if not isinstance(selection['replacements'], list):
+            return selected, [_hold('replacement_request_invalid', scope=role, subject='selection')]
+        raw_changes = selection['replacements']
+    else:
         return selected, []
-    if not isinstance(selection['replacements'], list):
-        return selected, [_hold('replacement_request_invalid', scope=role, subject='selection')]
-    changes = [_obj(change) for change in selection['replacements']]
+    if not raw_changes:
+        return selected, []
+    changes = [_obj(change) for change in raw_changes]
     new_keys = Counter(_text(change.get('complexId')) for change in changes)
     old_keys = Counter(_text(change.get('replaceComplexId')) for change in changes)
     positions = {row['complexId']: index for index, row in enumerate(selected)}
@@ -909,8 +1001,24 @@ def _replace(selected, candidates, selection, complexes, localities, role):
         if outgoing not in positions:
             holds.append(_hold('replacement_target_required', **detail))
         elif incoming not in candidates or incoming in positions:
-            locality = _obj(complexes.get(incoming)).get('localityCode')
-            cause = 'outside_applied_region' if locality and locality not in localities else 'comparison_conditions_unmet'
+            if incoming in positions:
+                cause = 'already_selected'
+            else:
+                locality = _obj(complexes.get(incoming)).get('localityCode')
+                if locality and locality not in localities:
+                    cause = 'outside_applied_region'
+                elif incoming not in complexes or any(
+                    h.get('complexId') == incoming or incoming in _items(h.get('complexIds'))
+                    for h in active_holds
+                ):
+                    cause = 'candidate_unverified'
+                elif any(
+                    e.get('complexId') == incoming and e.get('reasonCode') == 'outside_supply_area'
+                    for e in active_exclusions
+                ):
+                    cause = 'outside_supply_area'
+                else:
+                    cause = 'comparison_conditions_unmet'
             holds.append(_hold('replacement_candidate_ineligible', candidateReason=cause, **detail))
         elif new_keys[incoming] > 1 or old_keys[outgoing] > 1:
             holds.append(_hold('replacement_request_conflict', **detail))
@@ -920,23 +1028,104 @@ def _replace(selected, candidates, selection, complexes, localities, role):
     return selected, holds
 
 
+def _candidate_pool(complexes, regions, candidates, comparables, active, target_complex):
+    displayed_ids = {row['complexId'] for row in comparables}
+    localities = active['localities']
+    active_holds = active['holds']
+    active_exclusions = active['exclusions']
+    eligible_items, ineligible_items = [], []
+    for complex_id, complex_ in complexes.items():
+        if complex_id == target_complex['complexId']:
+            continue
+        locality_code = complex_['localityCode']
+        locality_name = regions[locality_code]['localityName']
+        if complex_id in candidates:
+            cand = candidates[complex_id]
+            dist = cand['distance']['meters']
+            eligible_items.append((
+                (Decimal(cand['areaDifferenceM2']), dist is None, dist if dist is not None else 0.0, complex_id),
+                {
+                    'complexId': complex_id,
+                    'name': complex_['name'],
+                    'localityCode': locality_code,
+                    'localityName': locality_name,
+                    'eligible': True,
+                    'selected': complex_id in displayed_ids,
+                    'supplyAreaM2': cand['supplyAreaM2'],
+                    'areaDifferenceM2': cand['areaDifferenceM2'],
+                    'tradeKinds': sorted(cand['tradeStats'].keys(), key=TRADE_KINDS.index),
+                    'reasonCode': None,
+                },
+            ))
+            continue
+        supply_area_m2 = None
+        if locality_code not in localities:
+            reason_code = 'outside_applied_region'
+        else:
+            matched_hold = next(
+                (h for h in active_holds
+                 if h.get('complexId') == complex_id or complex_id in _items(h.get('complexIds'))),
+                None,
+            )
+            if matched_hold is not None:
+                reason_code = matched_hold['reasonCode']
+            else:
+                area_excl = next(
+                    (e for e in active_exclusions
+                     if e.get('complexId') == complex_id and e.get('reasonCode') == 'outside_supply_area'),
+                    None,
+                )
+                if area_excl is not None:
+                    reason_code = 'outside_supply_area'
+                    supply_area_m2 = area_excl.get('supplyAreaM2')
+                else:
+                    other_excl = next(
+                        (e for e in active_exclusions
+                         if e.get('complexId') == complex_id
+                         and e.get('reasonCode') in ('outside_contract_period', 'trade_kind_not_included', 'cancelled_trade')),
+                        None,
+                    )
+                    reason_code = other_excl['reasonCode'] if other_excl is not None else 'comparison_conditions_unmet'
+        ineligible_items.append((
+            (reason_code, complex_id),
+            {
+                'complexId': complex_id,
+                'name': complex_['name'],
+                'localityCode': locality_code,
+                'localityName': locality_name,
+                'eligible': False,
+                'selected': False,
+                'supplyAreaM2': supply_area_m2,
+                'areaDifferenceM2': None,
+                'tradeKinds': [],
+                'reasonCode': reason_code,
+            },
+        ))
+    eligible_items.sort(key=lambda item: item[0])
+    ineligible_items.sort(key=lambda item: item[0])
+    return [item[1] for item in eligible_items] + [item[1] for item in ineligible_items]
+
+
 def compare_snapshot(ingestion: dict, selection: dict, evidence: Optional[dict] = None,
                      *, binding_issue: Optional[str] = None,
-                     comparison_period: Optional[dict] = None) -> dict:
+                     comparison_period: Optional[dict] = None,
+                     comparison_conditions: Optional[dict] = None) -> dict:
     """BE-02 수집본의 범위와 행을 검증해 현재 분석에 적용할 비교 결과를 만든다.
 
     binding_issue는 DB 작업자가 고정된 분석 조건과 수집본의 연결을 검증하며 기록한 사유다.
     comparison_period는 서비스가 승인한 재계산 기간({start, end})이며 원본 수집 기간 안에서만 허용한다.
+    comparison_conditions는 서비스가 승인한 비교 조건 재계산 값({period, areaTolerancePercent, tradeKinds, replacements})이다.
     가격·자체 거래·순위의 개별 상태를 함께 반환한다. 필수 수집과 주변 후보 판별의
     완전성이 증명될 때만 정상 0개로 판정하며, 순위에 필요한 미정값은 D-03으로 남긴다.
     """
     if (not isinstance(ingestion, dict) or ingestion.get('contractVersion') != 'ingestion/v0'
             or ingestion.get('dataOrigin') not in ('synthetic', 'collected')):
         raise ValueError('출처가 표시된 ingestion/v0 결과가 필요합니다.')
-    override_period = None if comparison_period is None else _comparison_period(ingestion, comparison_period)
+    approved = _comparison_conditions(ingestion, comparison_period, comparison_conditions)
+    override_period = approved['period']
     result = {'contractVersion': 'comparison/v1', 'dataOrigin': ingestion['dataOrigin'],
               'completeness': 'unavailable', 'appliedScope': None, 'comparables': [], 'targetReferences': [],
-              'holds': [], 'exclusions': [], 'target': None, 'noticePrice': None,
+              'candidatePool': [], 'holds': [], 'exclusions': [], 'target': None, 'noticePrice': None,
               'regionDecision': {'priority': None, 'expansion': None, 'reasonCode': None},
               'conditions': {'asOf': _text(ingestion.get('asOf')), 'period': override_period, 'area': None, 'tradeKinds': [],
                              'maxComparables': MAX_COMPARABLES,
@@ -970,15 +1159,16 @@ def compare_snapshot(ingestion: dict, selection: dict, evidence: Optional[dict] 
     if price_unresolved:
         holds.append(_hold('notice_room_price_unverified', subject='notice_price', room=price['room'], reasons=price['reasons']))
     period = _period(ingestion) if override_period is None else override_period
-    kinds = ingestion.get('tradeKinds')
+    captured_kinds = ingestion.get('tradeKinds')
     result['conditions']['period'] = period
     if period is None or period['status'] != 'confirmed':
         decision = _obj(_obj(period).get('decision')).get('decisionId')
         holds.append(_hold('contract_period_unverified', subject='period', decisionId=decision))
         return result
-    if not _unique_values(kinds, lambda kind: kind in TRADE_KINDS):
+    if not _unique_values(captured_kinds, lambda kind: kind in TRADE_KINDS):
         holds.append(_hold('trade_kinds_unverified', subject='trade_kind'))
         return result
+    kinds = list(captured_kinds) if approved['tradeKinds'] is None else list(approved['tradeKinds'])
     result['conditions']['tradeKinds'] = list(kinds)
     if not _unique_values(ingestion.get('requestRegionCodes'), _lawd):
         holds.append(_hold('collection_request_regions_unverified', subject='collection', decisionId='D-02'))
@@ -994,7 +1184,9 @@ def compare_snapshot(ingestion: dict, selection: dict, evidence: Optional[dict] 
         holds.append(_hold('target_supply_area_unverified', subject='supply_area', decisionId='D-01',
                            reasons=checked['reasons'], evidence=checked['evidence']))
         return result
-    result['conditions']['area'], bounds = _area_conditions(area, selection, holds)
+    result['conditions']['area'], bounds = _area_conditions(
+        area, selection, holds, approved_tolerance=approved['areaTolerancePercent'],
+    )
     evidence = _obj(evidence)
     if evidence.get('contractVersion') != 'comparison-evidence/v1' or evidence.get('dataOrigin') != result['dataOrigin']:
         holds.append(_hold('comparison_evidence_unverified', subject='trade_evidence'))
@@ -1044,7 +1236,15 @@ def compare_snapshot(ingestion: dict, selection: dict, evidence: Optional[dict] 
                                   regions[complexes[key]['localityCode']], provisional)
                   for key, selected in active['selected'].items()}
     selected, rank_holds = _rank(candidates, role, provisional)
-    result['comparables'], replacement_holds = _replace(selected, candidates, selection, complexes, active['localities'], role)
+    result['comparables'], replacement_holds = _replace(
+        selected, candidates, selection, complexes, active['localities'], role,
+        approved_replacements=approved['replacements'],
+        active_holds=active['holds'],
+        active_exclusions=active['exclusions'],
+    )
+    result['candidatePool'] = _candidate_pool(
+        complexes, regions, candidates, result['comparables'], active, target_complex,
+    )
     holds.extend(active['holds'] + active['ownHolds'] + rank_holds + replacement_holds)
     result['rankingComplete'] = not (provisional or rank_holds)
     for kind, summary in result['tradeKinds'].items():

@@ -114,6 +114,7 @@ export function errorText(error) {
     not_found: '등록된 업로드 문서를 찾을 수 없습니다.',
     invalid_conversation_input: '질문은 1~800자 이내로 입력하고, 현재 분석 화면에서 다시 시도하세요.',
     conversation_period_unavailable: '요청한 기간은 현재 수집 자료로 비교할 수 없습니다. 기간을 조정해 다시 질문하세요.',
+    conversation_condition_unavailable: '요청한 비교 조건은 현재 수집 자료로 적용할 수 없습니다. 조건을 조정해 다시 시도하세요.',
     conversation_conflict: '다른 대화나 결정이 먼저 처리됐습니다. 최신 대화 내역을 확인한 뒤 다시 진행하세요.',
     run_not_found: '이 계정에서 조회할 수 있는 분석이 없습니다.',
     legal_evidence_not_found: '이 계정의 분석에서 해당 공고 수집본을 찾을 수 없습니다.',

@@ -42,7 +42,7 @@ export function parseComparisonSnapshot(value: unknown, analysisId: string, runI
     || !isRecord(value.result)) return null;
   const { contractVersion, dataOrigin, completeness, appliedScope, rankingComplete,
     target, conditions, noticePrice, regionDecision, tradeKinds, collections,
-    comparables, targetReferences, holds, exclusions } = value.result;
+    comparables, targetReferences, candidatePool, holds, exclusions } = value.result;
   if (contractVersion !== 'comparison/v1' || (dataOrigin !== 'synthetic' && dataOrigin !== 'collected')
     || (completeness !== 'complete' && completeness !== 'partial' && completeness !== 'unavailable')
     || (appliedScope !== null && appliedScope !== 'priority' && appliedScope !== 'expansion')
@@ -52,6 +52,7 @@ export function parseComparisonSnapshot(value: unknown, analysisId: string, runI
     || ((target === null || noticePrice === null) && completeness !== 'unavailable')
     || !isRecord(regionDecision) || !isRecord(tradeKinds) || !Array.isArray(collections)
     || !Array.isArray(comparables) || comparables.length > 5 || !Array.isArray(targetReferences)
+    || (candidatePool !== undefined && !Array.isArray(candidatePool))
     || !Array.isArray(holds) || !Array.isArray(exclusions)) return null;
   const candidateIds = new Set<string>();
   for (const candidate of comparables) {
@@ -64,7 +65,8 @@ export function parseComparisonSnapshot(value: unknown, analysisId: string, runI
   const resolvedOrigin: 'synthetic' | 'collected' = dataOrigin;
   return { analysisId, runId, snapshotId: value.snapshotId, rulesVersion: value.rulesVersion,
     result: { contractVersion: 'comparison/v1' as const, dataOrigin: resolvedOrigin, completeness, appliedScope, rankingComplete, target, conditions, noticePrice,
-      regionDecision, tradeKinds, collections, comparables, targetReferences, holds, exclusions } };
+      regionDecision, tradeKinds, collections, comparables, targetReferences,
+      ...(candidatePool !== undefined ? { candidatePool } : {}), holds, exclusions } };
 }
 
 export type ComparisonSnapshot = NonNullable<ReturnType<typeof parseComparisonSnapshot>>;

@@ -1,8 +1,10 @@
 import {
   decideConversationProposal,
   getConversation,
+  sendConditionProposal,
   sendConversationMessage,
 } from './client.js';
+import { computeAreaBounds } from './condition-editor.js';
 import {
   badge,
   errorText,
@@ -12,9 +14,19 @@ import {
   rangeLabel,
 } from './display.js';
 import { isSharedProfileMessage } from './profile-language.js';
+import { tradeNames } from './trade-comparison.js';
 
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
-const PUBLIC_INTENTS = new Set(['inclusion', 'holds', 'scope', 'price', 'period', 'change_period', 'help']);
+const PUBLIC_INTENTS = new Set([
+  'inclusion',
+  'holds',
+  'scope',
+  'price',
+  'period',
+  'change_period',
+  'change_conditions',
+  'help',
+]);
 const MAX_CODE_POINTS = 800;
 const EXAMPLES = [
   '왜 이 거래만 포함됐어?',
@@ -56,14 +68,54 @@ function periodText(start, end, fallback = '기존 기간 미확인') {
   return isoDate(start) && isoDate(end) ? rangeLabel({ start, end }, false) : fallback;
 }
 
-function validProposal(proposal) {
-  if (proposal === null) return true;
-  if (!proposal || typeof proposal !== 'object') return false;
-  if (!isoDate(proposal.start) || !isoDate(proposal.end)) return false;
-  if (proposal.previousStart !== null && !isoDate(proposal.previousStart)) return false;
-  if (proposal.previousEnd !== null && !isoDate(proposal.previousEnd)) return false;
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function validProposal(proposal, intent) {
+  if (proposal === null) return intent !== 'change_period' && intent !== 'change_conditions';
+  if (!isPlainObject(proposal)) return false;
   if (!['pending', 'approved', 'rejected', 'cancelled'].includes(proposal.status)) return false;
   if (proposal.resultRunId !== null && !uuid.test(proposal.resultRunId)) return false;
+  if (intent === 'change_conditions') {
+    return (
+      proposal.kind === 'conditions' &&
+      isPlainObject(proposal.previous) &&
+      isPlainObject(proposal.proposed) &&
+      isPlainObject(proposal.effective) &&
+      Object.keys(proposal.proposed).length > 0
+    );
+  }
+  if (intent === 'change_period') {
+    if (!isoDate(proposal.start) || !isoDate(proposal.end)) return false;
+    if (proposal.previousStart !== null && !isoDate(proposal.previousStart)) return false;
+    if (proposal.previousEnd !== null && !isoDate(proposal.previousEnd)) return false;
+    return true;
+  }
+  return false;
+}
+
+function validConditionBounds(bounds) {
+  if (bounds === undefined) return true;
+  if (!isPlainObject(bounds)) return false;
+  if (
+    typeof bounds.editable !== 'boolean' ||
+    typeof bounds.areaEditable !== 'boolean' ||
+    typeof bounds.replacementsEditable !== 'boolean' ||
+    typeof bounds.areaToleranceMax !== 'string' ||
+    !Array.isArray(bounds.tradeKinds)
+  ) {
+    return false;
+  }
+  if (
+    bounds.period !== null &&
+    (!isPlainObject(bounds.period) ||
+      !isoDate(bounds.period.start) ||
+      !isoDate(bounds.period.end) ||
+      !isoDate(bounds.period.asOf))
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -78,6 +130,7 @@ function validConversation(data, ctx) {
     (data.previousRunId !== undefined &&
       data.previousRunId !== null &&
       (!uuid.test(data.previousRunId) || data.previousRunId.toLowerCase() === ctx.runId)) ||
+    !validConditionBounds(data.conditionBounds) ||
     typeof data.hasEarlier !== 'boolean' ||
     !Array.isArray(data.turns)
   )
@@ -94,7 +147,7 @@ function validConversation(data, ctx) {
       typeof turn.createdAt === 'string' &&
       Number.isFinite(Date.parse(turn.createdAt)) &&
       typeof turn.answer === 'string' &&
-      validProposal(turn.proposal),
+      validProposal(turn.proposal, turn.intent),
   );
 }
 
@@ -107,11 +160,20 @@ function loadGuestConversation() {
   return guestModulePromise;
 }
 
-export function createConversationPanel({ root, render, announce, onApprovedRun, onSharedProfile, onOpenReport }) {
+export function createConversationPanel({
+  root,
+  render,
+  announce,
+  onApprovedRun,
+  onSharedProfile,
+  onOpenReport,
+  onConditionBounds,
+}) {
   let ctx = null;
   let turns = [];
   let hasEarlier = false;
   let previousRunId = null;
+  let conditionBounds = null;
   let loading = false;
   let loadError = null;
   let draft = '';
@@ -140,6 +202,7 @@ export function createConversationPanel({ root, render, announce, onApprovedRun,
     turns = [];
     hasEarlier = false;
     previousRunId = null;
+    conditionBounds = null;
     loading = false;
     loadError = null;
     draft = '';
@@ -224,6 +287,8 @@ export function createConversationPanel({ root, render, announce, onApprovedRun,
       turns = data.turns;
       hasEarlier = data.hasEarlier;
       previousRunId = data.previousRunId ? data.previousRunId.toLowerCase() : null;
+      conditionBounds = data.conditionBounds ?? null;
+      onConditionBounds?.(conditionBounds);
       loadError = null;
       if (decisionError) {
         const target = turns.find((t) => t.id === decisionError.turnId);
@@ -344,7 +409,7 @@ export function createConversationPanel({ root, render, announce, onApprovedRun,
         statusMessage = '';
         announce(
           turn.proposal
-            ? '합성 예시 답변과 기간 변경 제안 미리보기를 표시했습니다.'
+            ? '합성 예시 답변과 조건 변경 제안 미리보기를 표시했습니다.'
             : '합성 예시 답변을 표시했습니다.',
         );
       } catch (error) {
@@ -387,6 +452,8 @@ export function createConversationPanel({ root, render, announce, onApprovedRun,
       turns = data.turns;
       hasEarlier = data.hasEarlier;
       previousRunId = data.previousRunId ? data.previousRunId.toLowerCase() : null;
+      conditionBounds = data.conditionBounds ?? null;
+      onConditionBounds?.(conditionBounds);
       draft = '';
       failedSubmission = null;
       loadError = null;
@@ -395,7 +462,7 @@ export function createConversationPanel({ root, render, announce, onApprovedRun,
       const latest = turns.at(-1);
       announce(
         latest?.proposal?.status === 'pending'
-          ? '답변과 기간 변경 제안이 도착했습니다. 승인 여부를 선택하세요.'
+          ? '답변과 조건 변경 제안이 도착했습니다. 승인 여부를 선택하세요.'
           : '답변이 도착했습니다.',
       );
     } catch (error) {
@@ -413,6 +480,113 @@ export function createConversationPanel({ root, render, announce, onApprovedRun,
           focusSelector: failedSubmission ? '[data-conv="retry-send"], #conversation-input' : '#conversation-input',
         });
       }
+    }
+  }
+
+  async function submitConditionEdit({ conditions, message, retry = false }) {
+    if (!ctx || sending || pendingDecision || document.hidden) return false;
+    const text = String(message ?? '').trim();
+    if (!text || codePointLength(text) > MAX_CODE_POINTS || !isPlainObject(conditions)) return false;
+    validationError = '';
+
+    if (ctx.guest) {
+      const here = ctx;
+      sending = true;
+      statusMessage = '합성 예시 변경안을 준비하고 있습니다.';
+      syncPanel();
+      try {
+        const { conditionEditExample } = await loadGuestConversation();
+        if (ctx !== here) return false;
+        const computed = conditionEditExample(conditions, text, here.comparison);
+        const turn = {
+          id: 'guest-turn-' + ++guestSeq,
+          runId: 'sample',
+          message: text,
+          intent: computed.intent,
+          createdAt: new Date().toISOString(),
+          answer: computed.answer,
+          proposal: { ...computed.proposal, preview: true },
+        };
+        turns = [...turns, turn];
+        failedSubmission = null;
+        statusMessage = '';
+        announce('합성 예시 조건 변경 제안 미리보기를 표시했습니다.');
+        sending = false;
+        syncPanel({
+          scrollBottom: true,
+          focusSelector: `[data-turn-card="${CSS.escape(turn.id)}"] [data-action="auth"], #conversation-input`,
+        });
+        return true;
+      } catch (error) {
+        if (ctx !== here) return false;
+        statusMessage = '';
+        sending = false;
+        validationError = errorText(error);
+        announce(validationError);
+        syncPanel({ scrollBottom: true });
+        return false;
+      }
+    }
+
+    const here = ctx;
+    const sameRetry =
+      retry &&
+      failedSubmission &&
+      failedSubmission.message === text &&
+      failedSubmission.conditions &&
+      JSON.stringify(failedSubmission.conditions) === JSON.stringify(conditions);
+    const requestId = sameRetry ? failedSubmission.requestId : crypto.randomUUID();
+    const controller = new AbortController();
+    sendController = controller;
+    sending = true;
+    statusMessage = '비교 조건 변경안을 확인하고 있습니다.';
+    syncPanel();
+    try {
+      const data = await sendConditionProposal(
+        here.analysisId,
+        here.runId,
+        requestId,
+        text,
+        conditions,
+        controller.signal,
+      );
+      if (sendController !== controller || ctx !== here) return false;
+      if (!validConversation(data, here))
+        throw Object.assign(new Error('backend_unavailable'), { code: 'backend_unavailable' });
+      turns = data.turns;
+      hasEarlier = data.hasEarlier;
+      previousRunId = data.previousRunId ? data.previousRunId.toLowerCase() : null;
+      conditionBounds = data.conditionBounds ?? null;
+      onConditionBounds?.(conditionBounds);
+      failedSubmission = null;
+      loadError = null;
+      decisionError = null;
+      statusMessage = '';
+      const latest = turns.at(-1);
+      announce('비교 조건 변경 제안이 도착했습니다. 승인 여부를 선택하세요.');
+      sendController = null;
+      sending = false;
+      syncPanel({
+        scrollBottom: true,
+        focusSelector:
+          latest?.proposal?.status === 'pending'
+            ? `[data-turn-card="${CSS.escape(latest.id)}"] [data-decision="approve"]`
+            : '#conversation-input',
+      });
+      return true;
+    } catch (error) {
+      if (sendController !== controller || ctx !== here) return false;
+      if (controller.signal.aborted || error?.name === 'AbortError') return false;
+      failedSubmission = { requestId, message: text, conditions, error };
+      statusMessage = '';
+      announce(errorText(error));
+      sendController = null;
+      sending = false;
+      syncPanel({
+        scrollBottom: true,
+        focusSelector: '[data-conv="retry-send"], #conversation-input',
+      });
+      return true;
     }
   }
 
@@ -443,6 +617,8 @@ export function createConversationPanel({ root, render, announce, onApprovedRun,
       turns = data.turns;
       hasEarlier = data.hasEarlier;
       previousRunId = data.previousRunId ? data.previousRunId.toLowerCase() : null;
+      conditionBounds = data.conditionBounds ?? null;
+      onConditionBounds?.(conditionBounds);
       loadError = null;
       decisionError = null;
       statusMessage = '';
@@ -461,11 +637,12 @@ export function createConversationPanel({ root, render, announce, onApprovedRun,
         });
         return;
       }
+      const noun = targetTurn.intent === 'change_conditions' ? '비교 조건 변경 제안' : '기간 변경 제안';
       announce(
         decision === 'reject'
-          ? '기간 변경 제안을 거절했습니다. 기존 조건을 유지합니다.'
+          ? `${noun}을 거절했습니다. 기존 조건을 유지합니다.`
           : decision === 'cancel'
-            ? '기간 변경 제안을 취소했습니다. 기존 조건을 유지합니다.'
+            ? `${noun}을 취소했습니다. 기존 조건을 유지합니다.`
             : '승인했습니다. 이번 분석에만 적용합니다.',
       );
       syncPanel({
@@ -485,14 +662,68 @@ export function createConversationPanel({ root, render, announce, onApprovedRun,
     }
   }
 
+  function complexNameFor(complexId) {
+    for (const c of ctx?.comparison?.comparables ?? []) {
+      if (c?.complexId === complexId && c.name) return c.name;
+    }
+    for (const p of ctx?.comparison?.candidatePool ?? []) {
+      if (p?.complexId === complexId && p.name) return p.name;
+    }
+    return complexId;
+  }
+
+  function buildProposalRows(p) {
+    if (p.kind !== 'conditions') {
+      return [
+        {
+          label: '계약 기간',
+          from: periodText(p.previousStart, p.previousEnd),
+          to: periodText(p.start, p.end, '미확인'),
+        },
+      ];
+    }
+    const rows = [];
+    const prev = p.previous ?? {};
+    const next = p.proposed ?? {};
+    if (next.tradeKinds) {
+      const fmt = (list) =>
+        Array.isArray(list) ? list.map((k) => tradeNames[k] ?? k).join(' · ') : '미확인';
+      rows.push({ label: '거래 종류', from: fmt(prev.tradeKinds), to: fmt(next.tradeKinds) });
+    }
+    if (next.period) {
+      rows.push({
+        label: '계약 기간',
+        from: periodText(prev.period?.start, prev.period?.end),
+        to: periodText(next.period.start, next.period.end, '미확인'),
+      });
+    }
+    if (next.areaTolerancePercent) {
+      const targetM2 = ctx?.comparison?.target?.supplyArea?.m2;
+      const nextCalc = targetM2 ? computeAreaBounds(targetM2, next.areaTolerancePercent) : null;
+      const rangeSuffix = nextCalc ? ` (${nextCalc.minM2}–${nextCalc.maxM2}㎡)` : '';
+      rows.push({
+        label: '공급면적 범위',
+        from: prev.areaTolerancePercent ? `±${prev.areaTolerancePercent}%` : '미확인',
+        to: `±${next.areaTolerancePercent}%${rangeSuffix}`,
+      });
+    }
+    if (next.replacements) {
+      const fmtRep = (list) =>
+        Array.isArray(list) && list.length
+          ? list.map((r) => `${complexNameFor(r.replaceComplexId)} → ${complexNameFor(r.complexId)}`).join(', ')
+          : '자동 선정';
+      rows.push({ label: '비교 단지', from: fmtRep(prev.replacements), to: fmtRep(next.replacements) });
+    }
+    return rows;
+  }
+
   function renderProposal(turn) {
     const p = turn.proposal;
     if (!p) return '';
     const isPreview = Boolean(p.preview || ctx.guest);
     const busy = pendingDecision?.turnId === turn.id;
     const err = decisionError?.turnId === turn.id ? decisionError : null;
-    const fromText = periodText(p.previousStart, p.previousEnd);
-    const toText = periodText(p.start, p.end, '미확인');
+    const diffRows = buildProposalRows(p);
     const resolvedMap = {
       approved: ['circle-check', '승인했습니다. 이번 분석에만 적용합니다.'],
       rejected: ['x', '거절했습니다. 기존 조건을 유지합니다.'],
@@ -508,7 +739,7 @@ export function createConversationPanel({ root, render, announce, onApprovedRun,
           <button type="button" class="action primary compact" data-action="auth">${icon('log-in')}로그인하고 내 분석 열기</button>
           <button type="button" class="text-button" data-conv="guest-dismiss" data-turn-id="${esc(turn.id)}">미리보기 닫기</button>
         </div>
-        <p class="conv-approve-foot">내 분석에서 기간을 승인하면 새 결과를 계산합니다.</p>`;
+        <p class="conv-approve-foot">내 분석에서 조건을 승인하면 같은 수집본으로 새 결과를 계산합니다.</p>`;
       } else {
         const disabled = busy || sending || Boolean(pendingDecision) ? ' disabled' : '';
         const errCode = err?.error?.code ?? '';
@@ -548,14 +779,18 @@ export function createConversationPanel({ root, render, announce, onApprovedRun,
       </header>
       <div class="conv-approve-body">
         <dl class="conv-diff">
-          <div class="conv-diff-row">
-            <dt>계약 기간</dt>
+          ${diffRows
+            .map(
+              (row) => `<div class="conv-diff-row">
+            <dt>${esc(row.label)}</dt>
             <dd>
-              <span class="conv-diff-from"><span class="sr-only">기존 </span>${esc(fromText)}</span>
+              <span class="conv-diff-from"><span class="sr-only">기존 </span>${esc(row.from)}</span>
               ${icon('arrow-right', 'conv-diff-arrow')}
-              <span class="conv-diff-to"><span class="sr-only">제안 </span>${esc(toText)}</span>
+              <span class="conv-diff-to"><span class="sr-only">제안 </span>${esc(row.to)}</span>
             </dd>
-          </div>
+          </div>`,
+            )
+            .join('')}
         </dl>
         ${footer}
       </div>
@@ -658,8 +893,8 @@ export function createConversationPanel({ root, render, announce, onApprovedRun,
         ? `<div class="conv-empty">
             <p>${
               demo
-                ? '합성 예시 결과에 포함된 거래와 제외 사유를 질문하거나 기간 변경 제안 카드를 미리 볼 수 있습니다.'
-                : '이 실행에 포함된 거래 근거를 묻거나 계약 기간 변경을 요청해 보세요. 조건 변경은 승인할 때만 새 실행으로 접수합니다.'
+                ? '합성 예시 결과에 포함된 거래와 제외 사유를 질문하거나 조건 변경 제안 카드를 미리 볼 수 있습니다.'
+                : '이 실행에 포함된 거래 근거를 묻거나 기간·공급면적 범위·거래 종류·단지 교체 변경을 요청해 보세요. 조건 변경은 승인할 때만 새 실행으로 접수합니다.'
             }</p>
           </div>`
         : '';
@@ -694,7 +929,7 @@ export function createConversationPanel({ root, render, announce, onApprovedRun,
         </div>
         <form id="conversation-form" class="conv-composer" novalidate>
           <label class="sr-only" for="conversation-input">비교 결과에 대해 질문하기</label>
-          <textarea id="conversation-input" name="message" class="conv-input" rows="2" placeholder="왜 이 거래만 포함됐어? 또는 기간 변경을 요청해 보세요" aria-describedby="conversation-hint conversation-validation"${composerLocked ? ' readonly' : ''}>${esc(draft)}</textarea>
+          <textarea id="conversation-input" name="message" class="conv-input" rows="2" placeholder="왜 이 거래만 포함됐어? 또는 기간·공급면적 범위·거래 종류·단지 교체를 요청해 보세요" aria-describedby="conversation-hint conversation-validation"${composerLocked ? ' readonly' : ''}>${esc(draft)}</textarea>
           <div class="conv-composer-bar">
             <span id="conversation-hint" class="conv-hint"><span id="conversation-count" class="num${over ? ' is-over' : ''}">${trimmedCount} / ${MAX_CODE_POINTS}</span> · Enter 전송 · Shift+Enter 줄바꿈</span>
             <button type="submit" id="conversation-send-btn" class="action primary compact conv-send" aria-label="보내기"${sendDisabled ? ' disabled' : ''}>${icon(sending ? 'loader-circle' : 'send', sending ? 'spin' : '')}<span>보내기</span></button>
@@ -793,7 +1028,15 @@ export function createConversationPanel({ root, render, announce, onApprovedRun,
       return;
     }
     if (action === 'retry-send') {
-      void submit({ retry: true });
+      if (failedSubmission?.conditions) {
+        void submitConditionEdit({
+          conditions: failedSubmission.conditions,
+          message: failedSubmission.message,
+          retry: true,
+        });
+      } else {
+        void submit({ retry: true });
+      }
       return;
     }
     if (action === 'decision' || action === 'retry-decision') {
@@ -816,5 +1059,11 @@ export function createConversationPanel({ root, render, announce, onApprovedRun,
     }
   });
 
-  return { enter, reset, view };
+  return {
+    enter,
+    reset,
+    view,
+    getConditionBounds: () => conditionBounds,
+    submitConditionEdit,
+  };
 }

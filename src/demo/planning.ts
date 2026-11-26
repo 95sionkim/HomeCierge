@@ -2,7 +2,7 @@
 import { evaluateNoticeSearch, parseNoticeSearchConditions } from '../server/notice-search.js';
 import { calculateFundingPlan } from '../server/funding-plan.js';
 import { projectSavedReport } from '../server/saved-report.js';
-export { conversationExample } from '../server/analysis-conversation.js';
+export { conversationExample, conditionEditExample } from '../server/analysis-conversation.js';
 
 export const regions = [
   { code: '99999', name: '합성시 가람구' },

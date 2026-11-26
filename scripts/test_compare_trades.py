@@ -978,6 +978,107 @@ class ComparisonTests(unittest.TestCase):
         self.assertEqual(full_capture, before_capture)
         self.assertEqual(self.evidence, before_evidence)
 
+    def test_approved_conditions_keep_inclusive_area_bounds_kind_subsets_and_bounded_replacement(self):
+        # A-39: 100㎡ 기준에 94.99·95·105·105.01㎡ 후보가 있으면 기본 ±5%는 95·105만 포함한다(합성 자료).
+        self.sales_only()
+        self.area('100')
+        cases = [('low-out', '94.99'), ('low-in', '95'), ('high-in', '105'), ('high-out', '105.01'),
+                 ('near-a', '100.5'), ('near-b', '101'), ('near-c', '102'), ('near-d', '103'),
+                 ('unlinked', None), ('out-region', '100')]
+        self.region()
+        self.rows(SALE, [self.sale_row(name, **({'umdCd': '00200', 'umdNm': '별빛동'} if name == 'out-region' else {}))
+                         for name, _ in cases])
+        for name, _ in cases:
+            # 95㎡와 105㎡는 면적 차이가 같으므로 직선거리로만 순서를 정한다(동률 미정값 D-03을 피한다).
+            self.complex(name, OTHER_DONG if name == 'out-region' else PRIORITY, '37.503' if name == 'high-in' else '37.501')
+        ingestion = replay(self.bundle)
+        self.link_sales(ingestion, {(f'합성 {name}', '84.00'): (name, area) for name, area in cases if area})
+        before_capture, before_evidence = copy.deepcopy(ingestion), copy.deepcopy(self.evidence)
+
+        def run(conditions=None):
+            return compare_snapshot(ingestion, {}, self.evidence, comparison_conditions=conditions)
+
+        base = run()
+        self.assertEqual(base['conditions']['area'],
+                         {'basis': 'supply', 'tolerancePercent': '5', 'minM2': '95', 'maxM2': '105'})
+        displayed = [row['complexId'] for row in base['comparables']]
+        self.assertEqual(displayed, ['near-a', 'near-b', 'near-c', 'near-d', 'low-in'])
+        pool = {entry['complexId']: entry for entry in base['candidatePool']}
+        self.assertTrue(pool['low-in']['eligible'] and pool['high-in']['eligible'])
+        self.assertFalse(pool['high-in']['selected'])
+        for name in ('low-out', 'high-out'):
+            self.assertEqual((pool[name]['eligible'], pool[name]['reasonCode']), (False, 'outside_supply_area'))
+        self.assertEqual((pool['out-region']['eligible'], pool['out-region']['reasonCode']),
+                         (False, 'outside_applied_region'))
+        self.assertFalse(pool['unlinked']['eligible'])
+        self.assertNotIn('target', pool)
+
+        # 승인된 허용 범위는 확인 플래그 없이 적용되고 경계는 양 끝 포함이다.
+        widened = run({'areaTolerancePercent': '5.01'})
+        self.assertEqual(widened['conditions']['area'],
+                         {'basis': 'supply', 'tolerancePercent': '5.01', 'minM2': '94.99', 'maxM2': '105.01'})
+        widened_pool = {entry['complexId']: entry for entry in widened['candidatePool']}
+        self.assertTrue(widened_pool['low-out']['eligible'] and widened_pool['high-out']['eligible'])
+        self.assertNotIn('area_change_confirmation_required', {row['reasonCode'] for row in widened['holds']})
+        narrowed = run({'areaTolerancePercent': '4.99'})
+        self.assertEqual((narrowed['conditions']['area']['minM2'], narrowed['conditions']['area']['maxM2']),
+                         ('95.01', '104.99'))
+        narrowed_pool = {entry['complexId']: entry for entry in narrowed['candidatePool']}
+        self.assertFalse(narrowed_pool['low-in']['eligible'] or narrowed_pool['high-in']['eligible'])
+
+        # A-54: 적격 후보만 기존 단지와 교체해 고유 5개 이하를 유지하고 선정 이유를 남긴다.
+        replaced = run({'replacements': [{'complexId': 'high-in', 'replaceComplexId': 'low-in'}]})
+        self.assertEqual([row['complexId'] for row in replaced['comparables']],
+                         ['near-a', 'near-b', 'near-c', 'near-d', 'high-in'])
+        self.assertEqual((replaced['comparables'][4]['selectionReason'], replaced['comparables'][4]['replacesComplexId']),
+                         ('manual_replacement', 'low-in'))
+        self.assertEqual(run({'replacements': []})['comparables'], base['comparables'])
+        for identifier, cause in [('low-out', 'outside_supply_area'), ('out-region', 'outside_applied_region'),
+                                  ('unknown', 'candidate_unverified'), ('near-a', 'already_selected')]:
+            failure = run({'replacements': [{'complexId': identifier, 'replaceComplexId': 'low-in'}]})
+            self.assertEqual([row['complexId'] for row in failure['comparables']], displayed)
+            holds = [row for row in failure['holds'] if row['reasonCode'] == 'replacement_candidate_ineligible']
+            self.assertEqual([(row['complexId'], row['replaceComplexId'], row['candidateReason']) for row in holds],
+                             [(identifier, 'low-in', cause)])
+        missing = run({'replacements': [{'complexId': 'high-in', 'replaceComplexId': 'not-displayed'}]})
+        self.assertEqual([row['complexId'] for row in missing['comparables']], displayed)
+        self.assertIn('replacement_target_required', {row['reasonCode'] for row in missing['holds']})
+
+        # 승인 조건 형식 오류와 수집하지 않은 거래 종류는 결과를 만들지 않는다.
+        for bad in [{}, {'areaTolerancePercent': '0'}, {'areaTolerancePercent': '-5'}, {'areaTolerancePercent': '50.0001'},
+                    {'areaTolerancePercent': '5.12345'}, {'areaTolerancePercent': 7}, {'tradeKinds': []},
+                    {'tradeKinds': ['sale', 'sale']}, {'tradeKinds': ['presale_right']},
+                    {'replacements': [{'complexId': 'near-a', 'replaceComplexId': 'near-a'}]},
+                    {'replacements': [{'complexId': 'high-in', 'replaceComplexId': 'near-a'},
+                                      {'complexId': 'near-a', 'replaceComplexId': 'near-b'}]},
+                    {'replacements': [{'complexId': 'near-a'}]}, {'unknownKey': True}]:
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                run(bad)
+        self.assertEqual(ingestion, before_capture)
+        self.assertEqual(self.evidence, before_evidence)
+
+    def test_approved_trade_kind_subset_keeps_collection_completeness_without_mutation(self):
+        ingestion = replay(self.bundle)
+        before = copy.deepcopy(ingestion)
+        base = compare_snapshot(ingestion, {}, self.evidence)
+        rights_only = compare_snapshot(ingestion, {}, self.evidence, comparison_conditions={'tradeKinds': ['presale_right']})
+        self.assertEqual(rights_only['conditions']['tradeKinds'], ['presale_right'])
+        self.assertEqual(set(rights_only['tradeKinds']), {'presale_right'})
+        self.assertEqual({row['source'] for row in rights_only['collections']}, {RIGHTS})
+        self.assertTrue(all(row['tradeKinds'] == ['presale_right'] for row in rights_only['collections']))
+        self.assertEqual([row['status'] for row in rights_only['collections']],
+                         [row['status'] for row in base['collections'] if row['source'] == RIGHTS])
+        self.assertEqual([row['complexId'] for row in rights_only['comparables']], ['comparison-b'])
+        self.assertEqual(list(rights_only['comparables'][0]['tradeStats']), ['presale_right'])
+        sale_only = compare_snapshot(ingestion, {}, self.evidence, comparison_conditions={'tradeKinds': ['sale']})
+        self.assertEqual({row['source'] for row in sale_only['collections']}, {SALE})
+        self.assertEqual([row['complexId'] for row in sale_only['comparables']], ['comparison-a'])
+        self.assertEqual(sale_only['completeness'], base['completeness'])
+        # 승인 기간과 함께 전달된 조건의 기간이 다르면 거부한다.
+        with self.assertRaises(ValueError):
+            compare_snapshot(ingestion, {}, self.evidence, comparison_period={'start': '2026-10-15', 'end': '2026-10-25'},
+                             comparison_conditions={'period': {'start': '2026-10-14', 'end': '2026-10-25'}})
+        self.assertEqual(ingestion, before)
 
 if __name__ == '__main__':
     unittest.main()

@@ -52,6 +52,7 @@ const errorStatuses = {
   comparison_not_available: 409,
   invalid_conversation_input: 400,
   conversation_period_unavailable: 409,
+  conversation_condition_unavailable: 409,
   conversation_conflict: 409,
   payload_too_large: 413,
   unsupported_media_type: 415,

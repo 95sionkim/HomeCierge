@@ -1067,6 +1067,16 @@ export type Database = {
         }
         Returns: Json
       }
+      submit_analysis_condition_turn: {
+        Args: {
+          p_analysis_id: string
+          p_conditions: Json
+          p_message: string
+          p_request_id: string
+          p_run_id: string
+        }
+        Returns: Json
+      }
     }
     Enums: {
       [_ in never]: never

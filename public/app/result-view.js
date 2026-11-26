@@ -75,15 +75,18 @@ function scopeLabel(data) {
   };
 }
 
-export function analysisConditionBar(data, input, open, lookup = null) {
+export function analysisConditionBar(data, input, open, lookup = null, { canEdit = false } = {}) {
   const target = data?.target;
   const notice = target?.noticeNo || input?.noticeNo;
   const model = target?.houseType || (input?.modelNo ? '모델 ' + input.modelNo : '주택형 미확인');
   const scope = scopeLabel(data);
   const c = data?.conditions;
   const period = c?.period?.status === 'confirmed' ? rangeLabel(c.period, false) : '기간 미확인';
-  const area = target?.supplyArea?.status === 'confirmed' ? supplyLabel(target.supplyArea.m2) : '면적 미확인';
+  const areaBase = target?.supplyArea?.status === 'confirmed' ? supplyLabel(target.supplyArea.m2) : '면적 미확인';
+  const tol = c?.area?.tolerancePercent != null ? '±' + c.area.tolerancePercent + '%' : null;
+  const areaSummary = areaBase !== '면적 미확인' && tol ? `${areaBase} (${tol})` : areaBase;
   const kinds = (c?.tradeKinds ?? []).map(k => tradeNames[k]).filter(Boolean).join(' · ');
+  const manualCount = (data?.comparables ?? []).filter(item => item?.selectionReason === 'manual_replacement').length;
   const cell = (label, value, cls = '') => `<span class="condition-item ${cls}"><small>${label}</small><strong>${esc(value)}</strong></span>`;
   if (!data) {
     const known = notice ? cell('공고 번호', notice) + cell('주택형', model) :
@@ -94,12 +97,14 @@ export function analysisConditionBar(data, input, open, lookup = null) {
       <span class="condition-key">${icon('sliders-horizontal')}분석 조건</span>${known}${icon('chevron-down', 'condition-chevron')}</summary>
       <div class="condition-message" role="status">${esc(note)}${lookup?.error && lookup.error.code !== 'comparison_source_restricted' ? '<button type="button" class="text-button" data-action="reload-conditions">조건 다시 조회</button>' : ''}</div></details>`;
   }
-  return `<details class="condition-bar"${open ? ' open' : ''}><summary id="analysis-conditions">
+  const bar = `<details class="condition-bar"${open ? ' open' : ''}><summary id="analysis-conditions">
     <span class="condition-key">${icon('sliders-horizontal')}분석 조건</span>
-    ${cell('공고 번호', notice || '미확인', 'condition-notice')}${cell('주택형', model, 'condition-model')}${cell('비교 범위', scope.name + (scope.expanded ? ' · 확대' : scope.pending ? ' · 판정 보류' : ''), 'condition-scope')}${cell('계약 기간', period, 'condition-period')}${cell('공급면적', area, 'condition-area')}${icon('chevron-down', 'condition-chevron')}</summary>
+    ${cell('공고 번호', notice || '미확인', 'condition-notice')}${cell('주택형', model, 'condition-model')}${cell('비교 범위', scope.name + (scope.expanded ? ' · 확대' : scope.pending ? ' · 판정 보류' : ''), 'condition-scope')}${cell('계약 기간', period, 'condition-period')}${cell('공급면적', areaSummary, 'condition-area')}${icon('chevron-down', 'condition-chevron')}</summary>
     <dl class="condition-detail">
-      ${[['공고 번호', notice || '미확인'], ['주택형', model], ['지역', [scope.name, scope.detail].filter(Boolean).join(' · ')], ['계약 기간', period], ['공급면적', area], ['면적 허용 범위', c?.area?.tolerancePercent != null ? '±' + c.area.tolerancePercent + '%' : '미확인'], ['거래 유형', kinds || '미확인']].map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}
+      ${[['공고 번호', notice || '미확인'], ['주택형', model], ['지역', [scope.name, scope.detail].filter(Boolean).join(' · ')], ['계약 기간', period], ['공급면적', areaBase], ['면적 허용 범위', tol || '미확인'], ['거래 유형', kinds || '미확인'], ['단지 선정', manualCount > 0 ? `직접 교체 ${manualCount}건` : '자동 선정']].map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}
     </dl></details>`;
+  if (!canEdit) return bar;
+  return `<div class="condition-bar-wrap">${bar}<button type="button" class="action secondary compact condition-edit-btn" data-action="edit-conditions" aria-haspopup="dialog">${icon('sliders-horizontal')}<span class="condition-edit-label">조건 변경</span></button></div>`;
 }
 
 function priceView(data) {
@@ -172,7 +177,8 @@ function holdPanel(data) {
   return `<section class="panel hold-panel"><div class="panel-title">${icon('circle-pause')}<h2>${data.completeness === 'unavailable' ? '가격 비교를 보류했습니다' : '일부 항목의 비교를 보류했습니다'}</h2></div>
     <div class="hold-columns"><div><h3>확인하지 못한 항목</h3><ul>${(reasons.length ? reasons : ['현재 자료로 비교에 필요한 근거를 모두 확인할 수 없습니다.']).map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>
     <div><h3>다시 비교하려면</h3><ul>${(needed.length ? needed : ['보류된 항목을 확인할 수 있는 수집 자료 또는 공고 근거']).map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>
-    ${kept.length ? `<div><h3>지금 확인할 수 있는 결과</h3><ul>${kept.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}</div></section>`;
+    ${kept.length ? `<div><h3>지금 확인할 수 있는 결과</h3><ul>${kept.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}</div>
+    <div class="hold-actions"><button type="button" class="action secondary compact" data-action="edit-conditions" aria-haspopup="dialog">${icon('sliders-horizontal')}비교 조건 변경</button></div></section>`;
 }
 
 const sampleScenarioLinks = [

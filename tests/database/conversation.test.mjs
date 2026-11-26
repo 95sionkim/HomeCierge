@@ -45,8 +45,10 @@ const requestConflict = { code: 'PT409', message: 'analysis_chat_request_conflic
 const staleRun = { code: 'PT409', message: 'analysis_chat_stale_run' };
 const decisionConflict = { code: 'PT409', message: 'analysis_chat_decision_conflict' };
 const periodUnavailable = { code: 'PT409', message: 'analysis_chat_period_unavailable' };
+const conditionUnavailable = { code: 'PT409', message: 'analysis_chat_condition_unavailable' };
 const invalidTurn = { code: '22023', message: 'invalid_analysis_chat_turn' };
 const invalidPeriod = { code: '22023', message: 'invalid_analysis_chat_period' };
+const invalidCondition = { code: '22023', message: 'invalid_analysis_chat_condition' };
 const invalidDecision = { code: '22023', message: 'invalid_analysis_chat_decision' };
 const invalidComparison = { code: '22023', message: 'invalid_comparison_result' };
 const rateLimited = { code: 'PT429', message: 'analysis_run_rate_limited' };
@@ -93,20 +95,25 @@ const submitTurn = (owner, runId, {
 } = {}) => (start === undefined && end === undefined
   ? rpc('submit_analysis_chat_turn', owner.analysisId, runId, requestId, message, intent)
   : rpc('submit_analysis_chat_turn', owner.analysisId, runId, requestId, message, intent, start, end));
+const submitConditions = (owner, runId, {
+  requestId = randomUUID(),
+  message = '합성 비교 조건 변경 요청',
+  conditions,
+}) => rpc('submit_analysis_condition_turn', owner.analysisId, runId, requestId, message, json(conditions));
 const decideTurn = (owner, runId, turnId, decision) =>
   rpc('decide_analysis_chat_turn', owner.analysisId, runId, turnId, decision);
 
-function runCompare(ingestion, selection = { modelNo: '01' }, evidence = null, period = null) {
+function runCompare(ingestion, selection = { modelNo: '01' }, evidence = null, period = null, conditions = null) {
   const python = `
 import json, sys
 sys.path.insert(0, 'scripts')
 from compare_trades import compare_snapshot
 
-ingestion, selection, evidence, period = json.load(sys.stdin)
-print(json.dumps(compare_snapshot(ingestion, selection, evidence, comparison_period=period), ensure_ascii=False))
+ingestion, selection, evidence, period, conditions = json.load(sys.stdin)
+print(json.dumps(compare_snapshot(ingestion, selection, evidence, comparison_period=period, comparison_conditions=conditions), ensure_ascii=False))
 `;
   return JSON.parse(execFileSync('python3', ['-c', python], {
-    cwd: root, encoding: 'utf8', input: JSON.stringify([ingestion, selection, evidence, period]),
+    cwd: root, encoding: 'utf8', input: JSON.stringify([ingestion, selection, evidence, period, conditions]),
   }));
 }
 
@@ -296,15 +303,19 @@ test('private storage has RLS and zero direct grants while public RPCs stay narr
     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
     where n.nspname in ('public', 'private')
       and p.proname in (
-        'read_analysis_conversation', 'submit_analysis_chat_turn', 'decide_analysis_chat_turn',
+        'read_analysis_conversation', 'submit_analysis_chat_turn', 'submit_analysis_condition_turn',
+        'decide_analysis_chat_turn',
         'normalize_analysis_chat_message', 'require_comparison_chat_sources', 'analysis_conversation_payload',
-        'expected_comparison_period', 'check_approved_period_comparison', 'finish_analysis_run_core',
+        'expected_comparison_period', 'check_approved_period_comparison', 'check_approved_condition_comparison',
+        'normalize_area_tolerance', 'normalize_trade_kinds', 'normalize_replacements',
+        'extract_run_replacements', 'is_demo_snapshot', 'analysis_condition_bounds',
+        'finish_analysis_run_core',
         'read_comparison_work', 'finish_analysis_run', 'finish_analysis_comparison'
       )
     order by n.nspname, p.proname`);
 
   const byKey = new Map(rpcs.map(row => [`${row.schema}.${row.name}`, row]));
-  for (const name of ['read_analysis_conversation', 'submit_analysis_chat_turn', 'decide_analysis_chat_turn']) {
+  for (const name of ['read_analysis_conversation', 'submit_analysis_chat_turn', 'submit_analysis_condition_turn', 'decide_analysis_chat_turn']) {
     const pubFn = byKey.get(`public.${name}`);
     const privFn = byKey.get(`private.${name}`);
     assert.deepEqual({ definer: pubFn.definer, pub: pubFn.pub, anon: pubFn.anon, auth: pubFn.auth, svc: pubFn.svc },
@@ -317,7 +328,10 @@ test('private storage has RLS and zero direct grants while public RPCs stay narr
   for (const helper of [
     'private.normalize_analysis_chat_message', 'private.require_comparison_chat_sources',
     'private.analysis_conversation_payload', 'private.expected_comparison_period',
-    'private.check_approved_period_comparison', 'private.finish_analysis_run_core',
+    'private.check_approved_period_comparison', 'private.check_approved_condition_comparison',
+    'private.normalize_area_tolerance', 'private.normalize_trade_kinds', 'private.normalize_replacements',
+    'private.extract_run_replacements', 'private.is_demo_snapshot', 'private.analysis_condition_bounds',
+    'private.finish_analysis_run_core',
   ]) {
     const fn = byKey.get(helper);
     assert.deepEqual({ pub: fn.pub, anon: fn.anon, auth: fn.auth, svc: fn.svc },
@@ -528,6 +542,7 @@ test('message trimming, 1-800 Unicode code points, control char rejection, inten
     'id', 'analysis_id', 'base_run_id', 'user_id', 'request_id', 'turn_order',
     'message', 'intent', 'created_at', 'proposed_start', 'proposed_end',
     'previous_start', 'previous_end', 'proposal_status', 'decided_at', 'result_run_id',
+    'proposed_conditions', 'previous_conditions', 'effective_conditions',
   ]);
 });
 
@@ -830,10 +845,19 @@ test('worker linkage enforces authoritative comparisonPeriod, inclusive endpoint
   assert.equal(done2.snapshotId, snapshotId);
 
   // 새 세션처럼 다시 열면 r2는 자신의 빈 대화와 previousRunId(직전 승인 기준 실행)를 반환하고, 이전 결과는 불변이다.
+  const expectedBounds = {
+    editable: true,
+    period: { start: '2026-10-10', end: '2026-10-31', asOf: '2026-11-10' },
+    tradeKinds: ['sale', 'presale_right', 'occupancy_right'],
+    areaToleranceMax: '50',
+    areaEditable: true,
+    replacementsEditable: true,
+  };
   await as('authenticated', owner.userId);
   const conv2 = await readConversation(owner, r2);
   assert.deepEqual(conv2, {
-    analysisId: owner.analysisId, runId: r2, previousRunId: ordinaryReplay.runId, turns: [], hasEarlier: false,
+    analysisId: owner.analysisId, runId: r2, previousRunId: ordinaryReplay.runId,
+    conditionBounds: expectedBounds, turns: [], hasEarlier: false,
   });
   assert.deepEqual((await getComparison(owner, r2)).result, narrowedComparison);
   assert.deepEqual((await getComparison(owner, ordinaryReplay.runId)).result, originalComparison);
@@ -868,7 +892,8 @@ test('worker linkage enforces authoritative comparisonPeriod, inclusive endpoint
   await as('authenticated', owner.userId);
   const conv3 = await readConversation(owner, r3);
   assert.deepEqual(conv3, {
-    analysisId: owner.analysisId, runId: r3, previousRunId: r2, turns: [], hasEarlier: false,
+    analysisId: owner.analysisId, runId: r3, previousRunId: r2,
+    conditionBounds: expectedBounds, turns: [], hasEarlier: false,
   });
   assert.equal((await readConversation(owner, r2)).previousRunId, ordinaryReplay.runId);
   assert.equal((await readConversation(owner, r1)).previousRunId, null);
@@ -1091,4 +1116,321 @@ test('account deletion cascades chained conversations without affecting another 
   const peerConv = await readConversation(peer, peerRun);
   assert.equal(peerConv.turns.length, 1);
   assert.equal(peerConv.turns[0].message, '다른 계정 질문');
+});
+
+// 기본 합성 수집본에 주변 단지 4곳의 매매를 더해 교체 후보(6번째 적격 단지)가 남는 수집 스냅샷을 만든다(합성 자료).
+function richCollectedCapture() {
+  const python = `
+import copy, json, sys
+sys.path.insert(0, 'scripts')
+from test_compare_trades import ComparisonTests, SALE
+from replay_ingestion import replay
+
+t = ComparisonTests()
+t.setUp()
+scope = {'LAWD_CD': '99999', 'DEAL_YMD': '202610'}
+original = [item for page in t.bundle['pages'] if (page['source'], page['scope']) == (SALE, scope)
+            for item in page['body']['response']['body']['items']['item']]
+extra = [('near-1', '112.2'), ('near-2', '112.7'), ('near-3', '113.0'), ('near-4', '113.4')]
+t.rows(SALE, original + [t.sale_row(name) for name, _ in extra])
+for name, _ in extra:
+    t.complex(name)
+ingestion = replay(t.bundle)
+t.link_sales(ingestion, {(f'합성 {name}', '84.00'): (name, area) for name, area in extra})
+ingestion['dataOrigin'] = 'collected'
+t.evidence['dataOrigin'] = 'collected'
+print(json.dumps({'request': t.bundle['request'], 'ingestion': ingestion, 'evidence': t.evidence}, ensure_ascii=False))
+`;
+  return JSON.parse(execFileSync('python3', ['-c', python], { cwd: root, encoding: 'utf8' }));
+}
+
+test('condition changes validate input, keep one run per approval and bind worker results to approved area, kinds and replacements', async () => {
+  const rich = richCollectedCapture();
+  const owner = await createOwner();
+  const stranger = await createOwner();
+  await allowSources([...collectedCaptureSources, ...supplementalSources]);
+  await as('service_role');
+  const snapshotId = await rpc('save_ingestion_snapshot', owner.userId, owner.analysisId, randomUUID(),
+    json(rich.request), json(rich.ingestion));
+  await rpc('register_comparison_evidence', snapshotId, json(rich.evidence), evidenceSourceIds);
+  await as('authenticated', owner.userId);
+  const firstRun = await enqueue(owner, snapshotInput(snapshotId));
+  await as('service_role');
+  const baseComparison = runCompare(rich.ingestion, { modelNo: '01' }, rich.evidence);
+  await finishComparison(await claim(firstRun), baseComparison, null, null);
+  const r1 = firstRun.runId;
+  assert.deepEqual(baseComparison.comparables.map(c => c.complexId),
+    ['comparison-a', 'near-1', 'near-2', 'near-3', 'near-4']);
+  const poolB = baseComparison.candidatePool.find(entry => entry.complexId === 'comparison-b');
+  assert.equal(poolB.eligible, true);
+  assert.equal(poolB.selected, false);
+
+  await as('authenticated', owner.userId);
+  const opened = await readConversation(owner, r1);
+  assert.deepEqual(opened.conditionBounds, {
+    editable: true,
+    period: { start: '2026-10-10', end: '2026-10-31', asOf: '2026-11-10' },
+    tradeKinds: ['sale', 'presale_right', 'occupancy_right'],
+    areaToleranceMax: '50', areaEditable: true, replacementsEditable: true,
+  });
+
+  // 형식 오류와 현재 값과 같은 변경은 잠금 전에 22023으로 거부하고 턴을 남기지 않는다.
+  for (const conditions of [
+    null, {}, [], { other: true }, { areaTolerancePercent: '0' }, { areaTolerancePercent: '-1' },
+    { areaTolerancePercent: '50.0001' }, { areaTolerancePercent: '5.12345' }, { areaTolerancePercent: 7 },
+    { areaTolerancePercent: '07' }, { areaTolerancePercent: '5' }, { tradeKinds: [] }, { tradeKinds: ['sale', 'sale'] },
+    { tradeKinds: ['jeonse'] }, { tradeKinds: ['sale', 'presale_right', 'occupancy_right'] },
+    { replacements: [] }, { replacements: [{ complexId: 'near-1', replaceComplexId: 'near-1' }] },
+    { replacements: [{ complexId: 'comparison-b' }] },
+    { replacements: [{ complexId: 'x', replaceComplexId: 'near-1' }, { complexId: 'near-1', replaceComplexId: 'near-2' }] },
+    { replacements: [{ complexId: 'x', replaceComplexId: 'near-1' }, { complexId: 'x', replaceComplexId: 'near-2' }] },
+    { period: { start: '2026-10-10', end: '2026-10-31' } }, { period: { start: '2026-10-25', end: '2026-10-20' } },
+  ]) {
+    await assert.rejects(submitConditions(owner, r1, { conditions }), { code: '22023' }, JSON.stringify(conditions));
+  }
+  await assert.rejects(submitConditions(owner, r1, { conditions: { period: { start: '2026-10-09', end: '2026-10-31' } } }),
+    periodUnavailable);
+  assert.equal((await readConversation(owner, r1)).turns.length, 0);
+
+  // 다른 계정은 존재 여부를 알 수 없도록 404로 막는다.
+  await as('authenticated', stranger.userId);
+  await assert.rejects(submitConditions(owner, r1, { conditions: { areaTolerancePercent: '7' } }), runNotFound);
+  await as('authenticated', owner.userId);
+
+  // 제출은 대기 제안만 만들고 같은 요청 ID 재전송은 같은 결과, 다른 내용은 충돌이다.
+  const areaKey = randomUUID();
+  const areaSubmit = await submitConditions(owner, r1, {
+    requestId: areaKey, message: '공급면적 범위를 ±7%로 넓혀줘', conditions: { areaTolerancePercent: '7.0' },
+  });
+  const areaTurn = areaSubmit.turns.at(-1);
+  assert.equal(areaTurn.intent, 'change_conditions');
+  assert.deepEqual(areaTurn.proposal, {
+    kind: 'conditions', previous: { areaTolerancePercent: '5' }, proposed: { areaTolerancePercent: '7' },
+    effective: { areaTolerancePercent: '7' }, status: 'pending', resultRunId: null,
+  });
+  assert.deepEqual(await submitConditions(owner, r1, {
+    requestId: areaKey, message: '공급면적 범위를 ±7%로 넓혀줘', conditions: { areaTolerancePercent: '7' },
+  }), areaSubmit);
+  await assert.rejects(submitConditions(owner, r1, {
+    requestId: areaKey, message: '공급면적 범위를 ±7%로 넓혀줘', conditions: { areaTolerancePercent: '8' },
+  }), requestConflict);
+
+  // 거절·취소는 실행을 만들지 않고 이후 다른 결정은 충돌이다.
+  const kindsSubmit = await submitConditions(owner, r1, { message: '매매만 비교해줘', conditions: { tradeKinds: ['sale'] } });
+  const kindsTurnId = kindsSubmit.turns.at(-1).id;
+  const kindsRejected = await decideTurn(owner, r1, kindsTurnId, 'reject');
+  assert.equal(kindsRejected.turns.find(t => t.id === kindsTurnId).proposal.status, 'rejected');
+  await assert.rejects(decideTurn(owner, r1, kindsTurnId, 'approve'), decisionConflict);
+  const cancelSubmit = await submitConditions(owner, r1, { message: '분양권만', conditions: { tradeKinds: ['presale_right'] } });
+  const cancelTurnId = cancelSubmit.turns.at(-1).id;
+  assert.equal((await decideTurn(owner, r1, cancelTurnId, 'cancel')).turns.find(t => t.id === cancelTurnId).proposal.status,
+    'cancelled');
+  await as('authenticated', stranger.userId);
+  await assert.rejects(decideTurn(owner, r1, areaTurn.id, 'approve'), runNotFound);
+  await as('authenticated', owner.userId);
+  await db.exec('reset role');
+  assert.equal((await one('select count(*)::int as n from private.analysis_runs where analysis_id = $1', [owner.analysisId])).n, 1);
+
+  // 같은 제안을 동시에 두 번 승인해도 새 실행은 하나이고 공유 프로필은 바뀌지 않는다.
+  await as('authenticated', owner.userId);
+  const [approved, replay] = await Promise.all([
+    decideTurn(owner, r1, areaTurn.id, 'approve'), decideTurn(owner, r1, areaTurn.id, 'approve'),
+  ]);
+  assert.deepEqual(replay, approved);
+  const r2 = approved.turns.find(t => t.id === areaTurn.id).proposal.resultRunId;
+  await db.exec('reset role');
+  assert.equal((await one('select count(*)::int as n from private.analysis_runs where analysis_id = $1', [owner.analysisId])).n, 2);
+  assert.deepEqual(await one('select search_conditions, revision from public.user_profiles where user_id = $1', [owner.userId]),
+    { search_conditions: { region_codes: ['11215'], budget_max_won: '900000000' }, revision: 3 });
+  await as('authenticated', owner.userId);
+  await assert.rejects(submitConditions(owner, r1, { conditions: { areaTolerancePercent: '9' } }), staleRun);
+
+  // 작업자는 승인된 조건만 받고, 승인과 다른 면적 기준·경계·거래 종류·선정 이유는 저장하지 못한다.
+  await as('service_role');
+  const job2 = await claim({ runId: r2 });
+  const work2 = await readWork(job2);
+  assert.deepEqual(work2.comparisonConditions, { areaTolerancePercent: '7' });
+  assert.equal('comparisonPeriod' in work2, false);
+  const prepared2 = runWorkerPrepare(job2.input, work2).comparison;
+  assert.deepEqual(prepared2.conditions.area, { basis: 'supply', tolerancePercent: '7', minM2: '104.532', maxM2: '120.268' });
+  const forged = [
+    baseComparison,
+    { ...prepared2, conditions: { ...prepared2.conditions, area: { ...prepared2.conditions.area, minM2: '104.53' } } },
+    { ...prepared2, conditions: { ...prepared2.conditions, area: { ...prepared2.conditions.area, tolerancePercent: '7.5' } } },
+    { ...prepared2, conditions: { ...prepared2.conditions, tradeKinds: ['sale'] } },
+    { ...prepared2, comparables: prepared2.comparables.map((c, i) => i === 4
+      ? { ...c, selectionReason: 'manual_replacement', replacesComplexId: 'comparison-b' } : c) },
+    { ...prepared2, comparables: prepared2.comparables.map((c, i) => i === 0 ? { ...c, supplyAreaM2: '121.000' } : c) },
+  ];
+  for (const bad of forged) {
+    await assert.rejects(finishComparison(job2, bad, null, null), invalidComparison);
+  }
+  await finishComparison(job2, prepared2, null, null);
+  await as('authenticated', owner.userId);
+  assert.equal((await readConversation(owner, r2)).previousRunId, r1);
+  assert.deepEqual((await getComparison(owner, r1)).result, baseComparison);
+  assert.equal((await readConversation(owner, r1)).conditionBounds.editable, false);
+
+  // 단지 교체는 이전 승인 조건(±7%)을 유지한 채 적격 후보만 기존 단지 자리에 넣는다.
+  const replaceSubmit = await submitConditions(owner, r2, {
+    message: '합성 near-4를 합성 비교 B로 바꿔줘',
+    conditions: { replacements: [{ complexId: 'comparison-b', replaceComplexId: 'near-4' }] },
+  });
+  const replaceTurn = replaceSubmit.turns.at(-1);
+  assert.deepEqual(replaceTurn.proposal.effective, {
+    areaTolerancePercent: '7', replacements: [{ complexId: 'comparison-b', replaceComplexId: 'near-4' }],
+  });
+  assert.deepEqual(replaceTurn.proposal.previous, { replacements: [] });
+  const r3 = (await decideTurn(owner, r2, replaceTurn.id, 'approve')).turns.at(-1).proposal.resultRunId;
+  await as('service_role');
+  const job3 = await claim({ runId: r3 });
+  const work3 = await readWork(job3);
+  const prepared3 = runWorkerPrepare(job3.input, work3).comparison;
+  const manual = prepared3.comparables.find(c => c.selectionReason === 'manual_replacement');
+  assert.deepEqual([manual.complexId, manual.replacesComplexId], ['comparison-b', 'near-4']);
+  assert.equal(new Set(prepared3.comparables.map(c => c.complexId)).size, 5);
+  // 승인된 교체를 반영하지 않거나 보류 사유도 남기지 않은 결과, 교체된 기존 단지가 동시에 남은 결과는 거부한다.
+  await assert.rejects(finishComparison(job3, prepared2, null, null), invalidComparison);
+  await assert.rejects(finishComparison(job3, {
+    ...prepared3,
+    comparables: [
+      ...prepared3.comparables.filter(c => c.complexId !== 'near-3'),
+      baseComparison.comparables.find(c => c.complexId === 'near-4'),
+    ],
+  }, null, null), invalidComparison);
+  await finishComparison(job3, prepared3, null, null);
+
+  // 매매만 비교하면 교체 후보(분양·입주권만 있는 단지)는 기준을 통과하지 못해 보류로 남고 비교표에 들어가지 않는다.
+  await as('authenticated', owner.userId);
+  const saleSubmit = await submitConditions(owner, r3, { message: '매매만 비교해줘', conditions: { tradeKinds: ['sale'] } });
+  assert.deepEqual(saleSubmit.turns.at(-1).proposal.effective, {
+    areaTolerancePercent: '7', tradeKinds: ['sale'],
+    replacements: [{ complexId: 'comparison-b', replaceComplexId: 'near-4' }],
+  });
+  const r4 = (await decideTurn(owner, r3, saleSubmit.turns.at(-1).id, 'approve')).turns.at(-1).proposal.resultRunId;
+  await as('service_role');
+  const job4 = await claim({ runId: r4 });
+  const prepared4 = runWorkerPrepare(job4.input, await readWork(job4)).comparison;
+  assert.deepEqual(prepared4.conditions.tradeKinds, ['sale']);
+  assert.deepEqual([...new Set(prepared4.collections.map(c => c.source))], ['apt_trade']);
+  assert.equal(prepared4.comparables.some(c => c.complexId === 'comparison-b'), false);
+  assert.equal(prepared4.holds.find(h => h.reasonCode === 'replacement_candidate_ineligible')?.complexId, 'comparison-b');
+  await assert.rejects(finishComparison(job4, { ...prepared4, holds: prepared4.holds.filter(h =>
+    h.reasonCode !== 'replacement_candidate_ineligible') }, null, null), invalidComparison);
+  await finishComparison(job4, prepared4, null, null);
+
+  // 대화의 기간 변경(기존 7인자 경로)도 기준 결과에 실제 적용된 면적·거래 종류를 이어받는다.
+  // 보류로 끝난 교체 요청은 기준 결과에 적용되지 않았으므로 이어받지 않는다(비교표에 보이는 조건이 출발점이다).
+  await as('authenticated', owner.userId);
+  const periodSubmit = await submitTurn(owner, r4, {
+    message: '2026-10-15부터 2026-10-31까지로 바꿔줘', intent: 'change_period', start: '2026-10-15', end: '2026-10-31',
+  });
+  const r5 = (await decideTurn(owner, r4, periodSubmit.turns.at(-1).id, 'approve')).turns.at(-1).proposal.resultRunId;
+  await as('service_role');
+  const job5 = await claim({ runId: r5 });
+  const work5 = await readWork(job5);
+  assert.deepEqual(work5.comparisonPeriod, { start: '2026-10-15', end: '2026-10-31' });
+  assert.deepEqual(work5.comparisonConditions, {
+    areaTolerancePercent: '7', tradeKinds: ['sale'], period: { start: '2026-10-15', end: '2026-10-31' },
+  });
+  const prepared5 = runWorkerPrepare(job5.input, work5).comparison;
+  assert.equal(prepared5.conditions.area.tolerancePercent, '7');
+  await assert.rejects(finishComparison(job5, { ...prepared5, conditions: { ...prepared5.conditions,
+    tradeKinds: ['sale', 'presale_right', 'occupancy_right'] } }, null, null), invalidComparison);
+  await finishComparison(job5, prepared5, null, null);
+});
+
+test('condition edits stay unavailable without verified scope or evidence and other accounts see 404', async () => {
+  const owner = await createOwner();
+  const snapshot = await saveCollectedSnapshot(owner, { registerEvidence: false });
+  const { runId } = await finishCollectedSnapshotRun(owner, snapshot, { withEvidence: false });
+  await as('authenticated', owner.userId);
+  const bounds = (await readConversation(owner, runId)).conditionBounds;
+  assert.equal(bounds.replacementsEditable, false);
+  await assert.rejects(submitConditions(owner, runId, {
+    conditions: { replacements: [{ complexId: 'comparison-b', replaceComplexId: 'comparison-a' }] },
+  }), conditionUnavailable);
+  // 보류된 결과에서도 승인 없이는 어떤 실행도 만들어지지 않는다.
+  const pending = await submitConditions(owner, runId, { conditions: { tradeKinds: ['sale'] } });
+  assert.equal(pending.turns.at(-1).proposal.status, 'pending');
+  await db.exec('reset role');
+  assert.equal((await one('select count(*)::int as n from private.analysis_runs where analysis_id = $1', [owner.analysisId])).n, 1);
+  const other = await createOwner();
+  await as('authenticated', other.userId);
+  await assert.rejects(readConversation(owner, runId), runNotFound);
+  await assert.rejects(submitConditions(owner, runId, { conditions: { tradeKinds: ['sale'] } }), runNotFound);
+});
+
+test('resetting initial draft overrides persists across follow-up changes and turn deletion covers condition runs', async () => {
+  const rich = richCollectedCapture();
+  const owner = await createOwner({
+    conditionsSnapshot: {
+      comparison: {
+        modelNo: '01',
+        areaTolerancePercent: '7',
+        areaChangeConfirmed: true,
+        replacements: [{ complexId: 'comparison-b', replaceComplexId: 'near-4' }],
+      },
+    },
+  });
+  await allowSources([...collectedCaptureSources, ...supplementalSources]);
+  await as('service_role');
+  const snapshotId = await rpc('save_ingestion_snapshot', owner.userId, owner.analysisId, randomUUID(),
+    json(rich.request), json(rich.ingestion));
+  await rpc('register_comparison_evidence', snapshotId, json(rich.evidence), evidenceSourceIds);
+  await as('authenticated', owner.userId);
+  const run1 = await enqueue(owner, snapshotInput(snapshotId));
+  await as('service_role');
+  const job1 = await claim(run1);
+  const comp1 = runWorkerPrepare(job1.input, await readWork(job1)).comparison;
+  assert.equal(comp1.conditions.area.tolerancePercent, '7');
+  assert.equal(comp1.comparables.some(c => c.selectionReason === 'manual_replacement'), true);
+  await finishComparison(job1, comp1, null, null);
+
+  // 1) 초기 초안의 ±7%·직접 교체를 기본값(±5%·자동 선정)으로 되돌린다.
+  await as('authenticated', owner.userId);
+  const resetSubmit = await submitConditions(owner, run1.runId, {
+    message: '공급면적 ±5%와 자동 선정으로 되돌려줘',
+    conditions: { areaTolerancePercent: '5', replacements: [] },
+  });
+  const resetTurnId = resetSubmit.turns.at(-1).id;
+  const r2 = (await decideTurn(owner, run1.runId, resetTurnId, 'approve')).turns.at(-1).proposal.resultRunId;
+  await as('service_role');
+  const job2 = await claim({ runId: r2 });
+  const comp2 = runWorkerPrepare(job2.input, await readWork(job2)).comparison;
+  assert.equal(comp2.conditions.area.tolerancePercent, '5');
+  assert.equal(comp2.comparables.some(c => c.selectionReason === 'manual_replacement'), false);
+  await finishComparison(job2, comp2, null, null);
+
+  // 2) 이어서 거래 종류만 바꿔도 초기 초안의 ±7%·직접 교체가 되살아나지 않는다.
+  await as('authenticated', owner.userId);
+  const followSubmit = await submitConditions(owner, r2, {
+    message: '매매만 비교해줘',
+    conditions: { tradeKinds: ['sale'] },
+  });
+  assert.deepEqual(followSubmit.turns.at(-1).proposal.effective, {
+    areaTolerancePercent: '5',
+    tradeKinds: ['sale'],
+    replacements: [],
+  });
+  const r3 = (await decideTurn(owner, r2, followSubmit.turns.at(-1).id, 'approve')).turns.at(-1).proposal.resultRunId;
+  await as('service_role');
+  const job3 = await claim({ runId: r3 });
+  const work3 = await readWork(job3);
+  const comp3 = runWorkerPrepare(job3.input, work3).comparison;
+  assert.equal(comp3.conditions.area.tolerancePercent, '5');
+  assert.deepEqual(comp3.conditions.tradeKinds, ['sale']);
+  assert.equal(comp3.comparables.some(c => c.selectionReason === 'manual_replacement'), false);
+  await finishComparison(job3, comp3, null, null);
+
+  // 3) 기존 삭제 범위(turn)가 change_conditions 턴과 파생된 후속 실행(r2·r3)을 그대로 포함한다.
+  await as('authenticated', owner.userId);
+  const impact = await rpc('read_deletion_impact', 'turn', resetTurnId);
+  assert.equal(impact.counts.runs, 2);
+  assert.equal(impact.counts.turns, 2);
+  const deleted = await rpc('delete_personal_data', 'turn', randomUUID(), resetTurnId);
+  assert.equal(deleted.status, 'live_deleted');
+  await db.exec('reset role');
+  assert.equal((await one('select count(*)::int as n from private.analysis_runs where analysis_id = $1', [owner.analysisId])).n, 1);
+  assert.equal((await one('select count(*)::int as n from private.analysis_chat_turns where analysis_id = $1', [owner.analysisId])).n, 0);
 });

@@ -326,3 +326,82 @@ class AnalysisWorkerTests(TestCase):
                 self.assertEqual([call.args[0] for call in self.client.post.call_args_list],
                                  ['claim_analysis_run', 'read_comparison_work', 'fail_analysis_run'])
                 self.assertFalse(self.client.post.call_args.args[1]['p_retryable'])
+
+    def test_approved_comparison_conditions_on_snapshot_and_rejection_on_other_kinds(self):
+        self.job['input'] = {'kind': 'snapshot', 'snapshotId': self.snapshot_id}
+        capture = copy.deepcopy(self.capture)
+        cond_work = {
+            **self.work,
+            'ingestion': capture,
+            'comparisonPeriod': {'start': '2026-10-15', 'end': '2026-10-25'},
+            'comparisonConditions': {
+                'period': {'start': '2026-10-15', 'end': '2026-10-25'},
+                'areaTolerancePercent': '7.5',
+                'tradeKinds': ['sale'],
+            },
+        }
+        self.client.post.side_effect = [self.job, cond_work, {'status': 'running'}, self.finished]
+        self.assertEqual(run_once(self.client), self.finished)
+        comparison = self.client.post.call_args.args[1]['p_comparison']
+        self.assertEqual(comparison['conditions']['area']['tolerancePercent'], '7.5')
+        self.assertEqual(comparison['conditions']['tradeKinds'], ['sale'])
+        self.assertEqual(comparison['conditions']['period']['start'], '2026-10-15')
+        self.assertEqual(comparison['conditions']['period']['end'], '2026-10-25')
+        self.assertEqual([row['complexId'] for row in comparison['comparables']], ['comparison-a'])
+        self.assertIsInstance(comparison.get('candidatePool'), list)
+        self.assertEqual(capture, self.capture)
+
+        # synthetic 및 notice 실행에서는 comparisonConditions를 거부한다.
+        self.job['input'] = {'kind': 'synthetic', 'fixture': 'ingestion-v0'}
+        self.client.reset_mock()
+        self.client.post.side_effect = [
+            self.job,
+            {**self.work, 'comparisonConditions': {'areaTolerancePercent': '7'}},
+            {'runId': self.run_id, 'status': 'failed'},
+        ]
+        with patch('run_analysis_worker.FIXTURE') as fixture:
+            self.assertEqual(run_once(self.client), {'status': 'failed', 'runId': self.run_id})
+            fixture.read_bytes.assert_not_called()
+        self.assertFalse(self.client.post.call_args.args[1]['p_retryable'])
+
+        notice_job = {
+            'runId': self.run_id, 'generation': 1, 'leaseToken': str(uuid4()),
+            'input': {'kind': 'notice', 'noticeSource': 'applyhome_apt', 'houseManageNo': '9900000001',
+                      'noticeNo': '9900000042', 'edition': '2026-10-05', 'modelNo': '01'},
+        }
+        notice_work = {
+            'conditions': {'ingestion_target': {'noticeSource': 'applyhome_apt', 'houseManageNo': '9900000001',
+                                                'noticeNo': '9900000042', 'edition': '2026-10-05'},
+                           'comparison': {'modelNo': '01'}},
+            'ingestion': None, 'evidence': None, 'useSyntheticFixture': False, 'selectionBindingIssue': None,
+            'noticeCapture': {'asOf': '2026-11-10', 'requestRegionCodes': ['99999'], 'allowOfficialPdf': False},
+            'comparisonConditions': {'areaTolerancePercent': '7'},
+        }
+        api, pdf = Mock(), Mock()
+        self.client.reset_mock()
+        self.client.post.side_effect = [notice_job, notice_work, {'runId': self.run_id, 'status': 'failed'}]
+        self.assertEqual(run_once(self.client, notice=NoticeTransports(api=api, pdf=pdf)),
+                         {'status': 'failed', 'runId': self.run_id})
+        api.assert_not_called()
+        pdf.assert_not_called()
+
+        # 충돌하는 기간·잘못된 허용 범위·잘못된 형식의 comparisonConditions는 쓰기 없이 실패한다.
+        self.job['input'] = {'kind': 'snapshot', 'snapshotId': self.snapshot_id}
+        for bad in [
+            None,
+            {},
+            {'areaTolerancePercent': '0'},
+            {'areaTolerancePercent': '50.1'},
+            {'tradeKinds': []},
+            {'replacements': [{'complexId': 'a', 'replaceComplexId': 'a'}]},
+            {'replacements': [{'complexId': 'x', 'replaceComplexId': 'a'}, {'complexId': 'a', 'replaceComplexId': 'b'}]},
+            {'period': {'start': '2026-10-12', 'end': '2026-10-20'}},
+        ]:
+            self.client.reset_mock()
+            bad_work = {**self.work, 'ingestion': capture, 'comparisonConditions': bad}
+            if isinstance(bad, dict) and 'period' in bad:
+                bad_work['comparisonPeriod'] = {'start': '2026-10-15', 'end': '2026-10-25'}
+            self.client.post.side_effect = [self.job, bad_work, {'runId': self.run_id, 'status': 'failed'}]
+            self.assertEqual(run_once(self.client), {'status': 'failed', 'runId': self.run_id})
+            self.assertEqual(self.client.post.call_args.args[0], 'fail_analysis_run')
+            self.assertFalse(self.client.post.call_args.args[1]['p_retryable'])

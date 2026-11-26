@@ -11,6 +11,7 @@ import { createFundingPage } from './funding-page.js';
 import { createCommutePage } from './commute-page.js';
 import { createReferencePage } from './reference-page.js';
 import { createConversationPanel } from './conversation-panel.js';
+import { createConditionEditor } from './condition-editor.js';
 import { createProfilePage } from './profile-page.js';
 import { createProfileReview } from './profile-review.js';
 import { createReportPage } from './report-page.js';
@@ -158,6 +159,9 @@ const conversationPanel = createConversationPanel({
         analysisId !== route.analysisId || runId !== route.runId) return;
     profileReview.begin({ message, analysisId, runId });
   },
+  onConditionBounds(nextBounds) {
+    conditionEditor.syncBounds(nextBounds);
+  },
   onApprovedRun({ analysisId, resultRunId, fromRunId }) {
     originRun = { analysisId, fromRunId, toRunId: resultRunId };
     void loadHistory();
@@ -214,6 +218,13 @@ function clearEvidenceState() {
   complexDetailSheet.reset();
   evidenceViewerSheet.reset();
 }
+const conditionEditor = createConditionEditor({
+  dialog: document.querySelector('#condition-editor-dialog'),
+  announce,
+  onSubmit({ conditions, message }) {
+    return conversationPanel.submitConditionEdit({ conditions, message });
+  },
+});
 const resultSections = { comparison: '비교 결과', funding: '호실 자금표', law: '법령 근거', news: '지역 뉴스', commute: '출퇴근 경로', report: '보고서' };
 const navs = [
   ['home', 'house', '채팅 홈'],
@@ -282,6 +293,7 @@ function resetPrivate(keepPrivacy = false) {
   referencePage.reset();
   commutePage.reset();
   conversationPanel.reset();
+  conditionEditor.close();
   ++epoch;
   ++dirVersion;
   ++historyVersion;
@@ -673,7 +685,8 @@ function render() {
     else if (isReference(route)) body = referencePage.view();
     else if (route.section === 'funding' && comparison && !state.runError) body = fundingPage.view();
     const lookup = route.key === 'run' && isReference(route) ? state.conditionLookup : null;
-    const conditions = analysisConditionBar(state.runError ? null : comparison || lookup?.data, state.run?.input, state.conditionsOpen, lookup);
+    const canEditConditions = route.section === 'comparison' && Boolean(comparison) && !state.runError;
+    const conditions = analysisConditionBar(state.runError ? null : comparison || lookup?.data, state.run?.input, state.conditionsOpen, lookup, { canEdit: canEditConditions });
     body = `<div class="analysis-context">${conditions}<nav class="analysis-tabs" aria-label="분석 보기">${tabs}</nav></div>` + body;
   }
   root.innerHTML = shell(body, route);
@@ -876,6 +889,7 @@ function routeChanged(focus = false) {
   referencePage.reset();
   commutePage.reset();
   conversationPanel.reset();
+  conditionEditor.close();
   clearTimeout(pollTimer);
   clearEvidenceState();
   closeDialog();
@@ -1079,6 +1093,17 @@ root.addEventListener('click', (event) => {
     render();
     document.querySelectorAll('.notice-card')[shown]?.focus();
   } else if (action === 'reload-conditions') void loadReferenceConditions();
+  else if (action === 'edit-conditions') {
+    const route = readRoute();
+    const data = route.key === 'sample' ? state.sample : state.comparison;
+    if (!data || route.section !== 'comparison' || state.suspended || state.sessionProblem || state.runError) return;
+    conditionEditor.open({
+      comparison: data,
+      bounds: route.key === 'sample' ? null : conversationPanel.getConditionBounds(),
+      guest: route.key === 'sample',
+      trigger: control,
+    });
+  }
   else if (action === 'reload') void loadDirectory();
   else if (action === 'reload-run') routeChanged();
   else if (action === 'reload-history') void loadHistory();
