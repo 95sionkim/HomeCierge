@@ -12,6 +12,7 @@ on:
       - 'scripts/**'
       - 'tests/fixtures/ingestion-v0.json'
       - 'tests/fixtures/comparison-evidence-v1.json'
+      - 'tests/fixtures/auto-evidence-gwacheon-synthetic.json'
       - 'package*.json'
       - '.nvmrc'
   pull_request:
@@ -24,7 +25,7 @@ permissions:
 jobs:
   auth-storage:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
         with:
@@ -58,6 +59,12 @@ jobs:
           export SUPABASE_URL SUPABASE_PUBLISHABLE_KEY SUPABASE_WORKER_KEY
           NOTICE_BROWSER_SMOKE=1 BE07_EPHEMERAL_SEARCH_FIXTURE=1 npm run test:auth
           DELETION_BROWSER_SMOKE=1 npm run test:auth -- --data-deletion
+          npm run test:auth -- --chat-home
+          npm run test:auth -- --condition-changes
+          npm run test:auth -- --upload-supplement
+          npm run test:auth -- --agent-replies
+          npm run test:auth -- --chat-agent
+          npm run test:auth -- --auto-evidence
       - name: Remove the test stack
         if: always()
         run: |

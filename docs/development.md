@@ -29,6 +29,22 @@ Python 검사에서는 합성 자료로 수집·주소 판정과 조회·가져�
 
 실제 호출 설정은 [API 안내](api/README.md)를 따른다. `--check-config`는 설정 유무만 확인하며 인증 성공을 검증하지 않는다. 자동 검사에 실제 키를 등록할 필요가 없다.
 
+실제 Supabase Auth·PostgREST·Storage 통합 검사는 `npm run test:auth`로 실행한다. 기본 DB 검사(`npm run test:db`)는 PGlite 합성 Auth 검사이므로 실제 Auth 통합 검사와 구분한다. `SUPABASE_URL`·`SUPABASE_PUBLISHABLE_KEY`·`SUPABASE_WORKER_KEY`(서울 개발 프로젝트 대상이면 `APP_ENV=development` 포함)를 해당 프로세스에만 주입하며 외부 API는 호출하지 않는다.
+
+```sh
+npm run test:auth
+npm run test:auth -- --saved-reports
+npm run test:auth -- --data-deletion
+npm run test:auth -- --chat-home
+npm run test:auth -- --condition-changes
+npm run test:auth -- --upload-supplement
+npm run test:auth -- --agent-replies
+npm run test:auth -- --chat-agent
+npm run test:auth -- --auto-evidence
+```
+
+로컬에서 전체 Supabase 스택을 띄우려면 Docker가 필요하며, Docker가 없는 환경에서는 로컬 문법 검사(`node --check scripts/smoke_*.mjs`)와 오프라인 기본 검사를 먼저 확인하고 실제 Auth 실행은 GitHub Actions의 [Supabase 통합 워크플로](../.github/workflows/supabase-integration.yml) 또는 격리된 서울 개발 프로젝트에서 수행한다. 세부 확인 항목과 정리 절차는 [인프라 준비 §5](infrastructure.md#5-재현-가능한-로컬-검사를-실행한다)에 기록한다.
+
 ## 코드 역할을 구분한다
 
 | 파일을 찾는다 | 재사용할 역할을 확인한다 | 실행 조건을 확인한다 |

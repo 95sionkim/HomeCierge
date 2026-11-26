@@ -84,7 +84,29 @@ python3 scripts/check_repository.py
 
 Node.js 버전은 [.nvmrc](../.nvmrc), 라이브러리와 CLI는 [package.json](../package.json)·[package-lock.json](../package-lock.json)으로 고정한다. 기본 DB 검사는 메모리 내 PostgreSQL(PGlite)에 합성 Auth·Storage를 구성한다.
 
-실제 인증 통합 검사는 `npm run test:auth`로 실행한다. 격리된 Supabase의 `SUPABASE_URL`·`SUPABASE_PUBLISHABLE_KEY`·`SUPABASE_WORKER_KEY`를 해당 프로세스에만 주입한다. 지정한 서울 개발 프로젝트에서는 `APP_ENV=development`도 필요하다. 검사는 임시 계정 두 개를 만들고 로그인·토큰 갱신·소유권·파일 정리를 확인한다. GitHub Actions에서는 작업마다 새 로컬 Supabase를 시작해 같은 검사를 실행한다. [통합 검사 정의](../.github/workflows/supabase-integration.yml)
+실제 인증 통합 검사는 `npm run test:auth`로 실행한다. 격리된 Supabase의 `SUPABASE_URL`·`SUPABASE_PUBLISHABLE_KEY`·`SUPABASE_WORKER_KEY`를 해당 프로세스에만 주입한다. 지정한 서울 개발 프로젝트에서는 `APP_ENV=development`도 필요하다. 검사는 임시 계정 두 개를 만들고 로그인·토큰 갱신·소유권·파일 정리를 확인한다. 외부 API(청약홈·실거래·카카오·OpenAI·네이버)는 호출하지 않으며 합성 자료만 사용한다. GitHub Actions에서는 작업마다 새 로컬 Supabase를 시작해 같은 검사를 실행한다. [통합 검사 정의](../.github/workflows/supabase-integration.yml)
+
+기능별 실제 Supabase Auth 통합 검사는 다음 플래그로 나누어 실행한다(한 번에 하나씩 지정). 이 검사는 PGlite 합성 Auth 검사(`npm run test:db`)와 별개이며, 실행 환경에 Docker가 없으면 로컬 Supabase를 띄울 수 없으므로 격리 CI 또는 서울 개발 프로젝트(`homecierge-dev`)에서 수행한다.
+
+```sh
+npm run test:auth -- --saved-reports
+npm run test:auth -- --data-deletion
+npm run test:auth -- --chat-home
+npm run test:auth -- --condition-changes
+npm run test:auth -- --upload-supplement
+npm run test:auth -- --agent-replies
+npm run test:auth -- --chat-agent
+npm run test:auth -- --auto-evidence
+```
+
+| 플래그를 선택한다 | 확인하는 실제 Auth·PostgREST·Storage 흐름을 적는다 | 공유 상태와 정리 조건을 확인한다 |
+| --- | --- | --- |
+| `--chat-home` | 채팅 생성·목록 커서·이름 변경·메시지 기록·공고 찾기·멱등 재전송·채팅 내 분석 시작(`start_chat_notice_workspace`)·타 계정 404·계정 전환 후 복원 | 로컬 격리 DB에서만 합성 디렉터리를 게시하고 출처 권한을 원복한다. 호스팅 개발 DB에서는 기존 디렉터리를 읽고 접수한 실행을 즉시 취소한다 |
+| `--condition-changes` | 합성 6단지 수집본의 공급면적 축소(±5% 이하, Q-41)·거래 종류·단지 교체 제안·중복 승인 단일 실행·작업자 재계산·위조 결과 거부·거절/취소 유지·공유 프로필 불변·타 계정 404 | 등록한 합성 PDF와 임시 계정·파생 행을 종료 시 정리해 잔여 0건을 확인한다 |
+| `--upload-supplement` | 합성 PDF 등록·비공개 Storage 업로드·보완 실행 멱등 접수·바인딩 완료·타 계정 404·A-56 업로드 삭제 영향 미리보기와 파생 실행·보고서·Storage 연쇄 정리 | `process_data_deletion.py`로 Storage 객체까지 정리하고 기준 실행 보존 및 잔여 0건을 확인한다 |
+| `--agent-replies` | 서비스 키로 에이전트 활성화 후 턴 제출·대기열 생성·임대·합성 답변 완료(LLM 무호출)·`agentReply` 조회·잘못된 제안 거부·타 계정 404·턴 삭제 연쇄 | 검사 전 탐침으로 기존 활성화 상태·모델을 관찰하고 종료 시 `configure_agent_settings`로 원복한다 |
+| `--chat-agent` | 채팅 메시지 제출·대기열·합성 확인 카드 완료·소유자 확인 시 맞춤 검색 실행 및 요약 메시지 기록·거절 시 미실행·타 계정 404·메시지 삭제 연쇄 | 로컬 격리 DB에서만 합성 디렉터리·검색 색인을 게시하고 출처 권한·에이전트 설정을 원복한다 |
+| `--auto-evidence` | 자동 비교 근거·공유 캐시 RPC 4종의 일반 사용자 차단·서비스 키 읽기/쓰기·`finish_notice_with_evidence` 원자 저장·같은 수집본 재계산의 저장 근거 재사용 | 합성 지역(`91290`)·단지 캐시 키를 같은 임대 안에서 과거 TTL로 만료해 활성 캐시 0건을 확인한다(PostgREST에 비공개 캐시 물리 삭제 RPC는 없음) |
 
 2026-11-21에 개발 DB에 BE-03 마이그레이션 네 개를 추가하고, 기존 두 개를 포함한 여섯 파일의 버전을 원격 이력에 맞췄다. 서울 개발 DB에서 다시 생성한 TypeScript 타입과 저장소 파일이 일치한다. [마이그레이션](../supabase/migrations) · [생성 타입](../src/db/database.types.ts)
 

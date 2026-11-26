@@ -21,6 +21,32 @@ import { checkLegalEvidence } from './smoke_legal_evidence.mjs';
 import { checkRegionalNews, syntheticNewsFetch } from './smoke_regional_news.mjs';
 import { checkNoticeAnalysis } from './smoke_notice_analysis.mjs';
 import { checkBe04Cleanup, runBe04Smoke, workerOnce } from './smoke_be04_runs.mjs';
+import { checkAccountCleanupZero } from './smoke_helpers.mjs';
+import { checkChatHome } from './smoke_chat_home.mjs';
+import { checkConditionChanges } from './smoke_condition_changes.mjs';
+import { checkUploadSupplement } from './smoke_upload_supplement.mjs';
+import { checkAgentReplies } from './smoke_agent_replies.mjs';
+import { checkChatAgent } from './smoke_chat_agent.mjs';
+import { checkAutoEvidence } from './smoke_auto_evidence.mjs';
+
+const MODE_FLAGS = [
+  '--data-deletion',
+  '--saved-reports',
+  '--chat-home',
+  '--condition-changes',
+  '--upload-supplement',
+  '--agent-replies',
+  '--chat-agent',
+  '--auto-evidence',
+];
+const FEATURE_SMOKE_FLAGS = new Set([
+  '--chat-home',
+  '--condition-changes',
+  '--upload-supplement',
+  '--agent-replies',
+  '--chat-agent',
+  '--auto-evidence',
+]);
 
 const DEVELOPMENT_ORIGIN = 'https://jcaelooqogosbzrfyrhe.supabase.co';
 const ACCOUNT_TAG = 'homecierge_be03_smoke_run';
@@ -63,7 +89,14 @@ function isServiceRoleKey(key) {
   }
 }
 
+function activeModeFlag(argv = process.argv) {
+  const active = MODE_FLAGS.filter(flag => argv.includes(flag));
+  check(active.length <= 1, 'conflicting_smoke_flags');
+  return active[0] ?? null;
+}
+
 function readConfig(env) {
+  activeModeFlag();
   check((env.APP_ENV === undefined || env.APP_ENV === 'development') && env.VERCEL_ENV !== 'production'
     && env.VERCEL_TARGET_ENV !== 'production' && env.NODE_ENV !== 'production', 'development_only');
   let url;
@@ -505,13 +538,16 @@ async function retryCleanup(cleanUp, failures) {
 }
 
 async function run(config, capture, requestApi, apiPort) {
+  const mode = activeModeFlag();
   const admin = makeClient(config.origin, config.service);
   const userClient = () => makeClient(config.origin, config.publishable);
+  const freshToken = async account => (await login(account, userClient())).access_token;
   const runId = randomUUID();
   const captureKey = randomUUID();
   const accounts = [];
   const failed = [];
   let be04Started = false;
+  let verifyFullCleanup = FEATURE_SMOKE_FLAGS.has(mode);
   try {
     const noSession = await requestApi(ME_ROUTE);
     check(noSession.status === 401, 'me_unauthenticated');
@@ -527,16 +563,43 @@ async function run(config, capture, requestApi, apiPort) {
       await seedAccount(account);
       await checkMe(requestApi, account, session);
     }
+    if (mode === '--chat-home') {
+      await checkChatHome({ config, accounts, admin, requestApi, freshToken, check, result });
+      return failed;
+    }
+    if (mode === '--condition-changes') {
+      await checkConditionChanges({ config, accounts, admin, requestApi, freshToken, pdf: makeSyntheticPdf(), check, result });
+      return failed;
+    }
+    if (mode === '--upload-supplement') {
+      await checkUploadSupplement({
+        config, accounts, admin, requestApi, freshToken, userClient, login, finishTestDeletion,
+        pdf: makeSyntheticPdf(), check, result,
+      });
+      return failed;
+    }
+    if (mode === '--agent-replies') {
+      await checkAgentReplies({ config, accounts, admin, requestApi, freshToken, workerOnce, check, result });
+      return failed;
+    }
+    if (mode === '--chat-agent') {
+      await checkChatAgent({ config, accounts, admin, requestApi, freshToken, check, result });
+      return failed;
+    }
+    if (mode === '--auto-evidence') {
+      await checkAutoEvidence({ config, accounts, admin, requestApi, freshToken, pdf: makeSyntheticPdf(), check, result });
+      return failed;
+    }
     await saveSnapshot(admin, accounts[0], capture, captureKey, params => storeWithPython(config, params));
     await saveSnapshot(admin, accounts[1], capture, captureKey, params => storeConcurrently(admin, params));
-    if (process.argv.includes('--data-deletion')) {
+    if (mode === '--data-deletion') {
       const owner = accounts[0];
       const saved = await finishReportFixture({owner,snapshotId:owner.snapshotId,config,requestApi,check,result,workerOnce});
       await checkDataDeletion({ accounts, admin, config, apiPort, requestApi, check, result, saved, registerUpload, uploadObject,
         pdf:makeSyntheticPdf(), newClient:async account => { const client = userClient(); await login(account,client); return client; } });
       return failed;
     }
-    if (process.argv.includes('--saved-reports')) {
+    if (mode === '--saved-reports') {
       const funding = await checkFundingPlan({ accounts, admin, capture, requestApi, check, result });
       const owner = { ...accounts[0], analysisId: funding.analysisId };
       const peer = accounts[1];
@@ -547,7 +610,7 @@ async function run(config, capture, requestApi, apiPort) {
       };
       const saved = await finishReportFixture({ owner, snapshotId: funding.snapshotId, config, requestApi, check, result, workerOnce });
       await checkSavedReports({ owner, peer, saved, requestApi, check,
-        freshToken: async account => (await login(account, userClient())).access_token,
+        freshToken,
         async whileSaved(report) {
           const fundingSection = report.sections.find(section => section.id === 'funding');
           check(fundingSection?.tables.some(table => table.rows.some(row => row.includes('2026-10-20')
@@ -611,7 +674,6 @@ async function run(config, capture, requestApi, apiPort) {
       'document_worker_deleted_pdf');
     be04Started = true;
     const secondWorker = makeClient(config.origin, config.service);
-    const freshToken = async account => (await login(account, userClient())).access_token;
     const savedComparison = await runBe04Smoke({ requestApi, admin, secondWorker, accounts, capture, config, check, result, freshToken });
     // 새 기기처럼 로그인한 뒤 분석 목록만으로 마지막 실행과 저장한 수집본을 다시 찾는다.
     const [peer, owner] = accounts;
@@ -658,6 +720,7 @@ async function run(config, capture, requestApi, apiPort) {
       await retryCleanup(() => deleteAccount(admin, account, runId), failed);
     }
     if (be04Started) await retryCleanup(() => checkBe04Cleanup(admin, accounts, check, result), failed);
+    if (verifyFullCleanup) await retryCleanup(() => checkAccountCleanupZero(admin, accounts, check, result), failed);
   }
   return failed;
 }
@@ -724,6 +787,18 @@ if (failures.length) {
   process.stdout.write('Data deletion passed (two users, old sessions, bound retry, account, Storage, Auth and public receipt)\n');
 } else if (process.argv.includes('--saved-reports')) {
   process.stdout.write('S-07 passed (two authenticated users, duplicate save, fixed funding amounts, profile edit, browser reopen and PDF, deletion, cleanup)\n');
+} else if (process.argv.includes('--chat-home')) {
+  process.stdout.write('Chat home passed (two users, CRUD, rename, lookup, idempotency, workspace start, cross-account 404, relogin restore, cleanup)\n');
+} else if (process.argv.includes('--condition-changes')) {
+  process.stdout.write('Condition changes passed (two users, Q-41 area narrowing, trade kinds, replacement, duplicate approval, forged result rejection, reject/cancel, profile unchanged, cleanup)\n');
+} else if (process.argv.includes('--upload-supplement')) {
+  process.stdout.write('Upload supplement passed (two users, Storage PDF upload, idempotent enqueue, bound completion, cross-account 404, A-56 impact preview and cascade cleanup)\n');
+} else if (process.argv.includes('--agent-replies')) {
+  process.stdout.write('Agent replies passed (two users, service-only RPCs, queue/lease/synthetic answer, invalid proposal rejection, turn deletion cascade, settings restored, cleanup)\n');
+} else if (process.argv.includes('--chat-agent')) {
+  process.stdout.write('Chat agent passed (two users, queue/lease/synthetic search card, confirm summary, reject no-op, cross-account 404, message deletion cascade, settings restored, cleanup)\n');
+} else if (process.argv.includes('--auto-evidence')) {
+  process.stdout.write('Auto comparison evidence passed (two users, service-only shared cache RPCs and TTL cleanup, finish_notice_with_evidence, saved evidence reuse on recalculation, cleanup)\n');
 } else {
   if (process.env.BE07_EPHEMERAL_SEARCH_FIXTURE === '1') {
     process.stdout.write('BE-07 smoke passed (two-user search, publication, budget, incomplete rooms, source revocation)\n');
