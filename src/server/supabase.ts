@@ -73,16 +73,31 @@ export function createBackend(config: BackendConfig): Backend {
                     ...(op.query !== null ? { p_query: op.query } : {}),
                     ...(op.mode !== null ? { p_mode: op.mode } : {}),
                   })
-                : client.rpc('start_chat_notice_workspace', {
-                    p_chat_id: op.chatId,
-                    p_request_key: op.requestId,
-                    p_input: op.input,
-                  });
+                : op.action === 'prepareSearch'
+                  ? client.rpc('prepare_chat_search_confirmation', {
+                      p_chat_id: op.chatId,
+                      p_reply_id: op.replyId,
+                    })
+                  : op.action === 'decideSearch'
+                    ? client.rpc('decide_chat_search_proposal', {
+                        p_chat_id: op.chatId,
+                        p_reply_id: op.replyId,
+                        p_decision: op.decision,
+                        ...(op.conditions !== null ? { p_conditions: op.conditions } : {}),
+                        ...(op.resultSummary !== null ? { p_result_summary: op.resultSummary } : {}),
+                      })
+                    : client.rpc('start_chat_notice_workspace', {
+                        p_chat_id: op.chatId,
+                        p_request_key: op.requestId,
+                        p_input: op.input,
+                      });
       const { data, error } = await rpc.abortSignal(signal);
       if (error) {
         if (error.code === '42501') throw new ApiError('authentication_required');
         if (error.code === 'PT404') throw new ApiError('chat_not_found');
-        if (error.code === 'PT403') throw new ApiError('notice_source_restricted');
+        if (error.code === 'PT403') {
+          throw new ApiError(error.message === 'search_source_restricted' ? 'search_source_restricted' : 'notice_source_restricted');
+        }
         if (error.code === 'PT429') throw new ApiError('run_rate_limited');
         if (error.code === 'PT409') {
           if (op.action === 'startAnalysis') {
@@ -91,7 +106,13 @@ export function createBackend(config: BackendConfig): Backend {
           }
           throw new ApiError(op.action === 'startAnalysis' && error.message !== 'chat_request_conflict' ? 'run_conflict' : 'chat_conflict');
         }
-        if (error.code === '22023') throw new ApiError(op.action === 'startAnalysis' ? 'invalid_run_input' : 'invalid_chat_input');
+        if (error.code === '22023') {
+          if (op.action === 'startAnalysis') throw new ApiError('invalid_run_input');
+          if (error.message === 'invalid_chat_search_conditions' || error.message === 'invalid_search_profile_region') {
+            throw new ApiError('invalid_search_input');
+          }
+          throw new ApiError('invalid_chat_input');
+        }
         throw new Error('database_unavailable');
       }
       return data;

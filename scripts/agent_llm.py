@@ -595,6 +595,257 @@ def _synthetic_default_turn(input_items):
     return {'intent': 'inclusion', 'proposal': None, 'answer': ' '.join(parts), 'citations': citations}
 
 
+def _synthetic_default_chat_turn(input_items):
+    """오프라인 회귀·테스트용 채팅 홈 합성 응답을 생성한다. 실제 LLM 판단을 대신하지 않는다."""
+    import re
+    if __package__:
+        from .agent_tools import execute_chat_tool, normalize_won_text, resolve_official_regions
+    else:
+        from agent_tools import execute_chat_tool, normalize_won_text, resolve_official_regions
+
+    user_text = ''
+    for item in input_items:
+        if isinstance(item, dict) and item.get('role') == 'user':
+            content = item.get('content')
+            if isinstance(content, str):
+                user_text = content
+            elif isinstance(content, list):
+                user_text = '\n'.join(
+                    b.get('text', '') for b in content if isinstance(b, dict) and isinstance(b.get('text'), str)
+                )
+    raw_data = _extract_tag(user_text, 'DATA_JSON')
+    message = _extract_tag(user_text, 'USER_MESSAGE') or ''
+    context = {}
+    if raw_data:
+        try:
+            context = json.loads(raw_data)
+        except ValueError:
+            context = {}
+
+    regions = context.get('regions') if isinstance(context.get('regions'), list) else []
+    policy = context.get('llmSourcePolicy') if isinstance(context.get('llmSourcePolicy'), dict) else {}
+    restricted = bool(policy.get('hasRestrictedSources'))
+
+    def base_reply(intent, answer, *, citations=None, search=None, profile=None, lookup=None):
+        cites = list(citations or [])
+        if restricted:
+            cites.append({'kind': 'source_restriction', 'reference': 'llm_permission', 'label': 'LLM 입력 제한 출처 제외'})
+        return {
+            'intent': intent,
+            'answer': answer,
+            'citations': cites,
+            'searchProposal': search,
+            'profileProposal': profile,
+            'lookupQuery': lookup,
+        }
+
+    # 자격·추천·가격 전망 유도 -> 제한 안내
+    if re.search(r'(?:자격|가점|1순위|당첨|대출|추천해|사도\s*될까요|오를까요|전망|시세\s*예측)', message):
+        return base_reply(
+            'help',
+            '개인 청약 자격 판정이나 가격 전망은 제공하지 않으며 청약을 권유하지 않습니다. 희망 지역과 예산으로 공고를 찾거나 공고명·10자리 공고번호로 회차를 조회해 보세요.',
+            citations=[{'kind': 'capability', 'reference': 'service_limits', 'label': '서비스 안내 범위'}],
+        )
+
+    if re.search(r'pdf|공고문.*(?:올리|업로드|보완)', message, re.IGNORECASE):
+        return base_reply(
+            'pdf_guide',
+            '공고 PDF 보완은 공고와 주택형을 먼저 선택한 뒤 분석 화면에서 진행할 수 있습니다. 공고명이나 10자리 공고번호를 알려주시면 해당 회차를 찾을 수 있습니다.',
+            citations=[{'kind': 'capability', 'reference': 'pdf_supplement', 'label': 'PDF 보완 안내'}],
+        )
+
+    # 자연어 지역·예산·면적·입주·프로필 추출
+    wants_profile = bool(re.search(r'(?:다음\s*(?:검색)?에도|다음에도|앞으로도|공유\s*프로필|기본\s*조건|조건\s*저장)', message))
+    wants_search = bool(re.search(r'(?:찾아|검색|공고|이하|이내|억|만\s*원|㎡|m2|m²|평|입주|구에서|시에서|군에서)', message))
+
+    # 1) 지역 토큰 추출: 시·도+시·군·구 또는 단독 구/군/시
+    region_queries = []
+    scan = message
+    for m in re.finditer(
+        r'(?:서울(?:특별시|시)?|부산(?:광역시|시)?|대구(?:광역시|시)?|인천(?:광역시|시)?|광주(?:광역시|시)?'
+        r'|대전(?:광역시|시)?|울산(?:광역시|시)?|세종(?:특별자치시|시)?|경기(?:도)?|강원(?:특별자치도|도)?'
+        r'|충(?:청)?[남북]도?|전(?:라)?[남북](?:특별자치도|도)?|경(?:상)?[남북]도?|제주(?:특별자치도|도)?)'
+        r'\s+[가-힣]{1,6}(?:시|군|구)',
+        scan,
+    ):
+        region_queries.append(m.group(0).strip())
+        scan = scan.replace(m.group(0), ' ')
+
+    for m in re.finditer(r'(?<![가-힣])([가-힣]{1,5}(?:구|군|시))(?:이랑|랑|하고|와|과|에서|쪽|근처)?(?![가-힣])', scan):
+        tok = m.group(1)
+        if tok not in ('가구', '청구', '요구', '문구', '도구', '기구', '인구', '입구', '출구', '자치구', '시군구'):
+            region_queries.append(tok)
+
+    # 2) 예산 추출
+    budget_raw = None
+    for pat in (
+        r'\d+(?:,\d{3})*\s*억\s*\d+(?:,\d{3})*\s*천\s*만?(?:\s*원)?',
+        r'\d+(?:,\d{3})*\s*억\s*\d+(?:,\d{3})*(?:\.\d+)?\s*만(?:\s*원)?',
+        r'\d+(?:,\d{3})*(?:\.\d+)?\s*억(?:\s*원)?',
+        r'\d+(?:,\d{3})*\s*천\s*만(?:\s*원)?',
+        r'\d+(?:,\d{3})*(?:\.\d+)?\s*만\s*원',
+        r'\d+(?:,\d{3})*\s*원',
+    ):
+        bm = re.search(pat, message)
+        if bm:
+            budget_raw = bm.group(0)
+            break
+
+    # 3) 면적 추출 (전용면적 구분)
+    area_basis = 'exclusive' if re.search(r'전용\s*(?:면적)?', message) else 'supply'
+    sa_min = sa_max = sa_unit = None
+    am_range = re.search(r'(\d+(?:\.\d+)?)\s*[~–-]\s*(\d+(?:\.\d+)?)\s*(㎡|m²|m2|제곱미터|평)', message)
+    if am_range:
+        sa_min, sa_max = am_range.group(1), am_range.group(2)
+        sa_unit = 'pyeong' if am_range.group(3) == '평' else 'm2'
+    else:
+        am_single = re.search(r'(\d+(?:\.\d+)?)\s*(㎡|m²|m2|제곱미터|평)', message)
+        if am_single:
+            sa_min = sa_max = am_single.group(1)
+            sa_unit = 'pyeong' if am_single.group(2) == '평' else 'm2'
+
+    # 4) 입주 연월 추출
+    mi_start = mi_end = None
+    mm_range = re.search(r'(\d{4}-\d{2})\s*[~–-]\s*(\d{4}-\d{2})', message)
+    if mm_range:
+        mi_start, mi_end = mm_range.group(1), mm_range.group(2)
+    else:
+        mm_single = re.search(r'(\d{4})-(\d{2})', message)
+        if mm_single:
+            mi_start = mi_end = f'{mm_single.group(1)}-{mm_single.group(2)}'
+
+    include_closed = bool(re.search(r'(?:접수\s*종료|마감)\s*(?:포함|까지)', message))
+
+    if wants_profile and not (wants_search and budget_raw and region_queries):
+        prop_res = execute_chat_tool(
+            'propose_shared_profile_change',
+            {
+                'regionQueries': region_queries if region_queries else None,
+                'budgetMaxWon': budget_raw,
+                'supplyAreaMinM2': sa_min if sa_unit == 'm2' else None,
+                'supplyAreaMaxM2': sa_max if sa_unit == 'm2' else None,
+                'moveInStartMonth': mi_start,
+                'moveInEndMonth': mi_end,
+                'clearKeys': [],
+                'reason': '채팅에서 요청한 공유 프로필 기본 조건 변경안',
+            },
+            context,
+        )
+        if prop_res.get('ok'):
+            return base_reply(
+                'profile_proposal',
+                '요청하신 조건으로 공유 프로필 변경안을 승인 대기로 준비했습니다. 공유 프로필 변경 검토(O-3)에서 직접 승인하셔야 반영됩니다.',
+                citations=[{'kind': 'profile', 'reference': 'shared_profile', 'label': '공유 프로필 변경안'}],
+                profile=prop_res['draft'],
+            )
+
+    if wants_search or region_queries or budget_raw:
+        ext = execute_chat_tool(
+            'extract_search_conditions',
+            {
+                'regionQueries': region_queries,
+                'budgetMaxWon': budget_raw,
+                'supplyAreaMin': sa_min,
+                'supplyAreaMax': sa_max,
+                'supplyAreaUnit': sa_unit,
+                'areaBasis': area_basis,
+                'moveInStart': mi_start,
+                'moveInEnd': mi_end,
+                'includeClosed': include_closed,
+            },
+            context,
+        )
+        if ext.get('ok'):
+            proposal = ext['searchProposal']
+            r_names = ', '.join(r['name'] or r['code'] for r in ext['resolvedRegions'])
+            parts = [f'희망 지역은 {r_names}', f"최대 예산은 {int(proposal['budgetMaxWon']):,}원(분양가+필수 옵션 기준)"]
+            if proposal.get('supplyArea'):
+                unit_lbl = '평' if proposal['supplyArea']['unit'] == 'pyeong' else '㎡'
+                if proposal['supplyArea']['min'] == proposal['supplyArea']['max']:
+                    parts.append(f"공급면적은 {proposal['supplyArea']['min']}{unit_lbl}")
+                else:
+                    parts.append(f"공급면적은 {proposal['supplyArea']['min']}~{proposal['supplyArea']['max']}{unit_lbl}")
+            if proposal.get('moveIn'):
+                parts.append(f"입주 시기는 {proposal['moveIn']['start']}~{proposal['moveIn']['end']}")
+            profile_draft = None
+            suffix = '아래 확인 카드에서 조건을 확인하시면 맞춤 검색을 실행합니다.'
+            if wants_profile:
+                p_res = execute_chat_tool(
+                    'propose_shared_profile_change',
+                    {
+                        'regionQueries': region_queries,
+                        'budgetMaxWon': proposal['budgetMaxWon'],
+                        'supplyAreaMinM2': proposal['supplyArea']['min'] if proposal.get('supplyArea') and proposal['supplyArea']['unit'] == 'm2' else None,
+                        'supplyAreaMaxM2': proposal['supplyArea']['max'] if proposal.get('supplyArea') and proposal['supplyArea']['unit'] == 'm2' else None,
+                        'moveInStartMonth': proposal['moveIn']['start'] if proposal.get('moveIn') else None,
+                        'moveInEndMonth': proposal['moveIn']['end'] if proposal.get('moveIn') else None,
+                        'clearKeys': [],
+                        'reason': '채팅에서 요청한 탐색 조건 공유 프로필 반영안',
+                    },
+                    context,
+                )
+                if p_res.get('ok'):
+                    profile_draft = p_res['draft']
+                    suffix = '아래 확인 카드에서 조건을 확인하시면 맞춤 검색을 실행하며, 공유 프로필 변경안은 O-3에서 직접 승인하셔야 반영됩니다.'
+            return base_reply(
+                'search_confirm',
+                f"{', '.join(parts)}으로 정리했습니다. {suffix}",
+                citations=[
+                    {'kind': 'region', 'reference': ','.join(proposal['regionCodes']), 'label': '공식 지역 코드'},
+                    {'kind': 'search_condition', 'reference': 'notice-search', 'label': '맞춤 검색 확인 대기'},
+                ],
+                search=proposal,
+                profile=profile_draft,
+            )
+
+        # 확인 질문 구성
+        if ext.get('ambiguousRegions'):
+            amb = ext['ambiguousRegions'][0]
+            cand_names = ', '.join(c['name'] for c in amb['candidates'] if c.get('name'))
+            return base_reply(
+                'search_clarify',
+                f"{amb['query']}에 해당하는 지역이 여러 곳에 있습니다({cand_names}). 시·도를 포함해 정확한 지역을 알려주시면 확인 카드를 준비하겠습니다.",
+                citations=[{'kind': 'region', 'reference': 'ambiguous_region', 'label': '동명 지역 확인 필요'}],
+            )
+        if ext.get('areaBasisConflict'):
+            return base_reply(
+                'search_clarify',
+                '맞춤 검색의 면적 조건은 전용면적이 아니라 공급면적 기준입니다. 원하시는 공급면적 범위를 알려주시거나 면적 조건 없이 진행할지 알려주세요.',
+                citations=[{'kind': 'search_condition', 'reference': 'supply_area_basis', 'label': '공급면적 기준 안내'}],
+            )
+        if ext.get('unknownRegions'):
+            return base_reply(
+                'search_clarify',
+                '입력하신 지역을 공식 시·군·구 목록에서 확인할 수 없습니다. 시·도와 시·군·구 이름으로 다시 알려주세요.',
+                citations=[{'kind': 'region', 'reference': 'unknown_region', 'label': '미확인 지역'}],
+            )
+        missing = ext.get('missingRequired') or []
+        if 'regionCodes' in missing and 'budgetMaxWon' in missing:
+            return base_reply(
+                'search_clarify',
+                '맞춤 검색을 준비하려면 희망 시·군·구와 최대 예산이 필요합니다. 원하시는 지역과 예산을 함께 알려주세요.',
+                citations=[{'kind': 'search_condition', 'reference': 'required_conditions', 'label': '필수 탐색 조건'}],
+            )
+        if 'regionCodes' in missing:
+            return base_reply(
+                'search_clarify',
+                '맞춤 검색에 필요한 희망 시·군·구가 빠져 있습니다. 어느 시·군·구에서 찾으실지 알려주세요.',
+                citations=[{'kind': 'search_condition', 'reference': 'required_region', 'label': '희망 지역 필요'}],
+            )
+        if 'budgetMaxWon' in missing:
+            return base_reply(
+                'search_clarify',
+                '맞춤 검색에 필요한 최대 예산(분양가+필수 옵션 기준)이 빠져 있습니다. 최대 예산을 알려주시면 확인 카드를 준비하겠습니다.',
+                citations=[{'kind': 'search_condition', 'reference': 'required_budget', 'label': '최대 예산 필요'}],
+            )
+
+    return base_reply(
+        'help',
+        '희망 시·군·구와 최대 예산을 말씀하시면 확인 카드를 통해 맞춤 검색을 실행할 수 있습니다. 특정 공고명이나 10자리 공고번호로 회차를 찾는 것도 가능합니다.',
+        citations=[{'kind': 'capability', 'reference': 'chat_home', 'label': '채팅 홈 기능 안내'}],
+    )
+
+
 class StubProvider(LLMProvider):
     """네트워크 없이 테스트·오프라인 회귀에 쓰는 합성 LLM 공급자."""
 
@@ -637,7 +888,7 @@ class StubProvider(LLMProvider):
                 )
             parsed = entry
         else:
-            parsed = _synthetic_default_turn(input_items)
+            parsed = _synthetic_default_chat_turn(input_items) if schema_name == 'homecierge_chat_turn' else _synthetic_default_turn(input_items)
 
         text = json.dumps(parsed, ensure_ascii=False, allow_nan=False)
         usage = build_usage_record(

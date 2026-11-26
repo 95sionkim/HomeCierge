@@ -110,6 +110,10 @@ const chatView = createChatView({
   onOpenChat(chatId, initialLookup) {
     pendingChatLookup = initialLookup ? { owner: state.session?.id ?? null, chatId, ...initialLookup } : null;
   },
+  onReviewProfileChange(proposal) {
+    if (!state.session || state.suspended || state.sessionProblem || !proposal?.changeId) return;
+    profileReview.show({ id: proposal.changeId, analysisId: null, runId: null });
+  },
   onChatsChanged() {},
 });
 const profilePage = createProfilePage({ root, render, announce, user: () => state.session });
@@ -140,6 +144,9 @@ const profileReview = createProfileReview({
     profileDraft = { ...draft, owner: state.session.id };
     closeDialog();
     navigate('#profile');
+  },
+  onDecided() {
+    if (readRoute().key === 'chat') chatView.refresh();
   },
 });
 const fundingPage = createFundingPage({ root, render, onRoomSelected: room => { reportFundingChoice = room; } });
@@ -624,6 +631,7 @@ function focusedControl(node) {
     'data-lookup-mode',
     'data-chat-home',
     'data-chat-view',
+    'data-chat-agent',
     'href',
   ].find((name) => node.hasAttribute(name));
   return section && attribute

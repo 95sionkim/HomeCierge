@@ -11,7 +11,47 @@ import {
   rangeLabel,
   dateText,
   errorText,
+  won,
 } from './display.js';
+
+const AGENT_POLL_MS = 2500;
+
+const searchProposalStatusLabels = {
+  pending: '확인 대기',
+  confirmed: '검색 실행됨',
+  rejected: '거절됨',
+  cancelled: '취소됨',
+};
+
+const searchProposalStatusStyles = {
+  pending: 'upcoming',
+  confirmed: 'verified',
+  rejected: 'zero',
+  cancelled: 'zero',
+};
+
+const profileProposalStatusLabels = {
+  pending: 'O-3 승인 대기',
+  approved: '승인 반영됨',
+  rejected: '거절됨',
+  cancelled: '취소됨',
+};
+
+const profileProposalStatusStyles = {
+  pending: 'partial',
+  approved: 'verified',
+  rejected: 'zero',
+  cancelled: 'zero',
+};
+
+const profileFieldLabels = {
+  region_codes: '희망 시·군·구',
+  budget_max_won: '최대 예산',
+  supply_area_min_m2: '공급면적 최소',
+  supply_area_max_m2: '공급면적 최대',
+  move_in_start_month: '입주 시작월',
+  move_in_end_month: '입주 종료월',
+};
 
 const lookupKinds = {
   new_sale: '신규분양',
@@ -298,6 +338,370 @@ function renderMultiline(text) {
     .join('');
 }
 
+function formatBudgetWon(value) {
+  if (typeof value !== 'string' || !/^(?:0|[1-9][0-9]{0,19})$/.test(value)) return '—';
+  return won(value);
+}
+
+function formatPriceRange(minWon, maxWon) {
+  if (!minWon && !maxWon) return '가격 확인 필요';
+  if (minWon && maxWon && minWon !== maxWon) return `${formatBudgetWon(minWon)} ~ ${formatBudgetWon(maxWon)}`;
+  return formatBudgetWon(minWon || maxWon);
+}
+
+function formatRegionList(codes, regionLabels) {
+  const labels = regionLabels && typeof regionLabels === 'object' ? regionLabels : {};
+  return (codes ?? [])
+    .map((code) => {
+      const name = labels[code];
+      return name
+        ? `<span class="chat-region-chip">${esc(name)} <span class="code">${esc(code)}</span></span>`
+        : `<span class="chat-region-chip"><span class="code">${esc(code)}</span></span>`;
+    })
+    .join('');
+}
+
+function formatProfilePatchValue(key, value) {
+  if (value === null || value === undefined) return '해제';
+  if (key === 'region_codes' && Array.isArray(value)) return value.join(', ');
+  if (key === 'budget_max_won') return formatBudgetWon(String(value));
+  if (key === 'supply_area_min_m2' || key === 'supply_area_max_m2') return `${value}㎡`;
+  return String(value);
+}
+
+function renderSearchSummaryNotice(notice, group) {
+  const roomLine =
+    group === 'matched'
+      ? `충족 호실 ${notice.matchedRoomsCount}개${notice.needsReviewRoomsCount ? ` · 확인 필요 ${notice.needsReviewRoomsCount}개` : ''}`
+      : `확인 필요 호실 ${notice.needsReviewRoomsCount}개 · 주택형 ${notice.modelsCount}개`;
+  return `<div class="chat-summary-notice" data-summary-group="${esc(group)}">
+    <div class="chat-summary-notice-head">
+      <strong>${esc(notice.title || `공고 ${notice.noticeNo}`)}</strong>
+      <span class="chat-summary-notice-badges">
+        ${scheduleBadge(notice.applicationStatus)}
+        <span class="lookup-kind-pill">${esc(lookupKinds[notice.kind] ?? '유형 확인 필요')}</span>
+      </span>
+    </div>
+    <div class="chat-summary-notice-meta">
+      <span>공고일 ${esc(dateText(notice.edition))}</span>
+      <span>공고번호 <span class="code">${esc(notice.noticeNo)}</span></span>
+      <span>${esc(notice.regionName || notice.regionCode || '지역 미확인')}</span>
+    </div>
+    <div class="chat-summary-notice-foot">
+      <span>${esc(formatPriceRange(notice.minSubtotalWon, notice.maxSubtotalWon))} · ${esc(roomLine)}</span>
+      <button type="button" class="action secondary compact" data-chat-agent="open-notice-lookup" data-notice-no="${esc(notice.noticeNo)}">회차 확인·주택형 선택</button>
+    </div>
+  </div>`;
+}
+
+function renderSearchSummaryCard(summary) {
+  if (!summary || typeof summary !== 'object') return '';
+  const counts = summary.counts ?? { matched: 0, needsReview: 0, excluded: 0 };
+  const windowLabel = summary.publicationWindow ? rangeLabel(summary.publicationWindow, false) : '—';
+  const matchedList = Array.isArray(summary.matched) ? summary.matched : [];
+  const reviewList = Array.isArray(summary.needsReview) ? summary.needsReview : [];
+  let statusNote = '';
+  if (counts.matched === 0 && summary.zeroStatus === 'confirmed_zero') {
+    statusNote = '<p class="chat-proposal-note">수집 범위 안에서 조건을 충족한 공고는 0건으로 확인됐습니다.</p>';
+  } else if (counts.matched === 0) {
+    statusNote = '<p class="chat-proposal-note">확인 필요 공고 또는 수집 범위 제한이 남아 있어 0건으로 확정하지 않았습니다.</p>';
+  } else if (summary.coverage?.status && summary.coverage.status !== 'complete') {
+    statusNote = '<p class="chat-proposal-note">일부 출처 수집이 완전하지 않아 누락된 공고가 있을 수 있습니다.</p>';
+  }
+  const omittedNote =
+    summary.truncation?.matchedOmitted > 0 || summary.truncation?.needsReviewOmitted > 0
+      ? `<p class="small muted">채팅 요약에는 상위 공고만 표시했습니다(충족 ${summary.truncation.matchedOmitted}건, 확인 필요 ${summary.truncation.needsReviewOmitted}건 생략).</p>`
+      : '';
+
+  return `<section class="chat-search-summary" data-chat-search-summary aria-label="맞춤 검색 결과 요약">
+    <div class="chat-summary-counts">
+      <span class="chat-summary-stat">조건 충족 <strong>${esc(counts.matched)}건</strong></span>
+      <span class="chat-summary-stat">확인 필요 <strong>${esc(counts.needsReview)}건</strong></span>
+      <span class="chat-summary-stat muted">제외 ${esc(counts.excluded)}건</span>
+    </div>
+    <p class="small muted">기준일 ${esc(dateText(summary.asOf))} · 모집공고일 ${esc(windowLabel)} · 분양가+필수 옵션 기준(세금·금융비용 별도)</p>
+    ${statusNote}
+    ${
+      matchedList.length
+        ? `<div class="chat-summary-group"><h4>조건 충족 공고</h4>${matchedList.map((n) => renderSearchSummaryNotice(n, 'matched')).join('')}</div>`
+        : ''
+    }
+    ${
+      reviewList.length
+        ? `<div class="chat-summary-group"><h4>확인 필요 공고</h4>${reviewList.map((n) => renderSearchSummaryNotice(n, 'needsReview')).join('')}</div>`
+        : ''
+    }
+    ${omittedNote}
+    <div class="chat-summary-footer">
+      <a class="text-button" href="#search">맞춤 검색 화면에서 자세히 보기 ${icon('arrow-right')}</a>
+    </div>
+  </section>`;
+}
+
+function renderSearchEditForm(reply, s) {
+  const draft = s.editDraft;
+  const sp = reply.searchProposal;
+  const labels = { ...(sp.regionLabels ?? {}) };
+  for (const opt of s.regionOptions ?? []) {
+    if (opt?.code && opt?.name) labels[opt.code] = opt.name;
+  }
+  const availableToAdd = (s.regionOptions ?? []).filter((opt) => !draft.regionCodes.includes(opt.code));
+  const budgetPreview = /^(?:0|[1-9][0-9]{0,19})$/.test(draft.budgetMaxWon.trim())
+    ? formatBudgetWon(draft.budgetMaxWon.trim())
+    : '원 단위 정수로 입력하세요.';
+  const busy = s.decisionBusyReplyId === reply.id;
+
+  return `<form class="chat-edit-form" data-chat-edit-form="${esc(reply.id)}" novalidate>
+    <div class="chat-edit-field">
+      <span class="chat-edit-label">희망 시·군·구 (공식 지역)</span>
+      <div class="chat-edit-chips">
+        ${
+          draft.regionCodes.length
+            ? draft.regionCodes
+                .map(
+                  (code) => `<span class="chat-region-chip editable">
+                    ${esc(labels[code] || code)} <span class="code">${esc(code)}</span>
+                    <button type="button" class="chat-chip-remove" data-chat-agent="edit-remove-region" data-code="${esc(code)}" aria-label="${esc(labels[code] || code)} 제거"${busy ? ' disabled' : ''}>${icon('x')}</button>
+                  </span>`,
+                )
+                .join('')
+            : '<span class="small muted">지역을 1곳 이상 선택해 주세요.</span>'
+        }
+      </div>
+      ${
+        s.regionOptionsLoading
+          ? '<p class="small muted">공식 지역 목록을 불러오는 중입니다.</p>'
+          : availableToAdd.length
+            ? `<div class="chat-edit-region-add">
+                <label class="sr-only" for="chat-edit-region-select">추가할 공식 지역</label>
+                <select id="chat-edit-region-select" name="addRegion"${busy ? ' disabled' : ''}>
+                  <option value="">공식 시·군·구 추가 선택</option>
+                  ${availableToAdd
+                    .map(
+                      (opt) =>
+                        `<option value="${esc(opt.code)}"${draft.selectedAddRegion === opt.code ? ' selected' : ''}>${esc(opt.name)} (${esc(opt.code)})</option>`,
+                    )
+                    .join('')}
+                </select>
+                <button type="button" class="action secondary compact" data-chat-agent="edit-add-region"${busy ? ' disabled' : ''}>지역 추가</button>
+              </div>`
+            : s.regionOptionsError
+              ? `<p class="small muted">공식 지역 목록을 불러오지 못해 기존 제안 지역만 유지합니다.</p>`
+              : ''
+      }
+    </div>
+
+    <div class="chat-edit-field">
+      <label class="chat-edit-label" for="chat-edit-budget">최대 예산 (원, 분양가+필수 옵션 기준)</label>
+      <input id="chat-edit-budget" name="budgetMaxWon" type="text" inputmode="numeric" maxlength="20" value="${esc(draft.budgetMaxWon)}" autocomplete="off"${busy ? ' disabled' : ''}>
+      <span class="small muted" data-chat-edit-budget-preview>${esc(budgetPreview)}</span>
+    </div>
+
+    <div class="chat-edit-row">
+      <div class="chat-edit-field">
+        <label class="chat-edit-label" for="chat-edit-area-min">공급면적 최소 (선택)</label>
+        <input id="chat-edit-area-min" name="supplyAreaMin" type="text" inputmode="decimal" maxlength="24" placeholder="예: 80" value="${esc(draft.supplyAreaMin)}" autocomplete="off"${busy ? ' disabled' : ''}>
+      </div>
+      <div class="chat-edit-field">
+        <label class="chat-edit-label" for="chat-edit-area-max">공급면적 최대 (선택)</label>
+        <input id="chat-edit-area-max" name="supplyAreaMax" type="text" inputmode="decimal" maxlength="24" placeholder="예: 90" value="${esc(draft.supplyAreaMax)}" autocomplete="off"${busy ? ' disabled' : ''}>
+      </div>
+      <div class="chat-edit-field chat-edit-unit">
+        <label class="chat-edit-label" for="chat-edit-area-unit">단위</label>
+        <select id="chat-edit-area-unit" name="supplyAreaUnit"${busy ? ' disabled' : ''}>
+          <option value="m2"${draft.supplyAreaUnit === 'm2' ? ' selected' : ''}>㎡</option>
+          <option value="pyeong"${draft.supplyAreaUnit === 'pyeong' ? ' selected' : ''}>평</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="chat-edit-row">
+      <div class="chat-edit-field">
+        <label class="chat-edit-label" for="chat-edit-move-start">입주 시작월 (선택, YYYY-MM)</label>
+        <input id="chat-edit-move-start" name="moveInStart" type="text" maxlength="7" placeholder="예: 2027-01" value="${esc(draft.moveInStart)}" autocomplete="off"${busy ? ' disabled' : ''}>
+      </div>
+      <div class="chat-edit-field">
+        <label class="chat-edit-label" for="chat-edit-move-end">입주 종료월 (선택, YYYY-MM)</label>
+        <input id="chat-edit-move-end" name="moveInEnd" type="text" maxlength="7" placeholder="예: 2028-12" value="${esc(draft.moveInEnd)}" autocomplete="off"${busy ? ' disabled' : ''}>
+      </div>
+    </div>
+
+    <label class="chat-edit-check">
+      <input type="checkbox" name="includeClosed"${draft.includeClosed ? ' checked' : ''}${busy ? ' disabled' : ''}>
+      <span>접수 종료 공고도 함께 보기</span>
+    </label>
+
+    ${s.editError ? `<p class="plan-error" role="alert">${esc(s.editError)}</p>` : ''}
+    ${s.decisionError?.replyId === reply.id ? `<p class="plan-error" role="alert">${esc(errorText(s.decisionError.error))}</p>` : ''}
+
+    <div class="chat-proposal-actions">
+      <button type="submit" class="action primary compact"${busy ? ' disabled' : ''}>${busy ? '검색 실행 중' : '수정한 조건으로 공고 찾기'}</button>
+      <button type="button" class="action secondary compact" data-chat-agent="cancel-edit"${busy ? ' disabled' : ''}>수정 닫기</button>
+    </div>
+  </form>`;
+}
+
+function renderSearchProposalCard(reply, s) {
+  const sp = reply.searchProposal;
+  if (!sp || !sp.conditions) return '';
+  const cond = sp.confirmedConditions ?? sp.conditions;
+  const status = sp.status ?? 'pending';
+  const busy = s.decisionBusyReplyId === reply.id;
+  const editing = status === 'pending' && s.editingReplyId === reply.id && Boolean(s.editDraft);
+  const areaText = cond.supplyArea
+    ? `${cond.supplyArea.min}–${cond.supplyArea.max}${cond.supplyArea.unit === 'pyeong' ? '평' : '㎡'}`
+    : '지정 안 함';
+  const moveInText = cond.moveIn ? `${cond.moveIn.start}–${cond.moveIn.end}` : '지정 안 함';
+  const titleText = status === 'pending' ? '이 조건으로 공고를 찾을까요?' : '탐색 조건 확인 카드';
+
+  return `<section class="chat-proposal-card chat-search-proposal-card" data-search-proposal-status="${esc(status)}" aria-label="탐색 조건 확인 카드">
+    <div class="chat-proposal-head">
+      <strong>${icon('sliders-horizontal')}${esc(titleText)}</strong>
+      ${badge(searchProposalStatusStyles[status] ?? 'unknown', status === 'confirmed' ? 'circle-check' : 'clock-3', searchProposalStatusLabels[status] ?? status)}
+    </div>
+    <div class="chat-proposal-body">
+      ${
+        editing
+          ? renderSearchEditForm(reply, s)
+          : `<dl class="chat-proposal-dl">
+              <div>
+                <dt>희망 시·군·구</dt>
+                <dd class="chat-region-chips">${formatRegionList(cond.regionCodes, sp.regionLabels)}</dd>
+              </div>
+              <div>
+                <dt>최대 예산</dt>
+                <dd>${esc(formatBudgetWon(cond.budgetMaxWon))} <span class="small muted">(분양가+필수 옵션 기준 · 세금·금융비용 별도)</span></dd>
+              </div>
+              <div>
+                <dt>공급면적 (선택)</dt>
+                <dd>${esc(areaText)}</dd>
+              </div>
+              <div>
+                <dt>입주 시기 (선택)</dt>
+                <dd>${esc(moveInText)}</dd>
+              </div>
+              <div>
+                <dt>접수 종료 공고</dt>
+                <dd>${cond.includeClosed ? '포함' : '제외'}</dd>
+              </div>
+            </dl>
+            ${s.decisionError?.replyId === reply.id ? `<p class="plan-error" role="alert">${esc(errorText(s.decisionError.error))}</p>` : ''}
+            ${
+              status === 'pending'
+                ? `<div class="chat-proposal-actions">
+                    <button type="button" class="action primary compact" data-chat-agent="confirm-search" data-reply-id="${esc(reply.id)}"${busy ? ' disabled' : ''}>${busy && s.decisionBusyAction === 'confirm' ? '검색 실행 중' : '이 조건으로 공고 찾기'}</button>
+                    <button type="button" class="action secondary compact" data-chat-agent="edit-search" data-reply-id="${esc(reply.id)}"${busy ? ' disabled' : ''}>조건 수정</button>
+                    <button type="button" class="action secondary compact" data-chat-agent="reject-search" data-reply-id="${esc(reply.id)}"${busy ? ' disabled' : ''}>${busy && s.decisionBusyAction === 'reject' ? '처리 중' : '거절'}</button>
+                    <button type="button" class="text-button" data-chat-agent="cancel-search" data-reply-id="${esc(reply.id)}"${busy ? ' disabled' : ''}>취소</button>
+                  </div>`
+                : status === 'rejected'
+                  ? '<p class="chat-proposal-note">거절되어 맞춤 검색을 실행하지 않았습니다.</p>'
+                  : status === 'cancelled'
+                    ? '<p class="chat-proposal-note">취소되어 맞춤 검색을 실행하지 않았습니다.</p>'
+                    : renderSearchSummaryCard(sp.resultSummary)
+            }`
+      }
+    </div>
+  </section>`;
+}
+
+function renderProfileProposalCard(reply) {
+  const pp = reply.profileProposal;
+  if (!pp || !pp.changeId) return '';
+  const status = pp.status ?? 'pending';
+  const patchEntries = Object.entries(pp.patch ?? {});
+  return `<section class="chat-proposal-card chat-profile-proposal-card" data-profile-proposal-status="${esc(status)}" aria-label="공유 프로필 변경안">
+    <div class="chat-proposal-head chat-proposal-head-profile">
+      <strong>${icon('user-round')}공유 프로필 변경안</strong>
+      ${badge(profileProposalStatusStyles[status] ?? 'unknown', status === 'approved' ? 'circle-check' : 'clock-3', profileProposalStatusLabels[status] ?? status)}
+    </div>
+    <div class="chat-proposal-body">
+      <dl class="chat-proposal-dl">
+        ${patchEntries
+          .map(
+            ([key, val]) => `<div>
+              <dt>${esc(profileFieldLabels[key] ?? key)}</dt>
+              <dd>${esc(formatProfilePatchValue(key, pp.previous?.[key]))} → <strong>${esc(formatProfilePatchValue(key, val))}</strong></dd>
+            </div>`,
+          )
+          .join('')}
+      </dl>
+      ${pp.reason ? `<p class="small muted">사유: ${esc(pp.reason)}</p>` : ''}
+      <p class="chat-proposal-note">공유 프로필은 O-3(공유 프로필 변경 검토)에서 직접 승인하기 전까지 바뀌지 않습니다.</p>
+      <div class="chat-proposal-actions">
+        <button type="button" class="action secondary compact" data-chat-agent="review-profile" data-reply-id="${esc(reply.id)}" data-change-id="${esc(pp.changeId)}">${status === 'pending' ? 'O-3에서 검토·승인하기' : 'O-3 변경 내역 보기'}</button>
+      </div>
+    </div>
+  </section>`;
+}
+
+function renderAgentReplyMarkup(reply, s) {
+  if (!reply || typeof reply !== 'object') return '';
+  if (reply.status === 'queued' || reply.status === 'leased') {
+    return `<div class="chat-agent-pending" data-agent-reply="${esc(reply.status)}" data-reply-id="${esc(reply.id)}" role="status">
+      ${icon('loader-circle', 'spin')}
+      <span>AI 응답 작성 중</span>
+      <code class="chat-agent-model">${esc(reply.model)}</code>
+    </div>`;
+  }
+  // rejected · failed · expired 상태에서는 '작성 중'을 표시하지 않고 규칙 기반 응답만 유지한다(A-58).
+  if (reply.status !== 'answered' || !reply.answer) return '';
+
+  const citations =
+    Array.isArray(reply.citations) && reply.citations.length
+      ? `<ul class="chat-agent-citations" aria-label="근거 표시">${reply.citations
+          .map((c) => `<li>${esc(c.label)}</li>`)
+          .join('')}</ul>`
+      : '';
+
+  const lookupShortcut = reply.lookupQuery?.query
+    ? `<div class="chat-agent-inline-actions">
+        <button type="button" class="action secondary compact" data-chat-agent="run-lookup" data-query="${esc(reply.lookupQuery.query)}" data-mode="${esc(reply.lookupQuery.mode || 'auto')}">${icon('search')}공고 찾기 패널에서 보기</button>
+      </div>`
+    : '';
+
+  return `<article class="chat-agent-card" data-agent-reply="answered" data-reply-id="${esc(reply.id)}" aria-label="AI 응답">
+    <header class="chat-agent-meta">
+      <div class="chat-agent-title-group">
+        <span class="chat-agent-badge">AI 응답</span>
+        <code class="chat-agent-model">${esc(reply.model)}</code>
+      </div>
+      ${reply.completedAt ? `<time datetime="${esc(reply.completedAt)}">${esc(formatStamp(reply.completedAt, true))}</time>` : ''}
+    </header>
+    <div class="chat-bubble-body">${renderMultiline(reply.answer)}</div>
+    ${citations}
+    ${lookupShortcut}
+    ${renderSearchProposalCard(reply, s)}
+    ${renderProfileProposalCard(reply)}
+  </article>`;
+}
+
+function renderTimelineList(s) {
+  const timeline = mergedTimeline(s.messages, s.analyses);
+  const msgIds = new Set(s.messages.map((m) => m.id));
+  const replyAfterAssistant = new Map();
+  const replyAfterUser = new Map();
+  for (const m of s.messages) {
+    const ar = m.agentReply;
+    if (!ar) continue;
+    if (ar.assistantMessageId && msgIds.has(ar.assistantMessageId)) {
+      replyAfterAssistant.set(ar.assistantMessageId, ar);
+    } else {
+      replyAfterUser.set(m.id, ar);
+    }
+  }
+
+  return timeline
+    .map((item) => {
+      const base = timelineItemMarkup(item);
+      if (item.kind !== 'message') return base;
+      const m = item.data;
+      const attached = m.role === 'assistant' ? replyAfterAssistant.get(m.id) : replyAfterUser.get(m.id);
+      return attached ? base + renderAgentReplyMarkup(attached, s) : base;
+    })
+    .join('');
+}
+
 function timelineItemMarkup(item) {
   if (item.kind === 'message') {
     const m = item.data;
@@ -355,7 +759,7 @@ function chatDetailMarkup(s) {
     </div>`;
   }
   const chat = s.chat;
-  const timeline = mergedTimeline(s.messages, s.analyses);
+  const hasTimeline = s.messages.length > 0 || s.analyses.length > 0;
   return `<div class="chat-page-wrap">
     <header class="chat-detail-header">
       <div class="chat-header-main">
@@ -386,17 +790,17 @@ function chatDetailMarkup(s) {
       <section class="chat-thread-panel" aria-label="대화 및 분석 시간순 기록">
         <div class="chat-timeline" id="chat-timeline">
           ${
-            timeline.length
-              ? timeline.map(timelineItemMarkup).join('')
-              : `<div class="empty-state compact-empty">${icon('message-square')}<h3>대화를 시작해 보세요.</h3><p>아래 입력창에 공고명이나 10자리 공고번호를 입력하면 회차를 찾아 드립니다. 자유 질문에는 지원하는 기능을 안내합니다.</p></div>`
+            hasTimeline
+              ? renderTimelineList(s)
+              : `<div class="empty-state compact-empty">${icon('message-square')}<h3>대화를 시작해 보세요.</h3><p>공고명·10자리 공고번호를 입력하거나 희망 지역·예산 조건(예: 광진구랑 성동구에서 7억 이하, 84㎡ 정도로 찾아줘)을 말씀하시면 확인 후 맞춤 검색을 실행합니다.</p></div>`
           }
         </div>
         <form id="chat-message-form" class="chat-composer-card compact-composer" novalidate>
           <label class="sr-only" for="chat-message-input">채팅 메시지 입력</label>
-          <textarea id="chat-message-input" name="message" rows="2" maxlength="800" placeholder="공고명 또는 공고번호를 입력하세요. (Enter 전송, Shift+Enter 줄바꿈)" ${s.sendingMessage ? 'disabled' : ''}>${esc(s.messageDraft)}</textarea>
+          <textarea id="chat-message-input" name="message" rows="2" maxlength="800" placeholder="공고명·공고번호 또는 탐색 조건을 입력하세요. (Enter 전송, Shift+Enter 줄바꿈)" ${s.sendingMessage ? 'disabled' : ''}>${esc(s.messageDraft)}</textarea>
           ${s.messageError ? `<p class="plan-error" role="alert">${esc(s.messageError)}</p>` : ''}
           <div class="chat-composer-foot">
-            <span class="small muted">규칙 기반 공고 찾기 · 자유 질문에는 지원 동작 안내</span>
+            <span class="small muted">규칙 기반 즉시 안내 · 탐색 조건은 확인 후 검색 실행</span>
             <button type="submit" class="action primary compact" ${s.sendingMessage ? 'disabled' : ''}>${icon('send')}${s.sendingMessage ? '전송 중' : '전송'}</button>
           </div>
         </form>
@@ -475,20 +879,64 @@ function initialState() {
     creatingChat: false,
     pendingNewChatKey: null,
     pendingNewMsgKey: null,
+    decisionBusyReplyId: null,
+    decisionBusyAction: null,
+    decisionError: null,
+    editingReplyId: null,
+    editDraft: null,
+    editError: '',
+    regionOptions: null,
+    regionOptionsLoading: false,
+    regionOptionsError: null,
   };
 }
 
-export function createChatView({ root, render, announce, user, navigate, openAuth, openNoticeModels, onOpenChat, onChatsChanged }) {
+export function createChatView({ root, render, announce, user, navigate, openAuth, openNoticeModels, onOpenChat, onReviewProfileChange, onChatsChanged }) {
   let s = initialState();
   let generation = 0;
   let detailController = null;
   let lookupController = null;
+  let decisionController = null;
+  let pollTimer = null;
+
+  function clearPoll() {
+    if (pollTimer !== null) {
+      clearTimeout(pollTimer);
+      pollTimer = null;
+    }
+  }
+
+  function hasPendingAgentReplies() {
+    return (
+      s.routeKind === 'chat' &&
+      Boolean(s.chatId) &&
+      s.messages.some((m) => m.agentReply && (m.agentReply.status === 'queued' || m.agentReply.status === 'leased'))
+    );
+  }
+
+  function scheduleAgentPoll() {
+    clearPoll();
+    if (!hasPendingAgentReplies() || document.hidden || s.sendingMessage || Boolean(s.decisionBusyReplyId) || s.error) {
+      return;
+    }
+    const targetChatId = s.chatId;
+    const token = generation;
+    pollTimer = setTimeout(() => {
+      pollTimer = null;
+      if (token === generation && s.chatId === targetChatId && hasPendingAgentReplies() && !document.hidden && !detailController) {
+        void loadChatDetail(targetChatId, { silent: true });
+      }
+    }, AGENT_POLL_MS);
+  }
 
   function abortAll() {
+    clearPoll();
     detailController?.abort();
     detailController = null;
     lookupController?.abort();
     lookupController = null;
+    decisionController?.abort();
+    decisionController = null;
   }
 
   function reset() {
@@ -496,6 +944,12 @@ export function createChatView({ root, render, announce, user, navigate, openAut
     abortAll();
     s = initialState();
   }
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && hasPendingAgentReplies() && !detailController) {
+      scheduleAgentPoll();
+    }
+  });
 
   function applyLookupResult(lookup, lookupError = null) {
     s.lookup = lookup ?? null;
@@ -512,32 +966,194 @@ export function createChatView({ root, render, announce, user, navigate, openAut
     }
   }
 
-  async function loadChatDetail(chatId) {
+  async function loadChatDetail(chatId, { silent = false } = {}) {
     const owner = user();
     if (!owner) return;
     const token = generation;
     const ownerId = owner.id;
+    clearPoll();
     detailController?.abort();
     detailController = new AbortController();
-    s.loading = true;
-    s.error = null;
-    render();
+    if (!silent) {
+      s.loading = true;
+      s.error = null;
+      render();
+    }
     try {
       const detail = await api.getChat(chatId, detailController.signal);
       if (token !== generation || user()?.id !== ownerId) return;
       s.chat = detail.chat;
       s.messages = detail.messages;
       s.analyses = detail.analyses;
-      s.titleDraft = detail.chat.title;
+      if (!s.editingTitle) s.titleDraft = detail.chat.title;
+      s.error = null;
     } catch (error) {
       if (error?.name === 'AbortError' || token !== generation || user()?.id !== ownerId) return;
-      s.error = error;
+      if (!silent) s.error = error;
     } finally {
       if (token === generation && user()?.id === ownerId) {
-        s.loading = false;
+        detailController = null;
+        if (!silent) s.loading = false;
+        render();
+        scheduleAgentPoll();
+      }
+    }
+  }
+
+  function findAgentReply(replyId) {
+    for (const m of s.messages) {
+      if (m.agentReply?.id === replyId) return m.agentReply;
+    }
+    return null;
+  }
+
+  function updateAgentReply(updatedReply, resultMessage) {
+    if (updatedReply?.id) {
+      s.messages = s.messages.map((m) =>
+        m.agentReply?.id === updatedReply.id ? { ...m, agentReply: updatedReply } : m,
+      );
+    }
+    if (resultMessage?.id && !s.messages.some((m) => m.id === resultMessage.id)) {
+      s.messages = [...s.messages, resultMessage];
+      if (s.chat && resultMessage.createdAt) {
+        s.chat = { ...s.chat, lastActivityAt: resultMessage.createdAt, messageCount: s.messages.length };
+      }
+    }
+  }
+
+  async function ensureRegionOptions() {
+    if (s.regionOptions || s.regionOptionsLoading) return;
+    const token = generation;
+    const ownerId = user()?.id;
+    s.regionOptionsLoading = true;
+    s.regionOptionsError = null;
+    render();
+    try {
+      const data = await api.listSearchRegions();
+      if (token !== generation || user()?.id !== ownerId) return;
+      s.regionOptions = Array.isArray(data?.regions) ? data.regions : [];
+    } catch (error) {
+      if (token !== generation || user()?.id !== ownerId) return;
+      s.regionOptionsError = error;
+    } finally {
+      if (token === generation && user()?.id === ownerId) {
+        s.regionOptionsLoading = false;
         render();
       }
     }
+  }
+
+  function openInlineEdit(replyId) {
+    const reply = findAgentReply(replyId);
+    const cond = reply?.searchProposal?.conditions;
+    if (!cond || reply.searchProposal.status !== 'pending') return;
+    s.editingReplyId = replyId;
+    s.editError = '';
+    s.decisionError = null;
+    s.editDraft = {
+      regionCodes: [...(cond.regionCodes ?? [])],
+      budgetMaxWon: String(cond.budgetMaxWon ?? ''),
+      supplyAreaMin: cond.supplyArea?.min ? String(cond.supplyArea.min) : '',
+      supplyAreaMax: cond.supplyArea?.max ? String(cond.supplyArea.max) : '',
+      supplyAreaUnit: cond.supplyArea?.unit === 'pyeong' ? 'pyeong' : 'm2',
+      moveInStart: cond.moveIn?.start ? String(cond.moveIn.start) : '',
+      moveInEnd: cond.moveIn?.end ? String(cond.moveIn.end) : '',
+      includeClosed: Boolean(cond.includeClosed),
+      selectedAddRegion: '',
+    };
+    render();
+    void ensureRegionOptions();
+  }
+
+  async function submitSearchDecision(replyId, decision, conditions = undefined) {
+    const owner = user();
+    if (!owner || !s.chat || s.decisionBusyReplyId) return;
+    const token = generation;
+    const ownerId = owner.id;
+    decisionController?.abort();
+    decisionController = new AbortController();
+    s.decisionBusyReplyId = replyId;
+    s.decisionBusyAction = decision;
+    s.decisionError = null;
+    s.editError = '';
+    render();
+    try {
+      const data = await api.decideChatSearchProposal(
+        s.chat.chatId,
+        replyId,
+        { decision, conditions },
+        decisionController.signal,
+      );
+      if (token !== generation || user()?.id !== ownerId) return;
+      updateAgentReply(data.agentReply, data.resultMessage);
+      if (s.editingReplyId === replyId) {
+        s.editingReplyId = null;
+        s.editDraft = null;
+      }
+      onChatsChanged?.();
+      announce(
+        decision === 'confirm'
+          ? '확인한 조건으로 맞춤 검색을 실행했습니다.'
+          : decision === 'reject'
+            ? '탐색 조건 확인을 거절했습니다.'
+            : '탐색 조건 확인을 취소했습니다.',
+      );
+    } catch (error) {
+      if (error?.name === 'AbortError' || token !== generation || user()?.id !== ownerId) return;
+      s.decisionError = { replyId, error };
+    } finally {
+      if (token === generation && user()?.id === ownerId) {
+        decisionController = null;
+        s.decisionBusyReplyId = null;
+        s.decisionBusyAction = null;
+        render();
+        scheduleAgentPoll();
+      }
+    }
+  }
+
+  function submitInlineEdit(replyId) {
+    const draft = s.editDraft;
+    if (!draft || s.editingReplyId !== replyId) return;
+    if (!draft.regionCodes.length) {
+      s.editError = '희망 시·군·구를 1곳 이상 선택해 주세요.';
+      render();
+      return;
+    }
+    const budget = draft.budgetMaxWon.trim();
+    if (!/^(?:0|[1-9][0-9]{0,19})$/.test(budget)) {
+      s.editError = '최대 예산은 원 단위 정수로 입력해 주세요. (예: 700000000)';
+      render();
+      return;
+    }
+    const conditions = {
+      regionCodes: [...draft.regionCodes],
+      budgetMaxWon: budget,
+      includeClosed: Boolean(draft.includeClosed),
+    };
+    const areaMin = draft.supplyAreaMin.trim();
+    const areaMax = draft.supplyAreaMax.trim();
+    const areaPattern = /^(?:[1-9][0-9]*(?:\.[0-9]+)?|0\.[0-9]*[1-9][0-9]*)$/;
+    if (areaMin || areaMax) {
+      if (!areaMin || !areaMax || !areaPattern.test(areaMin) || !areaPattern.test(areaMax) || Number(areaMin) > Number(areaMax)) {
+        s.editError = '공급면적은 최소·최대 모두 양수로 입력하고 최소값이 최대값 이하여야 합니다.';
+        render();
+        return;
+      }
+      conditions.supplyArea = { min: areaMin, max: areaMax, unit: draft.supplyAreaUnit === 'pyeong' ? 'pyeong' : 'm2' };
+    }
+    const moveStart = draft.moveInStart.trim();
+    const moveEnd = draft.moveInEnd.trim();
+    const monthPattern = /^(?!0000)[0-9]{4}-(?:0[1-9]|1[0-2])$/;
+    if (moveStart || moveEnd) {
+      if (!moveStart || !moveEnd || !monthPattern.test(moveStart) || !monthPattern.test(moveEnd) || moveStart > moveEnd) {
+        s.editError = '입주 시기는 시작월·종료월 모두 YYYY-MM 형식으로 입력하고 시작월이 종료월 이하여야 합니다.';
+        render();
+        return;
+      }
+      conditions.moveIn = { start: moveStart, end: moveEnd };
+    }
+    void submitSearchDecision(replyId, 'confirm', conditions);
   }
 
   async function runLookup(queryText, mode) {
@@ -652,7 +1268,10 @@ export function createChatView({ root, render, announce, user, navigate, openAut
       const appendUnique = (msg) => {
         if (msg && !s.messages.some((m) => m.id === msg.id)) s.messages.push(msg);
       };
-      appendUnique(reply.userMessage);
+      const userMsg = reply.userMessage
+        ? { ...reply.userMessage, agentReply: reply.userMessage.agentReply ?? reply.agentReply ?? null }
+        : null;
+      appendUnique(userMsg);
       appendUnique(reply.assistantMessage);
       if (reply.assistantMessage?.createdAt) {
         s.chat = { ...s.chat, lastActivityAt: reply.assistantMessage.createdAt, messageCount: s.messages.length };
@@ -663,6 +1282,7 @@ export function createChatView({ root, render, announce, user, navigate, openAut
       onChatsChanged?.();
       announce('응답을 기록했습니다.');
       render();
+      scheduleAgentPoll();
     } catch (error) {
       if (token !== generation || user()?.id !== ownerId) return;
       s.sendingMessage = false;
@@ -752,6 +1372,59 @@ export function createChatView({ root, render, announce, user, navigate, openAut
       }
       return;
     }
+    const agentBtn = event.target.closest('[data-chat-agent]');
+    if (agentBtn) {
+      const action = agentBtn.dataset.chatAgent;
+      const replyId = agentBtn.dataset.replyId;
+      if (action === 'confirm-search' && replyId) {
+        void submitSearchDecision(replyId, 'confirm');
+      } else if (action === 'reject-search' && replyId) {
+        void submitSearchDecision(replyId, 'reject');
+      } else if (action === 'cancel-search' && replyId) {
+        void submitSearchDecision(replyId, 'cancel');
+      } else if (action === 'edit-search' && replyId) {
+        openInlineEdit(replyId);
+      } else if (action === 'cancel-edit') {
+        s.editingReplyId = null;
+        s.editDraft = null;
+        s.editError = '';
+        render();
+      } else if (action === 'edit-remove-region' && s.editDraft) {
+        const code = agentBtn.dataset.code;
+        s.editDraft.regionCodes = s.editDraft.regionCodes.filter((c) => c !== code);
+        s.editError = '';
+        render();
+      } else if (action === 'edit-add-region' && s.editDraft) {
+        const code = s.editDraft.selectedAddRegion;
+        if (code && !s.editDraft.regionCodes.includes(code)) {
+          s.editDraft.regionCodes = [...s.editDraft.regionCodes, code].sort();
+          s.editDraft.selectedAddRegion = '';
+          s.editError = '';
+          render();
+        }
+      } else if (action === 'open-notice-lookup') {
+        const noticeNo = agentBtn.dataset.noticeNo;
+        if (noticeNo) {
+          s.lookupQuery = noticeNo;
+          s.lookupMode = 'number';
+          void runLookup(noticeNo, 'number');
+        }
+      } else if (action === 'run-lookup') {
+        const q = agentBtn.dataset.query;
+        const m = agentBtn.dataset.mode || 'auto';
+        if (q) {
+          s.lookupQuery = q;
+          s.lookupMode = ['auto', 'name', 'number'].includes(m) ? m : 'auto';
+          void runLookup(q, s.lookupMode);
+        }
+      } else if (action === 'review-profile' && replyId) {
+        const reply = findAgentReply(replyId);
+        if (reply?.profileProposal?.changeId) {
+          onReviewProfileChange?.(reply.profileProposal);
+        }
+      }
+      return;
+    }
     const control = event.target.closest('[data-chat-view]');
     if (!control) return;
     const action = control.dataset.chatView;
@@ -784,6 +1457,11 @@ export function createChatView({ root, render, announce, user, navigate, openAut
     if (event.target.name === 'lookup-edition') {
       s.selectedKey = event.target.value;
       render();
+    } else if (s.editDraft && event.target.closest('[data-chat-edit-form]')) {
+      const { name, value, checked } = event.target;
+      if (name === 'addRegion') s.editDraft.selectedAddRegion = value;
+      else if (name === 'supplyAreaUnit') s.editDraft.supplyAreaUnit = value === 'pyeong' ? 'pyeong' : 'm2';
+      else if (name === 'includeClosed') s.editDraft.includeClosed = Boolean(checked);
     }
   });
 
@@ -798,6 +1476,21 @@ export function createChatView({ root, render, announce, user, navigate, openAut
     } else if (event.target.id === 'lookup-query') {
       s.lookupQuery = event.target.value;
       if (s.lookupFormError) s.lookupFormError = '';
+    } else if (s.editDraft && event.target.closest('[data-chat-edit-form]')) {
+      const { name, value } = event.target;
+      if (name === 'budgetMaxWon') {
+        s.editDraft.budgetMaxWon = value;
+        const preview = event.target.closest('.chat-edit-field')?.querySelector('[data-chat-edit-budget-preview]');
+        if (preview) {
+          preview.textContent = /^(?:0|[1-9][0-9]{0,19})$/.test(value.trim())
+            ? formatBudgetWon(value.trim())
+            : '원 단위 정수로 입력하세요.';
+        }
+      } else if (name === 'supplyAreaMin') s.editDraft.supplyAreaMin = value;
+      else if (name === 'supplyAreaMax') s.editDraft.supplyAreaMax = value;
+      else if (name === 'moveInStart') s.editDraft.moveInStart = value;
+      else if (name === 'moveInEnd') s.editDraft.moveInEnd = value;
+      if (s.editError) s.editError = '';
     }
   });
 
@@ -817,6 +1510,12 @@ export function createChatView({ root, render, announce, user, navigate, openAut
   });
 
   root.addEventListener('submit', (event) => {
+    const editForm = event.target.closest('[data-chat-edit-form]');
+    if (editForm) {
+      event.preventDefault();
+      submitInlineEdit(editForm.dataset.chatEditForm);
+      return;
+    }
     if (event.target.id === 'chat-rename-form') {
       event.preventDefault();
       void submitRename();
@@ -832,6 +1531,11 @@ export function createChatView({ root, render, announce, user, navigate, openAut
   return {
     enter,
     reset,
+    refresh() {
+      if (s.routeKind === 'chat' && s.chatId && user()) {
+        void loadChatDetail(s.chatId, { silent: true });
+      }
+    },
     currentChatId() {
       return s.routeKind === 'chat' ? s.chat?.chatId ?? null : null;
     },

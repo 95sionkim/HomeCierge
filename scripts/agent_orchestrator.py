@@ -6,12 +6,29 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 if __package__:
     from .agent_llm import LLMBadResponseError, merge_usage_records
-    from .agent_prompts import AGENT_TURN_OUTPUT_SCHEMA, ALLOWED_INTENTS, CITATION_KINDS, PROMPT_VERSION, SYSTEM_PROMPT, build_user_input
+    from .agent_prompts import (
+        AGENT_TURN_OUTPUT_SCHEMA,
+        ALLOWED_INTENTS,
+        CHAT_ALLOWED_INTENTS,
+        CHAT_CITATION_KINDS,
+        CHAT_PROMPT_VERSION,
+        CHAT_SYSTEM_PROMPT,
+        CHAT_TURN_OUTPUT_SCHEMA,
+        CITATION_KINDS,
+        PROMPT_VERSION,
+        SYSTEM_PROMPT,
+        build_chat_user_input,
+        build_user_input,
+    )
     from .agent_tools import (
+        execute_chat_tool,
         execute_tool,
         filter_comparison_for_llm,
+        get_chat_tool_schemas,
         get_tool_schemas,
         normalize_area_tolerance,
+        normalize_chat_profile_proposal,
+        normalize_chat_search_proposal,
         normalize_period,
         normalize_replacements,
         normalize_trade_kinds,
@@ -19,12 +36,29 @@ if __package__:
     )
 else:
     from agent_llm import LLMBadResponseError, merge_usage_records
-    from agent_prompts import AGENT_TURN_OUTPUT_SCHEMA, ALLOWED_INTENTS, CITATION_KINDS, PROMPT_VERSION, SYSTEM_PROMPT, build_user_input
+    from agent_prompts import (
+        AGENT_TURN_OUTPUT_SCHEMA,
+        ALLOWED_INTENTS,
+        CHAT_ALLOWED_INTENTS,
+        CHAT_CITATION_KINDS,
+        CHAT_PROMPT_VERSION,
+        CHAT_SYSTEM_PROMPT,
+        CHAT_TURN_OUTPUT_SCHEMA,
+        CITATION_KINDS,
+        PROMPT_VERSION,
+        SYSTEM_PROMPT,
+        build_chat_user_input,
+        build_user_input,
+    )
     from agent_tools import (
+        execute_chat_tool,
         execute_tool,
         filter_comparison_for_llm,
+        get_chat_tool_schemas,
         get_tool_schemas,
         normalize_area_tolerance,
+        normalize_chat_profile_proposal,
+        normalize_chat_search_proposal,
         normalize_period,
         normalize_replacements,
         normalize_trade_kinds,
@@ -1068,6 +1102,782 @@ def run_turn(message, context, provider, *, max_tool_rounds=3, max_output_tokens
         'usage': merge_usage_records(usages),
         'validation': validation,
         'promptVersion': PROMPT_VERSION,
+        'status': 'answered' if passed else 'rejected',
+        'llmSourcePolicy': prepared_context['llmSourcePolicy'],
+    }
+
+
+# ── 채팅 홈(S-01) 총괄 에이전트 실행·근거 일치·안전 검증기 ─────────────────────────
+
+_CHAT_UNCONFIRMED_EXEC_RE = re.compile(
+    r'(?:'
+    r'(?:맞춤\s*)?검색(?:을|이)\s*(?:이미\s*|바로\s*)?(?:실행했|완료했|마쳤|진행했)'
+    r'|조건에\s*맞는\s*공고(?:를|가)\s*[0-9]+\s*건\s*(?:찾았|검색됐)'
+    r')'
+)
+
+_CHAT_FALSE_ZERO_RE = re.compile(
+    r'(?:정상\s*)?0\s*건(?:으로|이)\s*(?:확정|확인됐|없습니다)(?!\s*(?:라고|이라고)\s*확정하지)'
+)
+
+_EXPLICIT_PROVINCE_DISTRICT_RE = re.compile(
+    r'(?:서울(?:특별시|시)?|부산(?:광역시|시)?|대구(?:광역시|시)?|인천(?:광역시|시)?|광주(?:광역시|시)?'
+    r'|대전(?:광역시|시)?|울산(?:광역시|시)?|세종(?:특별자치시|시)?|경기(?:도)?|강원(?:특별자치도|도)?'
+    r'|충(?:청)?[남북]도?|전(?:라)?[남북](?:특별자치도|도)?|경(?:상)?[남북]도?|제주(?:특별자치도|도)?)'
+    r'\s+[가-힣]{1,6}(?:시|군|구)'
+)
+
+
+def _register_region_name(name, target_set):
+    if not isinstance(name, str) or not name.strip():
+        return
+    clean = re.sub(r'\s+', ' ', name.strip())
+    target_set.add(clean)
+    tokens = clean.split(' ')
+    if tokens:
+        target_set.add(tokens[0])
+        target_set.add(tokens[-1])
+        if len(tokens) >= 2:
+            target_set.add(' '.join(tokens[-2:]))
+
+
+def _ingest_text_tokens_into_chat_grounding(text, grounded, catalog):
+    """사용자 입력·최근 사용자 메시지에서 언급된 날짜·금액·면적·숫자·지역을 근거 집합에 추가한다."""
+    if not isinstance(text, str) or not text.strip():
+        return
+
+    for m in re.finditer(r'(?<!\d)(\d{4})(?:-(\d{1,2})-(\d{1,2})|\.(\d{1,2})\.(\d{1,2})\.?|년\s*(\d{1,2})월\s*(\d{1,2})일)(?!\d)', text):
+        y = int(m.group(1))
+        mo = int(m.group(2) or m.group(4) or m.group(6))
+        d = int(m.group(3) or m.group(5) or m.group(7))
+        try:
+            iso = date(y, mo, d).isoformat()
+            grounded['dates'].add(iso)
+            grounded['months'].add(iso[:7])
+            grounded['monthDays'].add((mo, d))
+        except ValueError:
+            pass
+
+    for m in re.finditer(r'(?<!\d)(\d{4})(?:-(\d{1,2})|\.(\d{1,2})|년\s*(\d{1,2})월)(?!\d)', text):
+        y = int(m.group(1))
+        mo = int(m.group(2) or m.group(3) or m.group(4))
+        if 1 <= mo <= 12:
+            grounded['months'].add(f'{y:04d}-{mo:02d}')
+
+    for m in re.finditer(r'(\d+(?:,\d{3})*)\s*억\s*(\d+(?:,\d{3})*)\s*천\s*만?(?:\s*원)?', text):
+        val = _to_decimal(m.group(1)) * _HUNDRED_MILLION + _to_decimal(m.group(2)) * _TEN_MILLION
+        grounded['amountsWon'].add(val.normalize())
+    for m in re.finditer(r'(\d+(?:,\d{3})*)\s*억\s*(\d+(?:,\d{3})*(?:\.\d+)?)\s*만(?:\s*원)?', text):
+        val = _to_decimal(m.group(1)) * _HUNDRED_MILLION + _to_decimal(m.group(2)) * _TEN_THOUSAND
+        grounded['amountsWon'].add(val.normalize())
+    for m in re.finditer(r'(\d+(?:,\d{3})*(?:\.\d+)?)\s*억(?:\s*원)?', text):
+        val = _to_decimal(m.group(1)) * _HUNDRED_MILLION
+        grounded['amountsWon'].add(val.normalize())
+    for m in re.finditer(r'(\d+(?:,\d{3})*)\s*천\s*만(?:\s*원)?', text):
+        val = _to_decimal(m.group(1)) * _TEN_MILLION
+        grounded['amountsWon'].add(val.normalize())
+    for m in re.finditer(r'(\d+(?:,\d{3})*(?:\.\d+)?)\s*만\s*원', text):
+        val = _to_decimal(m.group(1)) * _TEN_THOUSAND
+        grounded['amountsWon'].add(val.normalize())
+    for m in re.finditer(r'(\d+(?:,\d{3})*(?:\.\d+)?)\s*원', text):
+        val = _to_decimal(m.group(1))
+        if val is not None:
+            grounded['amountsWon'].add(val.normalize())
+
+    for m in re.finditer(r'(\d+(?:,\d{3})*(?:\.\d+)?)\s*[~–-]\s*(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:㎡|m²|m2|제곱미터)', text):
+        for grp in (m.group(1), m.group(2)):
+            val = _to_decimal(grp)
+            if val is not None:
+                grounded['areasM2'].add(val.normalize())
+    for m in re.finditer(r'(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:㎡|m²|m2|제곱미터)', text):
+        val = _to_decimal(m.group(1))
+        if val is not None:
+            grounded['areasM2'].add(val.normalize())
+
+    for m in re.finditer(r'(\d+(?:,\d{3})*(?:\.\d+)?)\s*[~–-]\s*(\d+(?:,\d{3})*(?:\.\d+)?)\s*평', text):
+        for grp in (m.group(1), m.group(2)):
+            val = _to_decimal(grp)
+            if val is not None:
+                grounded['areasPyeong'].add(val.normalize())
+    for m in re.finditer(r'(\d+(?:,\d{3})*(?:\.\d+)?)\s*평', text):
+        val = _to_decimal(m.group(1))
+        if val is not None:
+            grounded['areasPyeong'].add(val.normalize())
+
+    for m in re.finditer(r'(?<!\d)([0-9]{10})(?!\d)', text):
+        grounded['identifiers'].add(m.group(1))
+
+    for m in _EXPLICIT_PROVINCE_DISTRICT_RE.finditer(text):
+        _register_region_name(m.group(0), grounded['regionNames'])
+
+    for entry in catalog:
+        name = entry.get('name')
+        if not isinstance(name, str) or not name.strip():
+            continue
+        clean = re.sub(r'\s+', ' ', name.strip())
+        tokens = clean.split(' ')
+        leaf = tokens[-1]
+        if clean in text or (len(leaf) >= 2 and leaf in text):
+            _register_region_name(clean, grounded['regionNames'])
+
+
+def _collect_chat_grounding_sets(message, context, search_proposal, profile_proposal, lookup_query, tool_results, intent):
+    catalog = [
+        item for item in (context.get('regions') or [])
+        if isinstance(item, dict) and isinstance(item.get('code'), str)
+    ]
+    code_to_name = {item['code']: item.get('name') for item in catalog}
+
+    grounded = {
+        'dates': set(),
+        'months': set(),
+        'monthDays': set(),
+        'amountsWon': set(),
+        'areasM2': set(),
+        'areasPyeong': set(),
+        'percents': set(),
+        'counts': set(),
+        'identifiers': {'O-3', 'S-01', 'S-02'},
+        'regionNames': set(),
+    }
+
+    if intent in ('help', 'pdf_guide', 'lookup'):
+        grounded['counts'].add(10)
+
+    def add_date(value):
+        d = parse_iso_date(value)
+        if d is not None:
+            iso = d.isoformat()
+            grounded['dates'].add(iso)
+            grounded['months'].add(iso[:7])
+            grounded['monthDays'].add((d.month, d.day))
+
+    def add_month(value):
+        if isinstance(value, str) and re.fullmatch(r'[0-9]{4}-[0-9]{2}', value):
+            grounded['months'].add(value)
+
+    def add_amount(value):
+        dec = _to_decimal(value)
+        if dec is not None and dec >= 0:
+            grounded['amountsWon'].add(dec.normalize())
+
+    def add_area(value, unit='m2'):
+        dec = _to_decimal(value)
+        if dec is not None and dec >= 0:
+            if unit == 'pyeong':
+                grounded['areasPyeong'].add(dec.normalize())
+            else:
+                grounded['areasM2'].add(dec.normalize())
+
+    def add_ident(value):
+        if isinstance(value, str) and value.strip():
+            grounded['identifiers'].add(value.strip())
+
+    def add_region_code(code):
+        if isinstance(code, str) and code.strip():
+            add_ident(code)
+            _register_region_name(code_to_name.get(code), grounded['regionNames'])
+
+    # 1) 사용자 입력 및 최근 사용자 발화
+    _ingest_text_tokens_into_chat_grounding(message, grounded, catalog)
+    for item in context.get('recentMessages') or []:
+        if isinstance(item, dict) and item.get('role') == 'user' and isinstance(item.get('content'), str):
+            _ingest_text_tokens_into_chat_grounding(item['content'], grounded, catalog)
+
+    # 2) 기준일·공유 프로필·공고 색인 요약
+    add_date(context.get('asOf'))
+    shared = context.get('sharedProfile') if isinstance(context.get('sharedProfile'), dict) else {}
+    sc = shared.get('conditions') if isinstance(shared.get('conditions'), dict) else {}
+    for code in sc.get('region_codes') or []:
+        add_region_code(code)
+    if sc.get('region_codes'):
+        grounded['counts'].add(len(sc['region_codes']))
+    add_amount(sc.get('budget_max_won'))
+    add_area(sc.get('supply_area_min_m2'), 'm2')
+    add_area(sc.get('supply_area_max_m2'), 'm2')
+    add_month(sc.get('move_in_start_month'))
+    add_month(sc.get('move_in_end_month'))
+
+    directory = context.get('directoryIndex') if isinstance(context.get('directoryIndex'), dict) else None
+    if directory is not None:
+        pw = directory.get('publicationWindow') if isinstance(directory.get('publicationWindow'), dict) else {}
+        add_date(pw.get('start'))
+        add_date(pw.get('end'))
+        obs = directory.get('observedAt')
+        if isinstance(obs, str) and len(obs) >= 10:
+            add_date(obs[:10])
+        notices = directory.get('notices') if isinstance(directory.get('notices'), list) else []
+        grounded['counts'].add(len(notices))
+
+    # 3) 도구 실행 결과
+    for entry in tool_results or []:
+        if not isinstance(entry, dict):
+            continue
+        res = entry.get('result') if isinstance(entry.get('result'), dict) else {}
+        for r in res.get('resolvedRegions') or []:
+            if isinstance(r, dict):
+                add_region_code(r.get('code'))
+                _register_region_name(r.get('name'), grounded['regionNames'])
+        for amb in res.get('ambiguousRegions') or []:
+            if isinstance(amb, dict):
+                cands = amb.get('candidates') or []
+                grounded['counts'].add(len(cands))
+                for c in cands:
+                    if isinstance(c, dict):
+                        add_region_code(c.get('code'))
+                        _register_region_name(c.get('name'), grounded['regionNames'])
+        add_amount(res.get('parsedBudgetMaxWon'))
+        psa = res.get('parsedSupplyArea') if isinstance(res.get('parsedSupplyArea'), dict) else None
+        if psa:
+            add_area(psa.get('min'), psa.get('unit', 'm2'))
+            add_area(psa.get('max'), psa.get('unit', 'm2'))
+        pmi = res.get('parsedMoveIn') if isinstance(res.get('parsedMoveIn'), dict) else None
+        if pmi:
+            add_month(pmi.get('start'))
+            add_month(pmi.get('end'))
+        # lookup_notices 결과
+        counts = res.get('counts') if isinstance(res.get('counts'), dict) else None
+        if counts:
+            for k in ('matched', 'returned', 'sameTitleGroups'):
+                if type(counts.get(k)) is int:
+                    grounded['counts'].add(counts[k])
+        pw = res.get('publicationWindow') if isinstance(res.get('publicationWindow'), dict) else None
+        if pw:
+            add_date(pw.get('start'))
+            add_date(pw.get('end'))
+        for n in res.get('notices') or []:
+            if not isinstance(n, dict):
+                continue
+            for k in ('houseManageNo', 'noticeNo', 'edition', 'title'):
+                add_ident(n.get(k))
+            add_date(n.get('edition'))
+            add_region_code(n.get('regionCode'))
+            _register_region_name(n.get('regionName'), grounded['regionNames'])
+            app = n.get('application') if isinstance(n.get('application'), dict) else None
+            if app:
+                add_date(app.get('start'))
+                add_date(app.get('end'))
+            for ck in ('modelCount', 'sameTitleCount'):
+                if type(n.get(ck)) is int:
+                    grounded['counts'].add(n[ck])
+
+    # 4) 검증 통과한 제안 객체
+    if isinstance(search_proposal, dict):
+        codes = search_proposal.get('regionCodes') or []
+        grounded['counts'].add(len(codes))
+        for code in codes:
+            add_region_code(code)
+        add_amount(search_proposal.get('budgetMaxWon'))
+        sa = search_proposal.get('supplyArea') if isinstance(search_proposal.get('supplyArea'), dict) else None
+        if sa:
+            add_area(sa.get('min'), sa.get('unit', 'm2'))
+            add_area(sa.get('max'), sa.get('unit', 'm2'))
+        mi = search_proposal.get('moveIn') if isinstance(search_proposal.get('moveIn'), dict) else None
+        if mi:
+            add_month(mi.get('start'))
+            add_month(mi.get('end'))
+
+    if isinstance(profile_proposal, dict) and isinstance(profile_proposal.get('patch'), dict):
+        patch = profile_proposal['patch']
+        codes = patch.get('region_codes') or []
+        if codes:
+            grounded['counts'].add(len(codes))
+            for code in codes:
+                add_region_code(code)
+        add_amount(patch.get('budget_max_won'))
+        add_area(patch.get('supply_area_min_m2'), 'm2')
+        add_area(patch.get('supply_area_max_m2'), 'm2')
+        add_month(patch.get('move_in_start_month'))
+        add_month(patch.get('move_in_end_month'))
+
+    if isinstance(lookup_query, dict):
+        add_ident(lookup_query.get('query'))
+
+    return grounded
+
+
+def _check_chat_answer_grounding(answer, grounded, catalog):
+    """채팅 답변의 날짜·연월·금액·면적·건수·숫자·지역명이 모두 근거 집합과 일치하는지 검사한다."""
+    remaining = answer
+    checked = []
+    ungrounded = []
+
+    def consume(match):
+        return ' ' * (match.end() - match.start())
+
+    # 1) 날짜
+    def check_full_date(match):
+        y = int(match.group(1))
+        mo = int(match.group(2) or match.group(4) or match.group(6))
+        d = int(match.group(3) or match.group(5) or match.group(7))
+        try:
+            iso = date(y, mo, d).isoformat()
+        except ValueError:
+            ungrounded.append(('date', match.group(0)))
+            return consume(match)
+        checked.append(('date', iso))
+        if iso not in grounded['dates']:
+            ungrounded.append(('date', iso))
+        return consume(match)
+
+    remaining = re.sub(
+        r'(?<!\d)(\d{4})(?:-(\d{1,2})-(\d{1,2})|\.(\d{1,2})\.(\d{1,2})\.?|년\s*(\d{1,2})월\s*(\d{1,2})일)(?!\d)',
+        check_full_date,
+        remaining,
+    )
+
+    # 2) 연-월
+    def check_ym(match):
+        y = int(match.group(1))
+        mo = int(match.group(2) or match.group(3) or match.group(4))
+        if not (1 <= mo <= 12):
+            ungrounded.append(('month', match.group(0)))
+            return consume(match)
+        ym = f'{y:04d}-{mo:02d}'
+        checked.append(('month', ym))
+        if ym not in grounded['months']:
+            ungrounded.append(('month', ym))
+        return consume(match)
+
+    remaining = re.sub(
+        r'(?<!\d)(\d{4})(?:-(\d{1,2})|\.(\d{1,2})|년\s*(\d{1,2})월)(?!\d)',
+        check_ym,
+        remaining,
+    )
+
+    # 3) 월-일
+    def check_md(match):
+        mo, d = int(match.group(1)), int(match.group(2))
+        checked.append(('month_day', f'{mo}-{d}'))
+        if (mo, d) not in grounded['monthDays']:
+            ungrounded.append(('month_day', match.group(0)))
+        return consume(match)
+
+    remaining = re.sub(r'(?<!\d)(\d{1,2})월\s*(\d{1,2})일', check_md, remaining)
+
+    # 4) 금액 (원 생략된 '7억', '7억 5천만' 포함)
+    def verify_amount(won_dec, raw):
+        norm = won_dec.normalize()
+        checked.append(('amount', raw))
+        if norm not in grounded['amountsWon']:
+            ungrounded.append(('amount', raw))
+
+    def check_eok_cheonman(match):
+        verify_amount(_to_decimal(match.group(1)) * _HUNDRED_MILLION + _to_decimal(match.group(2)) * _TEN_MILLION, match.group(0))
+        return consume(match)
+
+    remaining = re.sub(r'(\d+(?:,\d{3})*)\s*억\s*(\d+(?:,\d{3})*)\s*천\s*만?(?:\s*원)?', check_eok_cheonman, remaining)
+
+    def check_eok_man(match):
+        verify_amount(_to_decimal(match.group(1)) * _HUNDRED_MILLION + _to_decimal(match.group(2)) * _TEN_THOUSAND, match.group(0))
+        return consume(match)
+
+    remaining = re.sub(r'(\d+(?:,\d{3})*)\s*억\s*(\d+(?:,\d{3})*(?:\.\d+)?)\s*만(?:\s*원)?', check_eok_man, remaining)
+
+    def check_eok(match):
+        verify_amount(_to_decimal(match.group(1)) * _HUNDRED_MILLION, match.group(0))
+        return consume(match)
+
+    remaining = re.sub(r'(\d+(?:,\d{3})*(?:\.\d+)?)\s*억(?:\s*원)?', check_eok, remaining)
+
+    def check_cheonman(match):
+        verify_amount(_to_decimal(match.group(1)) * _TEN_MILLION, match.group(0))
+        return consume(match)
+
+    remaining = re.sub(r'(\d+(?:,\d{3})*)\s*천\s*만(?:\s*원)?', check_cheonman, remaining)
+
+    def check_man(match):
+        verify_amount(_to_decimal(match.group(1)) * _TEN_THOUSAND, match.group(0))
+        return consume(match)
+
+    remaining = re.sub(r'(\d+(?:,\d{3})*(?:\.\d+)?)\s*만\s*원', check_man, remaining)
+
+    def check_won(match):
+        verify_amount(_to_decimal(match.group(1)), match.group(0))
+        return consume(match)
+
+    remaining = re.sub(r'(\d+(?:,\d{3})*(?:\.\d+)?)\s*원', check_won, remaining)
+
+    # 5) 식별자(O-3, 공고번호, 공식 지역 코드 등)
+    for ident in sorted(grounded['identifiers'], key=len, reverse=True):
+        if re.search(r'\d', ident):
+            ident_pattern = re.compile(r'(?<![0-9A-Za-z.,])' + re.escape(ident) + r'(?![0-9A-Za-z.,])')
+            if ident_pattern.search(remaining):
+                checked.append(('identifier', ident))
+                remaining = ident_pattern.sub(consume, remaining)
+
+    # 6) 면적 (㎡ / 평)
+    def check_area_range(match):
+        for grp in (match.group(1), match.group(2)):
+            val = _to_decimal(grp)
+            checked.append(('area', grp))
+            if val is None or val.normalize() not in grounded['areasM2']:
+                ungrounded.append(('area', grp))
+        return consume(match)
+
+    remaining = re.sub(
+        r'(\d+(?:,\d{3})*(?:\.\d+)?)\s*[~–-]\s*(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:㎡|m²|m2|제곱미터)',
+        check_area_range,
+        remaining,
+    )
+
+    def check_area(match):
+        val = _to_decimal(match.group(1))
+        checked.append(('area', match.group(0)))
+        if val is None or val.normalize() not in grounded['areasM2']:
+            ungrounded.append(('area', match.group(0)))
+        return consume(match)
+
+    remaining = re.sub(r'(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:㎡|m²|m2|제곱미터)', check_area, remaining)
+
+    def check_pyeong_range(match):
+        for grp in (match.group(1), match.group(2)):
+            val = _to_decimal(grp)
+            checked.append(('area', grp + '평'))
+            if val is None or val.normalize() not in grounded['areasPyeong']:
+                ungrounded.append(('area', grp + '평'))
+        return consume(match)
+
+    remaining = re.sub(r'(\d+(?:,\d{3})*(?:\.\d+)?)\s*[~–-]\s*(\d+(?:,\d{3})*(?:\.\d+)?)\s*평', check_pyeong_range, remaining)
+
+    def check_pyeong(match):
+        val = _to_decimal(match.group(1))
+        checked.append(('area', match.group(0)))
+        if val is None or val.normalize() not in grounded['areasPyeong']:
+            ungrounded.append(('area', match.group(0)))
+        return consume(match)
+
+    remaining = re.sub(r'(\d+(?:,\d{3})*(?:\.\d+)?)\s*평', check_pyeong, remaining)
+
+    # 7) 퍼센트
+    def check_percent(match):
+        val = _to_decimal(match.group(1))
+        checked.append(('percent', match.group(0)))
+        if val is None or val.normalize() not in grounded['percents']:
+            ungrounded.append(('percent', match.group(0)))
+        return consume(match)
+
+    remaining = re.sub(r'(?:±|\+\/-)?\s*(\d+(?:\.\d+)?)\s*(?:%|퍼센트)', check_percent, remaining)
+
+    # 8) 건수 (건·개·곳·회차·자리)
+    def check_count(match):
+        val = int(match.group(1))
+        checked.append(('count', match.group(0)))
+        if val not in grounded['counts']:
+            ungrounded.append(('count', match.group(0)))
+        return consume(match)
+
+    remaining = re.sub(r'(\d+)\s*(?:건|개|곳|회차|자리)', check_count, remaining)
+
+    # 9) 소비되지 않은 나머지 단독 숫자
+    all_numeric = (
+        {Decimal(n).normalize() for n in grounded['counts']}
+        | grounded['percents']
+        | grounded['areasM2']
+        | grounded['areasPyeong']
+        | grounded['amountsWon']
+    )
+    for match in re.finditer(r'(?<![A-Za-z0-9_])(\d+(?:,\d{3})*(?:\.\d+)?)(?![A-Za-z0-9_])', remaining):
+        raw = match.group(1)
+        dec = _to_decimal(raw)
+        checked.append(('number', raw))
+        if dec is None or dec.normalize() not in all_numeric:
+            ungrounded.append(('number', raw))
+
+    # 10) 행정구역명 근거 일치 검증 (전체 명칭 먼저 소비한 뒤 카탈로그 구·군·시 명칭 점검)
+    region_scan = answer
+    for match in _EXPLICIT_PROVINCE_DISTRICT_RE.finditer(answer):
+        phrase = re.sub(r'\s+', ' ', match.group(0).strip())
+        checked.append(('region', phrase))
+        if phrase not in grounded['regionNames']:
+            ungrounded.append(('region', phrase))
+        region_scan = region_scan.replace(match.group(0), ' ' * len(match.group(0)))
+
+    catalog_full_names = sorted(
+        {
+            re.sub(r'\s+', ' ', item['name'].strip())
+            for item in catalog
+            if isinstance(item, dict) and isinstance(item.get('name'), str) and item['name'].strip()
+        },
+        key=len,
+        reverse=True,
+    )
+    for full_name in catalog_full_names:
+        if full_name in region_scan:
+            checked.append(('region', full_name))
+            if full_name not in grounded['regionNames']:
+                ungrounded.append(('region', full_name))
+            region_scan = region_scan.replace(full_name, ' ' * len(full_name))
+
+    catalog_leaves = sorted(
+        {
+            full.split(' ')[-1]
+            for full in catalog_full_names
+            if len(full.split(' ')[-1]) >= 2 and full.split(' ')[-1][-1] in ('구', '군', '시')
+        },
+        key=len,
+        reverse=True,
+    )
+    for leaf in catalog_leaves:
+        leaf_pattern = re.compile(r'(?<![가-힣])' + re.escape(leaf) + r'(?![가-힣])')
+        if leaf_pattern.search(region_scan):
+            checked.append(('region', leaf))
+            if leaf not in grounded['regionNames']:
+                ungrounded.append(('region', leaf))
+            region_scan = leaf_pattern.sub(' ' * len(leaf), region_scan)
+
+    return checked, ungrounded
+
+
+def _validate_chat_lookup_query(raw_lookup):
+    if not isinstance(raw_lookup, dict) or set(raw_lookup.keys()) != {'query', 'mode'}:
+        return None, ['invalid_lookup_query']
+    mode = raw_lookup.get('mode')
+    query = raw_lookup.get('query')
+    if mode not in ('name', 'number') or not isinstance(query, str) or re.search(r'[\x00-\x1f\x7f]', query):
+        return None, ['invalid_lookup_query']
+    clean = query.strip()
+    if not (1 <= len(clean) <= 120):
+        return None, ['invalid_lookup_query']
+    if mode == 'number' and not re.fullmatch(r'[0-9]{1,10}', clean):
+        return None, ['invalid_lookup_query']
+    return {'query': clean, 'mode': mode}, []
+
+
+def validate_chat_turn_output(raw_output, message, context, tool_results=None):
+    """채팅 홈 에이전트 출력을 검증한다. 실패 시 모든 답변·제안을 폐기하고 rejected를 반환한다(A-58)."""
+    reasons = []
+    forbidden_matches = []
+    checked_numbers = []
+    ungrounded_tokens = []
+    empty_norm = {
+        'intent': None,
+        'answer': None,
+        'citations': [],
+        'searchProposal': None,
+        'profileProposal': None,
+        'lookupQuery': None,
+    }
+
+    if not isinstance(raw_output, dict):
+        return False, empty_norm, {
+            'status': 'rejected',
+            'reasons': ['invalid_output_structure'],
+            'checkedNumbers': [],
+            'ungroundedTokens': [],
+            'forbiddenMatches': [],
+        }
+
+    intent = raw_output.get('intent')
+    if not isinstance(intent, str) or intent not in CHAT_ALLOWED_INTENTS:
+        reasons.append('invalid_intent')
+        intent = None
+
+    answer = raw_output.get('answer')
+    if (not isinstance(answer, str) or not answer.strip()
+            or len(answer.strip()) > MAX_ANSWER_CHARS
+            or re.search(r'[\x00-\x09\x0b-\x1f\x7f]', answer)):
+        reasons.append('invalid_answer_text')
+        answer_clean = ''
+    else:
+        answer_clean = answer.strip()
+
+    raw_citations = raw_output.get('citations')
+    citations = []
+    if not isinstance(raw_citations, list) or len(raw_citations) > 20:
+        reasons.append('invalid_citations')
+    else:
+        for item in raw_citations:
+            if (not isinstance(item, dict)
+                    or item.get('kind') not in CHAT_CITATION_KINDS
+                    or not isinstance(item.get('reference'), str) or not item['reference'].strip() or len(item['reference']) > 120
+                    or not isinstance(item.get('label'), str) or not item['label'].strip() or len(item['label']) > 120):
+                reasons.append('invalid_citations')
+                break
+            citations.append({
+                'kind': item['kind'],
+                'reference': item['reference'].strip(),
+                'label': item['label'].strip(),
+            })
+
+    regions_catalog = context.get('regions') if isinstance(context.get('regions'), list) else []
+    shared_profile = context.get('sharedProfile') if isinstance(context.get('sharedProfile'), dict) else {}
+    current_profile_conditions = shared_profile.get('conditions') if isinstance(shared_profile.get('conditions'), dict) else {}
+
+    # 1) searchProposal 검증
+    norm_search = None
+    raw_search = raw_output.get('searchProposal')
+    if intent == 'search_confirm':
+        if raw_search is None:
+            reasons.append('missing_search_proposal')
+        else:
+            norm_search, s_err = normalize_chat_search_proposal(raw_search, regions_catalog)
+            reasons.extend(s_err)
+    elif raw_search is not None:
+        reasons.append('unexpected_search_proposal')
+
+    # 2) profileProposal 검증
+    norm_profile = None
+    raw_profile = raw_output.get('profileProposal')
+    if intent == 'profile_proposal':
+        if raw_profile is None:
+            reasons.append('missing_profile_proposal')
+        else:
+            norm_profile, p_err = normalize_chat_profile_proposal(raw_profile, regions_catalog, current_profile_conditions)
+            reasons.extend(p_err)
+    elif raw_profile is not None:
+        if intent == 'search_confirm':
+            norm_profile, p_err = normalize_chat_profile_proposal(raw_profile, regions_catalog, current_profile_conditions)
+            reasons.extend(p_err)
+        else:
+            reasons.append('unexpected_profile_proposal')
+
+    # 3) lookupQuery 검증
+    norm_lookup = None
+    raw_lookup = raw_output.get('lookupQuery')
+    if raw_lookup is not None:
+        if intent != 'lookup':
+            reasons.append('unexpected_lookup_query')
+        else:
+            norm_lookup, l_err = _validate_chat_lookup_query(raw_lookup)
+            reasons.extend(l_err)
+
+    # 4) 금지 표현 및 확인 전 실행·불완전 수집 0건 단정 검증
+    if answer_clean:
+        for code, pattern in FORBIDDEN_RULES:
+            match = pattern.search(answer_clean)
+            if match:
+                reasons.append(code)
+                forbidden_matches.append({'code': code, 'text': match.group(0)})
+
+        if intent in ('search_confirm', 'search_clarify', 'profile_proposal'):
+            match = _CHAT_UNCONFIRMED_EXEC_RE.search(answer_clean)
+            if match:
+                reasons.append('forbidden_unconfirmed_search_execution')
+                forbidden_matches.append({'code': 'forbidden_unconfirmed_search_execution', 'text': match.group(0)})
+
+        directory = context.get('directoryIndex') if isinstance(context.get('directoryIndex'), dict) else None
+        cov_status = (directory.get('coverage') or {}).get('status') if isinstance(directory, dict) and isinstance(directory.get('coverage'), dict) else None
+        if cov_status and cov_status != 'complete':
+            match = _CHAT_FALSE_ZERO_RE.search(answer_clean)
+            if match:
+                reasons.append('status_false_normal_zero')
+                forbidden_matches.append({'code': 'status_false_normal_zero', 'text': match.group(0)})
+
+    # 5) 숫자·금액·면적·날짜·건수·지역명 근거 일치 검증 (A-58)
+    if answer_clean:
+        grounded = _collect_chat_grounding_sets(
+            message, context, norm_search, norm_profile, norm_lookup, tool_results, intent,
+        )
+        checked_numbers, ungrounded_tokens = _check_chat_answer_grounding(answer_clean, grounded, regions_catalog)
+        if ungrounded_tokens:
+            for cat in sorted({c for c, _ in ungrounded_tokens}):
+                reasons.append('ungrounded_' + cat)
+
+    dedup_reasons = list(dict.fromkeys(reasons))
+    validation = {
+        'status': 'passed' if not dedup_reasons else 'rejected',
+        'reasons': dedup_reasons,
+        'checkedNumbers': [{'kind': k, 'value': v} for k, v in checked_numbers],
+        'ungroundedTokens': [{'kind': k, 'value': v} for k, v in ungrounded_tokens],
+        'forbiddenMatches': forbidden_matches,
+    }
+    if dedup_reasons:
+        return False, empty_norm, validation
+    return True, {
+        'intent': intent,
+        'answer': answer_clean,
+        'citations': citations,
+        'searchProposal': norm_search,
+        'profileProposal': norm_profile,
+        'lookupQuery': norm_lookup,
+    }, validation
+
+
+def _prepare_chat_context(context):
+    if not isinstance(context, dict):
+        raise ValueError('context는 딕셔너리여야 합니다.')
+    prepared = {
+        'asOf': context.get('asOf'),
+        'originalAction': context.get('originalAction', 'help'),
+        'recentMessages': list(context.get('recentMessages') or [])[-10:],
+        'sharedProfile': context.get('sharedProfile') if isinstance(context.get('sharedProfile'), dict) else {'revision': 0, 'conditions': {}},
+        'regions': list(context.get('regions') or []),
+        'directoryIndex': context.get('directoryIndex') if isinstance(context.get('directoryIndex'), dict) else None,
+        'llmSourcePolicy': context.get('llmSourcePolicy') if isinstance(context.get('llmSourcePolicy'), dict) else {
+            'allowedSources': [],
+            'restrictedSources': [],
+            'hasRestrictedSources': False,
+            'newsExcluded': True,
+        },
+    }
+    # 방어적으로 네이버 뉴스 키는 절대 문맥에 남기지 않는다(Q-42).
+    for forbidden_key in ('regionalNews', 'news', 'newsArticles', 'naverNews'):
+        prepared.pop(forbidden_key, None)
+    return prepared
+
+
+def run_chat_turn(message, context, provider, *, max_tool_rounds=3, max_output_tokens=1200):
+    """채팅 홈(S-01) 자유 대화 턴을 실행하고 검증 결과·제안·사용량을 반환한다."""
+    if not _valid_message(message):
+        raise ValueError('질문 메시지는 1~800자의 유효한 문자열이어야 합니다.')
+    if type(max_tool_rounds) is not int or not 0 <= max_tool_rounds <= 6:
+        raise ValueError('max_tool_rounds는 0~6 범위여야 합니다.')
+
+    prepared_context = _prepare_chat_context(context)
+    input_items = build_chat_user_input(message, prepared_context)
+    tools = get_chat_tool_schemas()
+    usages = []
+    tool_trace = []
+    tool_results = []
+    raw_parsed = None
+
+    for round_idx in range(max_tool_rounds + 1):
+        response = provider.generate(
+            instructions=CHAT_SYSTEM_PROMPT,
+            input_items=input_items,
+            response_schema=CHAT_TURN_OUTPUT_SCHEMA,
+            schema_name='homecierge_chat_turn',
+            tools=tools if round_idx < max_tool_rounds else None,
+            max_output_tokens=max_output_tokens,
+        )
+        usages.append(response['usage'])
+        tool_calls = response.get('toolCalls') or []
+        if tool_calls and round_idx < max_tool_rounds:
+            input_items = list(input_items) + list(response.get('outputItems') or [])
+            for call in tool_calls:
+                result = execute_chat_tool(call['name'], call['arguments'], prepared_context)
+                tool_trace.append({'name': call['name'], 'ok': bool(result.get('ok'))})
+                tool_results.append({'name': call['name'], 'result': result})
+                input_items.append({
+                    'type': 'function_call_output',
+                    'call_id': call['call_id'],
+                    'output': json.dumps(result, ensure_ascii=False, allow_nan=False),
+                })
+            continue
+        raw_parsed = response.get('parsed')
+        break
+
+    if raw_parsed is None:
+        raise LLMBadResponseError('llm_tool_loop_exhausted', '도구 호출 한도 안에 최종 응답을 받지 못했습니다.')
+
+    passed, normalized, validation = validate_chat_turn_output(
+        raw_parsed,
+        message,
+        prepared_context,
+        tool_results=tool_results,
+    )
+    return {
+        'intent': normalized['intent'],
+        'answer': normalized['answer'],
+        'citations': normalized['citations'],
+        'searchProposal': normalized['searchProposal'],
+        'profileProposal': normalized['profileProposal'],
+        'lookupQuery': normalized['lookupQuery'],
+        'toolCalls': tool_trace,
+        'usage': merge_usage_records(usages),
+        'validation': validation,
+        'promptVersion': CHAT_PROMPT_VERSION,
         'status': 'answered' if passed else 'rejected',
         'llmSourcePolicy': prepared_context['llmSourcePolicy'],
     }

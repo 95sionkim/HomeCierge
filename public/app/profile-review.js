@@ -5,7 +5,7 @@ import { parseSharedProfileMessage } from './profile-language.js';
 import { renderProfileChangeCard } from './profile-page.js';
 
 // 비교 결과를 열어 둔 채, 다음 검색에 쓸 조건만 별도의 변경안으로 확인한다.
-export function createProfileReview({ dialog, openDialog, announce, editProfile }) {
+export function createProfileReview({ dialog, openDialog, announce, editProfile, onDecided }) {
   let active = null;
   function reset() {
     active?.controller.abort();
@@ -112,6 +112,7 @@ export function createProfileReview({ dialog, openDialog, announce, editProfile 
       job.proposal = row ?? { ...job.proposal, status };
       job.decision = null;
       announce(status === 'approved' ? '다음 검색에 쓸 공유 프로필을 변경했습니다.' : '변경안 결정을 저장했습니다.');
+      onDecided?.(job.proposal);
     } catch (error) {
       if (job === active) job.error = error;
     } finally {

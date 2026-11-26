@@ -59,7 +59,7 @@ const saveReportPath = /^\/api\/v1\/analyses\/([^/]+)\/runs\/([^/]+)\/reports$/;
 const savedReportPath = /^\/api\/v1\/reports(?:\/([^/]+)(?:\/(pdf))?)?$/;
 const fundingPlanPath = /^\/api\/v1\/analyses\/([^/]+)\/funding-plan$/;
 const snapshotServicePath = /^\/api\/v1\/analyses\/([^/]+)\/snapshots\/([^/]+)\/(legal-evidence|regional-news|commute)$/;
-const chatHomePath = /^\/api\/v1\/chats(?:\/([^/]+)(?:\/(messages|analyses))?)?$/;
+const chatHomePath = /^\/api\/v1\/chats(?:\/([^/]+)(?:\/(messages|analyses)|\/replies\/([^/]+)\/decision)?)?$/;
 
 function readConfig(env: Environment, token: string): BackendConfig {
   const url = env.SUPABASE_URL;
@@ -114,7 +114,7 @@ export function createHandler(deps: {
     const startsChatAnalysis = chatHome?.[2] === 'analyses';
     const methods = privacy ? [privacy === 'items' ? 'GET' : 'POST'] : saveReport ? ['POST'] : savedReport?.[1] && !savedReport[2] ? ['GET', 'DELETE']
       : supplementBase ? ['GET', 'POST']
-      : chatHome ? (!chatHome[1] ? ['GET', 'POST'] : !chatHome[2] ? ['GET', 'PATCH'] : ['POST'])
+      : chatHome ? (!chatHome[1] ? ['GET', 'POST'] : (!chatHome[2] && !chatHome[3]) ? ['GET', 'PATCH'] : ['POST'])
       : conversation && !conversation[3] ? ['GET', 'POST']
       : search || funding || news || commute || (run !== null && !run[2]) || run?.[3] === 'cancel' || conversation?.[3] ? ['POST'] : ['GET'];
     const allowedMethods = [...methods, 'OPTIONS'].join(', ');
@@ -215,7 +215,11 @@ export function createHandler(deps: {
         return await serveChatHome(
           request,
           headers,
-          { chatId: chatHome[1], sub: chatHome[2] as 'messages' | 'analyses' | undefined },
+          {
+            chatId: chatHome[1],
+            sub: chatHome[3] ? 'replyDecision' : (chatHome[2] as 'messages' | 'analyses' | undefined),
+            replyId: chatHome[3],
+          },
           { chatHome: backend.chatHome, getNoticeSearchIndex: backend.getNoticeSearchIndex, asOf },
         );
       }

@@ -741,6 +741,10 @@ export type Database = {
         Args: { p_lease_seconds: number; p_run_id?: string }
         Returns: Json
       }
+      claim_chat_agent_reply: {
+        Args: { p_lease_seconds?: number; p_reply_id?: string }
+        Returns: Json
+      }
       complete_agent_reply: {
         Args: {
           p_answer?: string
@@ -751,6 +755,24 @@ export type Database = {
           p_prompt_version?: string
           p_proposal?: Json
           p_reply_id: string
+          p_status: string
+          p_usage?: Json
+          p_validation?: Json
+        }
+        Returns: Json
+      }
+      complete_chat_agent_reply: {
+        Args: {
+          p_answer?: string
+          p_citations?: Json
+          p_generation: number
+          p_intent?: string
+          p_lease_token: string
+          p_lookup_query?: Json
+          p_profile_proposal?: Json
+          p_prompt_version?: string
+          p_reply_id: string
+          p_search_proposal?: Json
           p_status: string
           p_usage?: Json
           p_validation?: Json
@@ -779,6 +801,16 @@ export type Database = {
           p_decision: string
           p_run_id: string
           p_turn_id: string
+        }
+        Returns: Json
+      }
+      decide_chat_search_proposal: {
+        Args: {
+          p_chat_id: string
+          p_conditions?: Json
+          p_decision: string
+          p_reply_id: string
+          p_result_summary?: Json
         }
         Returns: Json
       }
@@ -832,6 +864,7 @@ export type Database = {
         Returns: Json
       }
       expire_stale_agent_replies: { Args: never; Returns: number }
+      expire_stale_chat_agent_replies: { Args: never; Returns: number }
       fail_agent_reply: {
         Args: {
           p_failure_code: string
@@ -848,6 +881,16 @@ export type Database = {
           p_lease_token: string
           p_retryable: boolean
           p_run_id: string
+        }
+        Returns: Json
+      }
+      fail_chat_agent_reply: {
+        Args: {
+          p_failure_code: string
+          p_generation: number
+          p_lease_token: string
+          p_reply_id: string
+          p_usage?: Json
         }
         Returns: Json
       }
@@ -977,6 +1020,10 @@ export type Database = {
         Args: { p_analysis_id: string; p_snapshot_id: string }
         Returns: Json
       }
+      prepare_chat_search_confirmation: {
+        Args: { p_chat_id: string; p_reply_id: string }
+        Returns: Json
+      }
       propose_search_profile_change: {
         Args: {
           p_analysis_id?: string
@@ -1034,6 +1081,14 @@ export type Database = {
       }
       read_auto_evidence_permissions: {
         Args: { p_generation: number; p_lease_token: string; p_run_id: string }
+        Returns: Json
+      }
+      read_chat_agent_reply_context: {
+        Args: {
+          p_generation: number
+          p_lease_token: string
+          p_reply_id: string
+        }
         Returns: Json
       }
       read_chat_detail: { Args: { p_chat_id: string }; Returns: Json }

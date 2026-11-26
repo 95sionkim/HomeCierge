@@ -3,12 +3,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHandler } from '../../src/server/handler.js';
 import type { Backend, Environment } from '../../src/server/handler.js';
+import { ApiError } from '../../src/server/http-input.js';
 import { createBackend } from '../../src/server/supabase.js';
 import {
   classifyChatInput,
   evaluateNoticeLookup,
   parseNoticeLookupQuery,
 } from '../../src/server/notice-lookup.js';
+import type { ChatHomeOperation } from '../../src/server/notice-lookup.js';
 
 const env: Environment = {
   SUPABASE_URL: 'https://synthetic.invalid',
@@ -268,18 +270,21 @@ test('lookup and chat HTTP routes enforce authentication, origin, methods, valid
               assistantMessage: { id: 'm2', role: 'assistant', content: '합성 응답', createdAt: observedAt },
             };
           }
-          return {
-            chatId,
-            analysisId,
-            runId,
-            status: 'queued',
-            attempt: 0,
-            submittedAt: observedAt,
-            finishedAt: null,
-            snapshotId: null,
-            errorCode: null,
-            input: op.input,
-          };
+          if (op.action === 'startAnalysis') {
+            return {
+              chatId,
+              analysisId,
+              runId,
+              status: 'queued',
+              attempt: 0,
+              submittedAt: observedAt,
+              finishedAt: null,
+              snapshotId: null,
+              errorCode: null,
+              input: op.input,
+            };
+          }
+          throw new Error('unexpected_action');
         },
       }),
   });
@@ -434,4 +439,243 @@ test('createBackend maps PostgREST chat RPC errors to public HTTP codes includin
   assert.equal(limited.status, 429);
   assert.equal(limited.headers.get('retry-after'), '60');
   assert.equal((await limited.json()).error, 'run_rate_limited');
+});
+
+test('classifyChatInput routes natural-language search and shared profile messages to help while keeping explicit lookups', () => {
+  assert.deepEqual(
+    classifyChatInput('광진구랑 성동구에서 7억 이하, 84㎡ 정도로 찾아줘'),
+    { message: '광진구랑 성동구에서 7억 이하, 84㎡ 정도로 찾아줘', action: 'help', query: null, mode: null },
+  );
+  assert.deepEqual(
+    classifyChatInput('광진구에서 찾아줘'),
+    { message: '광진구에서 찾아줘', action: 'help', query: null, mode: null },
+  );
+  assert.deepEqual(
+    classifyChatInput('7억 이하로 찾아줘'),
+    { message: '7억 이하로 찾아줘', action: 'help', query: null, mode: null },
+  );
+  assert.deepEqual(
+    classifyChatInput('다음에도 이 조건으로 써줘'),
+    { message: '다음에도 이 조건으로 써줘', action: 'help', query: null, mode: null },
+  );
+  assert.deepEqual(
+    classifyChatInput('합성 센트럴 아이파크 찾아주세요', 'name'),
+    { message: '합성 센트럴 아이파크 찾아주세요', action: 'lookup', query: '합성 센트럴 아이파크', mode: 'name' },
+  );
+});
+
+test('POST /api/v1/chats/:chatId/replies/:replyId/decision confirms via notice-search and never runs search on reject/cancel', async () => {
+  const chatId = 'c1000000-0000-4000-8000-000000000010';
+  const replyId = 'd1000000-0000-4000-8000-000000000010';
+  const auth = { Authorization: 'Bearer SYNTHETIC_TOKEN' };
+  const jsonHeaders = { ...auth, 'Content-Type': 'application/json' };
+  const docRef = {
+    document: 'applyhome:9900000101:9900000101:1:1',
+    version: 'sha256:' + 'a'.repeat(64),
+    page: 2,
+  };
+  const syntheticSearchIndex = {
+    contractVersion: 'notice-search-index/v1',
+    dataOrigin: 'collected',
+    observedAt,
+    publicationWindow: { start: '2026-08-25', end: '2026-11-22' },
+    regionCodes: ['11200', '11215'],
+    coverage: {
+      status: 'complete',
+      sources: [
+        { source: 'applyhome_apt', status: 'complete' },
+        { source: 'applyhome_remainder', status: 'complete' },
+      ],
+    },
+    notices: [
+      {
+        houseManageNo: '9900000101',
+        noticeNo: '9900000101',
+        edition: '2026-11-10',
+        title: '합성 가람 아파트',
+        kind: 'new_sale',
+        regionCode: '11200',
+        application: { start: '2026-11-20', end: '2026-11-24' },
+        moveIn: { start: '2027-06', end: '2027-06' },
+        inventoryComplete: true,
+        models: [
+          {
+            modelNo: '01',
+            houseType: '084.0000A',
+            supplyAreaM2: '84',
+            areaEvidence: [docRef],
+            rooms: [{ room: '101동 501호', subtotalWon: '680000000', priceEvidence: [docRef] }],
+          },
+        ],
+        sourceIds: ['applyhome_apt', 'applyhome_apt_model', 'applyhome_notice_pdf'],
+        reasonCodes: [],
+      },
+      {
+        houseManageNo: '9900000040',
+        noticeNo: '9900000040',
+        edition: '2026-10-23',
+        title: '합성 센트럴 아이파크',
+        kind: 'resupply',
+        regionCode: '11215',
+        application: { start: '2026-11-20', end: '2026-11-25' },
+        moveIn: null,
+        inventoryComplete: false,
+        models: [{ modelNo: '01', houseType: '084.9811C', supplyAreaM2: null, areaEvidence: [], rooms: [] }],
+        sourceIds: ['applyhome_remainder', 'applyhome_remainder_model'],
+        reasonCodes: ['inventory_incomplete'],
+      },
+    ],
+  };
+
+  let searchCalls = 0;
+  let searchMode: 'ok' | 'missing' | 'restricted' = 'ok';
+  let proposalStatus: 'pending' | 'confirmed' | 'rejected' = 'pending';
+  let confirmedConditions: Record<string, unknown> | null = null;
+  const decideOps: Extract<ChatHomeOperation, { action: 'decideSearch' }>[] = [];
+
+  const handler = createHandler({
+    env,
+    now: () => new Date('2026-11-22T03:00:00Z'),
+    createBackend: () =>
+      makeBackend({
+        getNoticeSearchIndex: async (_signal, purpose) => {
+          if (purpose === 'search') {
+            searchCalls += 1;
+            if (searchMode === 'missing') return null;
+            if (searchMode === 'restricted') throw new ApiError('search_source_restricted');
+            return syntheticSearchIndex;
+          }
+          return syntheticIndex();
+        },
+        chatHome: async (op) => {
+          if (op.action === 'prepareSearch') {
+            return {
+              chatId,
+              replyId,
+              status: proposalStatus,
+              searchProposal: {
+                regionCodes: ['11200', '11215'],
+                budgetMaxWon: '700000000',
+                supplyArea: { min: '84', max: '84', unit: 'm2' },
+                includeClosed: false,
+              },
+              confirmedConditions,
+              agentReply: {
+                id: replyId,
+                status: 'answered',
+                model: 'gpt-6.2-sol',
+                searchProposal: { status: proposalStatus, conditions: confirmedConditions },
+              },
+              resultMessage: { id: 'm-res', role: 'assistant', content: '요약', createdAt: observedAt },
+            };
+          }
+          if (op.action === 'decideSearch') {
+            decideOps.push(op);
+            proposalStatus = op.decision === 'confirm' ? 'confirmed' : 'rejected';
+            confirmedConditions = op.conditions as unknown as Record<string, unknown> | null;
+            return {
+              contractVersion: 'chat-search-decision/v1',
+              chatId,
+              replyId,
+              agentReply: {
+                id: replyId,
+                status: 'answered',
+                model: 'gpt-6.2-sol',
+                searchProposal: {
+                  status: proposalStatus,
+                  conditions: op.conditions,
+                  resultSummary: op.resultSummary,
+                },
+              },
+              resultMessage: op.decision === 'confirm'
+                ? { id: 'm-res', role: 'assistant', content: '검색 결과 요약', createdAt: observedAt }
+                : null,
+            };
+          }
+          throw new Error('unexpected_action');
+        },
+      }),
+  });
+
+  const path = `/api/v1/chats/${chatId}/replies/${replyId}/decision`;
+  assert.equal((await handler(req(path, { method: 'POST', body: '{}' }))).status, 401);
+  assert.equal((await handler(req(path, { method: 'GET', headers: auth }))).status, 405);
+  assert.equal((await handler(req(`/api/v1/chats/${chatId}/replies/not-a-uuid/decision`, {
+    method: 'POST', headers: jsonHeaders, body: JSON.stringify({ decision: 'reject' }),
+  }))).status, 400);
+
+  // reject에 conditions를 보내면 400
+  assert.equal((await handler(req(path, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ decision: 'reject', conditions: { regionCodes: ['11215'], budgetMaxWon: '700000000' } }),
+  }))).status, 400);
+
+  // reject 정상 -> 검색 색인 호출 0회
+  const rejected = await handler(req(path, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ decision: 'reject' }),
+  }));
+  assert.equal(rejected.status, 200);
+  assert.equal(searchCalls, 0);
+  assert.equal(decideOps.at(-1)?.decision, 'reject');
+
+  // 이미 거절된 카드에 confirm -> 409
+  const afterReject = await handler(req(path, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ decision: 'confirm' }),
+  }));
+  assert.equal(afterReject.status, 409);
+  assert.equal(searchCalls, 0);
+
+  // pending 상태로 되돌려 confirm 검증 (잘못된 수정 조건은 400)
+  proposalStatus = 'pending';
+  const badCond = await handler(req(path, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ decision: 'confirm', conditions: { regionCodes: ['bad'], budgetMaxWon: '700000000' } }),
+  }));
+  assert.equal(badCond.status, 400);
+  assert.equal((await badCond.json()).error, 'invalid_search_input');
+
+  // 색인 미준비(503) · 출처 제한(403)
+  searchMode = 'missing';
+  assert.equal((await handler(req(path, {
+    method: 'POST', headers: jsonHeaders, body: JSON.stringify({ decision: 'confirm' }),
+  }))).status, 503);
+  searchMode = 'restricted';
+  assert.equal((await handler(req(path, {
+    method: 'POST', headers: jsonHeaders, body: JSON.stringify({ decision: 'confirm' }),
+  }))).status, 403);
+
+  // 정상 confirm -> evaluateNoticeSearch 실행 + chat-search-summary/v1 저장 + regionLabels 포함
+  searchMode = 'ok';
+  const confirmed = await handler(req(path, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ decision: 'confirm' }),
+  }));
+  assert.equal(confirmed.status, 200);
+  const confirmedBody = await confirmed.json();
+  assert.equal(confirmedBody.searchResult.counts.matched, 1);
+  assert.equal(confirmedBody.searchResult.counts.needsReview, 1);
+  const lastDecide = decideOps.at(-1);
+  assert.equal(lastDecide?.decision, 'confirm');
+  assert.equal(lastDecide?.resultSummary?.contractVersion, 'chat-search-summary/v1');
+  assert.equal(lastDecide?.resultSummary?.counts.matched, 1);
+  assert.equal(lastDecide?.resultSummary?.counts.needsReview, 1);
+  assert.equal(lastDecide?.resultSummary?.regionLabels['11215'], '서울특별시 광진구');
+  assert.equal(lastDecide?.resultSummary?.matched[0]?.minSubtotalWon, '680000000');
+
+  // 같은 조건으로 멱등 재확인 -> 추가 검색 호출 없이 200
+  const callsBeforeReplay = searchCalls;
+  const replayed = await handler(req(path, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ decision: 'confirm' }),
+  }));
+  assert.equal(replayed.status, 200);
+  assert.equal(searchCalls, callsBeforeReplay);
 });

@@ -1,6 +1,6 @@
-# LLM 총괄 에이전트 코어와 비교 대화 연결
+# LLM 총괄 에이전트 코어와 비교 대화·채팅 홈 연결
 
-2026-11-26 작성. 사용자 결정(Q-40, [결정 기록](../prd/02-decision-log.md))에 따라 비교 대화에 연결하는 Python 기반 LLM 총괄 에이전트 코어, 검증기, 비동기 작업자 대기열, 비용 기록 및 운영 키 관리 계약을 기록한다. 이 문서는 구현 구조와 오프라인 합성 검수 범위를 설명하며, 실제 OpenAI 호출 품질 평가와 운영 모델 채택·제품 수락 기준(A-01~A-59) 통과를 뜻하지 않는다.
+2026-11-26 작성(2026-11-27 채팅 홈 연결 추가). 사용자 결정(Q-40·Q-42·Q-43, [결정 기록](../prd/02-decision-log.md))에 따라 비교 대화(S-05)와 채팅 홈(S-01)에 연결하는 Python 기반 LLM 총괄 에이전트 코어, 검증기, 비동기 작업자 대기열, 비용 기록 및 운영 키 관리 계약을 기록한다. 이 문서는 구현 구조와 오프라인 합성 검수 범위를 설명하며, 실제 OpenAI 호출 품질 평가와 운영 모델 채택·제품 수락 기준(A-01~A-59) 통과를 뜻하지 않는다.
 
 ## 1. 구조와 모듈 구성
 
@@ -8,12 +8,12 @@
 
 | 모듈 | 역할 |
 | --- | --- |
-| [`scripts/agent_llm.py`](../../scripts/agent_llm.py) | 공급자 인터페이스(`LLMProvider`), OpenAI Responses API(`POST https://api.openai.com/v1/responses`) 어댑터(`OpenAIResponsesProvider`), PRD §7.6.1 단가표 기반 비용 추정, 테스트·오프라인 회귀용 합성 대역(`StubProvider`) |
-| [`scripts/agent_prompts.py`](../../scripts/agent_prompts.py) | 한국어 시스템 프롬프트(`PROMPT_VERSION = "agent-core-v1"`), 외부 자료·질문 구분 태그(`<DATA_JSON>`, `<USER_QUESTION>`), OpenAI Structured Outputs용 엄격 JSON 스키마(`AGENT_TURN_OUTPUT_SCHEMA`) |
-| [`scripts/agent_tools.py`](../../scripts/agent_tools.py) | 도구 계약 4종(`read_comparison_summary`, `explain_holds`, `propose_period_change`, `propose_condition_change`)과 출처별 `llm_permission` 필터(`filter_comparison_for_llm`). 제안 도구는 초안만 만들며 검증·저장은 DB가 수행 |
-| [`scripts/agent_orchestrator.py`](../../scripts/agent_orchestrator.py) | 한 턴 실행(`run_turn(message, context, provider)`)과 출력 검증기(`validate_turn_output`). 도구 호출 루프, A-58 근거 일치·금지 표현·제안 형식 검증 |
+| [`scripts/agent_llm.py`](../../scripts/agent_llm.py) | 공급자 인터페이스(`LLMProvider`), OpenAI Responses API(`POST https://api.openai.com/v1/responses`) 어댑터(`OpenAIResponsesProvider`), PRD §7.6.1 단가표 기반 비용 추정, 테스트·오프라인 회귀용 합성 대역(`StubProvider`, 비교 대화·채팅 홈 겸용) |
+| [`scripts/agent_prompts.py`](../../scripts/agent_prompts.py) | 비교 대화용(`agent-core-v1`, `AGENT_TURN_OUTPUT_SCHEMA`) 및 채팅 홈용(`chat-agent-v1`, `CHAT_TURN_OUTPUT_SCHEMA`) 한국어 시스템 프롬프트와 외부 자료·질문 구분 태그(`<DATA_JSON>`, `<RECENT_MESSAGES>`, `<USER_MESSAGE>`) |
+| [`scripts/agent_tools.py`](../../scripts/agent_tools.py) | 비교 대화 도구 4종(`read_comparison_summary`, `explain_holds`, `propose_period_change`, `propose_condition_change`)과 출처별 `llm_permission` 필터, 채팅 홈 도구 4종(`lookup_notices`, `extract_search_conditions`, `propose_shared_profile_change`, `describe_service_capabilities`). 제안 도구는 초안만 만들며 검증·실행·저장은 서버와 DB가 수행 |
+| [`scripts/agent_orchestrator.py`](../../scripts/agent_orchestrator.py) | 비교 대화 턴(`run_turn`, `validate_turn_output`) 및 채팅 홈 턴(`run_chat_turn`, `validate_chat_turn_output`). 도구 호출 루프, A-58 근거(숫자·금액·면적·날짜·건수·행정구역명) 일치·금지 표현·제안 형식 검증 |
 | [`scripts/agent_cli.py`](../../scripts/agent_cli.py) | 합성 또는 고정 `comparison/v1` 파일로 한 턴을 실행해 JSON을 출력하는 CLI(`--provider stub|openai`, `--model`). Colab과 평가셋 비교에서 직접 재사용 |
-| [`scripts/agent_worker.py`](../../scripts/agent_worker.py) | DB 대기열에서 에이전트 응답을 임대·실행·검증·저장하는 작업자 모듈(`manage_notice_services.py`의 `agent` 역할이 호출) |
+| [`scripts/agent_worker.py`](../../scripts/agent_worker.py) | DB 대기열에서 비교 대화(`claim_agent_reply`) 및 채팅 홈(`claim_chat_agent_reply`) 에이전트 응답을 임대·실행·검증·저장하는 작업자 모듈(`manage_notice_services.py`의 `agent` 역할이 호출) |
 
 금액·면적·지역·통계·권한·승인 여부는 기존과 동일하게 서버 코드가 판정한다. LLM은 의도 해석, 조건 변경 제안 초안, 구조화 근거를 연결한 한국어 설명만 맡는다.
 
@@ -39,6 +39,17 @@
 - `read_agent_reply_context`는 `public.source_registry.llm_permission = 'allowed'`인 출처의 값만 문맥에 포함하고, 허용되지 않은 출처의 값은 제외한 뒤 `llmSourcePolicy.restrictedSources`에 표시한다. `naver_news`와 사용자 업로드(`user_upload`)는 항상 LLM 입력에서 제외한다.
 - 임대가 만료된 행은 소유자 조회(`read_analysis_conversation`) 시 즉시 `expired`로 표시하고, 작업자 정리(`expire_stale_agent_replies`·`claim_agent_reply`)로 `expired` 상태로 확정한다.
 - `turn_id`가 `on delete cascade`로 연결돼 있어 기존 개별 턴 삭제(`delete_personal_data('turn', ...)`·`resolve_turn_deletion_scope`)와 계정 삭제 시 에이전트 응답 및 파생 턴의 응답도 함께 삭제되며, 삭제된 턴을 임대하던 작업자의 쓰기는 `PT404`로 차단된다.
+
+### 3.1 채팅 홈(S-01) 대기열과 확인 후 실행 연결
+
+[채팅 에이전트 마이그레이션](../../supabase/migrations/20261126160000_chat_agent_replies.sql)은 같은 `private.agent_settings` 스위치와 모델을 공유하는 비공개 테이블 `private.chat_agent_replies`(RLS 활성, 직접 권한 전부 회수, 프롬프트·색인 원문 비저장)를 추가한다. [채팅 홈·공고 찾기 계약](chat-home.md)
+
+- **대기열·작업자 RPC (`service_role` 전용)**: `claim_chat_agent_reply`, `read_chat_agent_reply_context`, `complete_chat_agent_reply`, `fail_chat_agent_reply`, `expire_stale_chat_agent_replies`. `agent_worker.process_once`는 비교 대화 대기열이 비어 있을 때 `process_chat_once`로 채팅 대기열 한 건을 이어서 처리한다.
+- **출처 권한(Q-42)**: `read_chat_agent_reply_context`는 `public.source_registry.llm_permission = 'allowed'`이고 표시 권한이 허용된 출처의 지역·공고 목록만 문맥에 포함하며, `naver_news`는 항상 제외한다.
+- **도구와 검증기(A-58)**: 채팅 홈 도구(`lookup_notices`, `extract_search_conditions`, `propose_shared_profile_change`, `describe_service_capabilities`)와 `validate_chat_turn_output`은 공식 5자리 지역 코드만 허용(동명·미확인 지역은 코드 생성 대신 확인 질문), 필수 조건(지역·예산) 누락 확인(A-19), 선택 조건(공급면적·입주월) 비강제(A-18), 공급면적·전용면적 분리, 확인 전 실행 주장·자격 판정·구매 권유·가격 전망 차단, 답변의 모든 숫자·금액·면적·날짜·건수·행정구역명 근거 일치를 검사한다.
+- **확인 후 실행과 O-3 연동**: `complete_chat_agent_reply`는 탐색 조건을 `search_proposal_status = 'pending'`으로만 저장하며, 사용자가 확인 카드를 눌렀을 때만 소유자 RPC(`prepare_chat_search_confirmation` → 기존 맞춤 검색 실행 → `decide_chat_search_proposal`)로 결과를 채팅에 기록한다. 공유 프로필 변경안은 `status = 'pending'`으로만 만들고 승인은 기존 O-3(`decide_search_profile_change`)에서만 처리한다.
+- **삭제 cascade**: `user_message_id -> public.chat_messages(id)`와 `(chat_id, user_id) -> public.chats(id, user_id)`에 `on delete cascade`가 걸려 있어 메시지·채팅·계정 삭제 시 함께 제거되며 진행 중 작업자는 `PT404`로 차단된다.
+- **오프라인 합성 검사**: [채팅 에이전트 Python 검사](../../scripts/test_chat_agent.py) · [채팅 에이전트 DB 검사](../../tests/database/chat-agent.test.mjs) · [채팅 에이전트 브라우저 검사](../../tests/browser/chat-agent.test.mjs)
 
 ## 4. 모델·비용 기록과 운영 키 관리
 

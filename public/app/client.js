@@ -294,6 +294,16 @@ export async function sendChatMessage(chatId, { requestId, message, mode = 'auto
   return data;
 }
 
+export async function decideChatSearchProposal(chatId, replyId, { decision, conditions = undefined } = {}, signal) {
+  if (!uuid.test(chatId) || !uuid.test(replyId) || !['confirm', 'reject', 'cancel'].includes(decision)) {
+    throw apiError('invalid_chat_input');
+  }
+  const body = conditions !== undefined && conditions !== null ? { decision, conditions } : { decision };
+  const data = await request('/api/v1/chats/' + chatId + '/replies/' + replyId + '/decision', 'POST', body, signal);
+  if (data?.contractVersion !== 'chat-search-decision/v1' || data.chatId !== chatId) throw apiError('backend_unavailable');
+  return data;
+}
+
 export function listDeletionItems(kind, before = null, signal) {
   const params = new URLSearchParams({ kind });
   if (before) params.set('before', before);

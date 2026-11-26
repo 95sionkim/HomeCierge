@@ -245,10 +245,10 @@ function signedInView(s) {
     </header>
 
     <form id="chat-home-form" class="chat-composer-card" novalidate>
-      <label class="sr-only" for="chat-home-input">공고명 또는 공고번호 입력</label>
-      <textarea id="chat-home-input" name="message" rows="2" maxlength="800" placeholder="공고명(단지명 일부)이나 10자리 공고번호를 입력하세요." ${s.busy ? 'disabled' : ''}>${esc(s.composerText)}</textarea>
+      <label class="sr-only" for="chat-home-input">공고명, 공고번호 또는 탐색 조건 입력</label>
+      <textarea id="chat-home-input" name="message" rows="2" maxlength="800" placeholder="공고명·10자리 공고번호 또는 탐색 조건(예: 광진구랑 성동구에서 7억 이하, 84㎡ 정도로 찾아줘)을 입력하세요." ${s.busy ? 'disabled' : ''}>${esc(s.composerText)}</textarea>
       <div class="chat-composer-foot">
-        <span class="small muted">${profile ? `확인된 프로필 v${profile.revision}${profile.pending ? ` · 변경안 ${profile.pending}건 대기` : ''}` : '공고명 또는 공고번호를 입력하면 새 채팅에서 공고 찾기를 실행합니다.'}</span>
+        <span class="small muted">${profile ? `확인된 프로필 v${profile.revision}${profile.pending ? ` · 변경안 ${profile.pending}건 대기` : ''}` : '공고명·공고번호 또는 지역·예산 조건을 입력하면 새 채팅에서 확인 후 검색합니다.'}</span>
         <button type="submit" class="action primary compact" ${s.busy ? 'disabled' : ''}>${icon('send')}${s.busy ? '시작 중' : '채팅 시작'}</button>
       </div>
     </form>

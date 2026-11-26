@@ -1,8 +1,8 @@
 import { isDeepStrictEqual } from 'node:util';
 import { ApiError, isUuid, readJsonRequest } from './http-input.js';
 import { isDate, isPublicLabel, koreaDate } from './public-fields.js';
-import { applicationStatus, readIndex } from './notice-search.js';
-import type { ApplicationStatus, CollectionSource, DateRange, Notice, ReasonCode, SourceId } from './notice-search.js';
+import { applicationStatus, evaluateNoticeSearch, parseNoticeSearchConditions, readIndex } from './notice-search.js';
+import type { ApplicationStatus, CollectionSource, DateRange, Notice, NoticeSearchConditions, ReasonCode, SourceId } from './notice-search.js';
 import { parseAnalysisRun } from './analysis-runs.js';
 import type { AnalysisRun } from './analysis-runs.js';
 
@@ -47,6 +47,41 @@ export type NoticeAnalysisInput = {
   modelNo: string;
 };
 
+export type ChatSearchDecision = 'confirm' | 'reject' | 'cancel';
+
+export type ChatSearchSummaryNotice = {
+  houseManageNo: string;
+  noticeNo: string;
+  edition: string;
+  title: string | null;
+  kind: Exclude<Notice['kind'], 'unsupported'>;
+  regionCode: string | null;
+  regionName: string | null;
+  applicationStatus: ApplicationStatus;
+  modelsCount: number;
+  matchedRoomsCount: number;
+  needsReviewRoomsCount: number;
+  minSubtotalWon: string | null;
+  maxSubtotalWon: string | null;
+  reasonCodes: ReasonCode[];
+};
+
+export type ChatSearchResultSummary = {
+  contractVersion: 'chat-search-summary/v1';
+  asOf: string;
+  observedAt: string;
+  publicationWindow: DateRange;
+  coverage: { status: 'complete' | 'partial' | 'unavailable'; sources: { source: CollectionSource; status: string }[] };
+  zeroStatus: 'not_zero' | 'confirmed_zero' | 'indeterminate';
+  scopeIssues: string[];
+  counts: { matched: number; needsReview: number; excluded: number };
+  truncation: { truncated: boolean; matchedOmitted: number; needsReviewOmitted: number };
+  appliedConditions: NoticeSearchConditions;
+  regionLabels: Record<string, string>;
+  matched: ChatSearchSummaryNotice[];
+  needsReview: ChatSearchSummaryNotice[];
+};
+
 export type ChatHomeOperation =
   | { action: 'list'; before: string | null; limit: number }
   | { action: 'create'; requestId: string; title: string | null }
@@ -60,6 +95,15 @@ export type ChatHomeOperation =
       replyAction: ChatReplyAction;
       query: string | null;
       mode: ResolvedLookupMode | null;
+    }
+  | { action: 'prepareSearch'; chatId: string; replyId: string }
+  | {
+      action: 'decideSearch';
+      chatId: string;
+      replyId: string;
+      decision: ChatSearchDecision;
+      conditions: NoticeSearchConditions | null;
+      resultSummary: ChatSearchResultSummary | null;
     }
   | { action: 'startAnalysis'; chatId: string; requestId: string; input: NoticeAnalysisInput };
 
@@ -167,6 +211,7 @@ export function parseNoticeLookupQuery(params: URLSearchParams): NoticeLookupQue
 const pdfGuidePattern = /pdf|공고문.*(?:올리|업로드|첨부|보완)|파일.*(?:올리|업로드|첨부)/iu;
 const greetingOrHelpPattern = /^(?:안녕|안녕하세요|반가워|하이|헬로|도움|도움말|사용법|안내|뭐\s*할\s*수|무엇을\s*할\s*수|기능)/u;
 const freeQuestionPattern = /(?:인가요|할까요|될까요|일까요|있나요|없나요|어때요|어떨까요|괜찮나요|얼마인가요|얼마나요|오를까요|떨어질까요|당첨될까요|사도\s*될까요|살까요|추천해|알려\s*줘|알려\s*주세요|설명해|분석해\s*줘|자격|가점|대출|금리|세금|취득세|양도세|청약\s*통장|당첨\s*확률|전망|시세\s*예측)/u;
+const searchOrProfileIntentPattern = /(?:[0-9]+(?:\.[0-9]+)?\s*(?:억|천\s*만|만\s*원|㎡|m²|m2|제곱미터|평)|예산|이하|이내|입주\s*(?:시기|월|예정)?|공급\s*면적|전용\s*면적|공유\s*프로필|탐색\s*조건|다음\s*(?:검색)?에도|다음에도|앞으로도|기본\s*조건|조건\s*(?:저장|변경|수정|설정)|(?:^|[\s,])(?:[가-힣]{1,6}(?:시|군|구))(?:랑|이랑|와|과|하고)?\s*(?:에서|쪽|근처))/u;
 const numberPrefixPattern = /^(?:청약홈\s*)?(?:공고\s*번호|주택\s*관리\s*번호|번호)\s*[:#]?\s*/u;
 const namePrefixPattern = /^(?:공고명|단지명|공고)\s*[:#]?\s*/u;
 const lookupSuffixPattern = /\s*(?:공고\s*)?(?:찾아\s*주세요|찾아\s*줘|찾기|검색해\s*주세요|검색해\s*줘|검색|조회해\s*주세요|조회해\s*줘|조회)\s*[.!]?$/u;
@@ -214,7 +259,7 @@ export function classifyChatInput(
     return { message, action: 'lookup', query: tenDigitMatch[1]!, mode: 'number' };
   }
 
-  if (isQuestionOrAdvisory) {
+  if (isQuestionOrAdvisory || searchOrProfileIntentPattern.test(plain)) {
     return { message, action: 'help', query: null, mode: null };
   }
 
@@ -435,9 +480,119 @@ function parseNoticeAnalysisInput(value: unknown): NoticeAnalysisInput | null {
   return { kind, noticeSource, houseManageNo, noticeNo, edition, modelNo };
 }
 
+const maxChatSummaryNotices = 10;
+
+function trimDecimalString(value: string): string {
+  return value.includes('.') ? value.replace(/\.?0+$/, '') : value;
+}
+
+function canonicalizeSearchConditions(conditions: NoticeSearchConditions): NoticeSearchConditions {
+  return {
+    regionCodes: [...conditions.regionCodes].sort(compareText),
+    budgetMaxWon: conditions.budgetMaxWon,
+    includeClosed: conditions.includeClosed,
+    ...(conditions.supplyArea
+      ? {
+          supplyArea: {
+            min: trimDecimalString(conditions.supplyArea.min),
+            max: trimDecimalString(conditions.supplyArea.max),
+            unit: conditions.supplyArea.unit,
+          },
+        }
+      : {}),
+    ...(conditions.moveIn ? { moveIn: { start: conditions.moveIn.start, end: conditions.moveIn.end } } : {}),
+  };
+}
+
+type EvaluatedNoticeSearch = ReturnType<typeof evaluateNoticeSearch>;
+
+function summarizeSearchNotice(
+  notice: EvaluatedNoticeSearch['matched'][number],
+  group: 'matched' | 'needsReview',
+  regionNames: ReadonlyMap<string, string>,
+): ChatSearchSummaryNotice {
+  const prices: bigint[] = [];
+  for (const model of notice.models) {
+    const rooms = group === 'matched' ? model.matchedRooms : model.needsReviewRooms;
+    for (const room of rooms) {
+      if (room.subtotalWon !== null) prices.push(BigInt(room.subtotalWon));
+    }
+  }
+  let minSubtotalWon: string | null = null;
+  let maxSubtotalWon: string | null = null;
+  if (prices.length > 0) {
+    let min = prices[0]!;
+    let max = prices[0]!;
+    for (const price of prices) {
+      if (price < min) min = price;
+      if (price > max) max = price;
+    }
+    minSubtotalWon = min.toString();
+    maxSubtotalWon = max.toString();
+  }
+  return {
+    houseManageNo: notice.houseManageNo,
+    noticeNo: notice.noticeNo,
+    edition: notice.edition,
+    title: notice.title,
+    kind: notice.kind as Exclude<Notice['kind'], 'unsupported'>,
+    regionCode: notice.regionCode,
+    regionName: notice.regionCode ? regionNames.get(notice.regionCode) ?? null : null,
+    applicationStatus: notice.applicationStatus,
+    modelsCount: notice.models.length,
+    matchedRoomsCount: notice.counts.matchedRooms,
+    needsReviewRoomsCount: notice.counts.needsReviewRooms,
+    minSubtotalWon,
+    maxSubtotalWon,
+    reasonCodes: notice.reasonCodes.slice(0, 32),
+  };
+}
+
+export function buildChatSearchSummary(
+  result: EvaluatedNoticeSearch,
+  regionNames: ReadonlyMap<string, string>,
+): ChatSearchResultSummary {
+  const appliedConditions = canonicalizeSearchConditions(result.appliedConditions);
+  const matched = result.matched.slice(0, maxChatSummaryNotices).map(n => summarizeSearchNotice(n, 'matched', regionNames));
+  const needsReview = result.needsReview.slice(0, maxChatSummaryNotices).map(n => summarizeSearchNotice(n, 'needsReview', regionNames));
+  const matchedOmitted = Math.max(0, result.counts.matched - matched.length);
+  const needsReviewOmitted = Math.max(0, result.counts.needsReview - needsReview.length);
+  const regionLabels: Record<string, string> = {};
+  for (const code of appliedConditions.regionCodes) {
+    const label = regionNames.get(code);
+    if (label) regionLabels[code] = label;
+  }
+  for (const item of [...matched, ...needsReview]) {
+    if (item.regionCode) {
+      const label = regionNames.get(item.regionCode);
+      if (label) regionLabels[item.regionCode] = label;
+    }
+  }
+  return {
+    contractVersion: 'chat-search-summary/v1',
+    asOf: result.asOf,
+    observedAt: result.observedAt,
+    publicationWindow: { ...result.publicationWindow },
+    coverage: { status: result.coverage.status, sources: result.coverage.sources.map(source => ({ ...source })) },
+    zeroStatus: result.zeroStatus as ChatSearchResultSummary['zeroStatus'],
+    scopeIssues: [...result.scopeIssues],
+    counts: { ...result.counts },
+    truncation: {
+      truncated: result.truncation.truncated || matchedOmitted > 0 || needsReviewOmitted > 0,
+      matchedOmitted,
+      needsReviewOmitted,
+    },
+    appliedConditions,
+    regionLabels,
+    matched,
+    needsReview,
+  };
+}
+
 export type ChatRouteTarget = {
   chatId?: string;
-  sub?: 'messages' | 'analyses';
+  sub?: 'messages' | 'analyses' | 'replyDecision';
+  replyId?: string;
 };
 
 export async function serveChatHome(
@@ -550,6 +705,104 @@ export async function serveChatHome(
     }
 
     return respond({ ...saved, lookup, lookupError }, 200);
+  }
+
+  if (target.sub === 'replyDecision') {
+    if (!isUuid(target.replyId)) throw new ApiError('invalid_chat_input');
+    const replyId = target.replyId.toLowerCase();
+    const body = await readJsonRequest(request, 'invalid_chat_input');
+    if (!isDataRecord(body) || !Object.keys(body).every(k => k === 'decision' || k === 'conditions')) {
+      throw new ApiError('invalid_chat_input');
+    }
+    const decision = body.decision;
+    if (decision !== 'confirm' && decision !== 'reject' && decision !== 'cancel') {
+      throw new ApiError('invalid_chat_input');
+    }
+
+    if (decision === 'reject' || decision === 'cancel') {
+      if (Object.hasOwn(body, 'conditions') && body.conditions !== undefined && body.conditions !== null) {
+        throw new ApiError('invalid_chat_input');
+      }
+      const saved = await deps.chatHome(
+        { action: 'decideSearch', chatId, replyId, decision, conditions: null, resultSummary: null },
+        request.signal,
+      );
+      if (!isDataRecord(saved) || saved.chatId !== chatId) throw new Error('invalid_chat_response');
+      return respond({ ...saved, searchResult: null }, 200);
+    }
+
+    let overrideConditions: NoticeSearchConditions | null = null;
+    if (Object.hasOwn(body, 'conditions') && body.conditions !== undefined && body.conditions !== null) {
+      overrideConditions = parseNoticeSearchConditions(body.conditions);
+      if (!overrideConditions) throw new ApiError('invalid_search_input');
+    }
+
+    const prep = await deps.chatHome({ action: 'prepareSearch', chatId, replyId }, request.signal);
+    if (!isDataRecord(prep) || prep.chatId !== chatId || typeof prep.status !== 'string') {
+      throw new Error('invalid_chat_response');
+    }
+
+    const effectiveRaw = overrideConditions ?? parseNoticeSearchConditions(prep.searchProposal);
+    if (!effectiveRaw) throw new ApiError('invalid_search_input');
+    const effectiveCanonical = canonicalizeSearchConditions(effectiveRaw);
+
+    if (prep.status === 'rejected' || prep.status === 'cancelled') {
+      throw new ApiError('chat_conflict');
+    }
+    if (prep.status === 'confirmed') {
+      const confirmedParsed = parseNoticeSearchConditions(prep.confirmedConditions);
+      if (!confirmedParsed || !isDeepStrictEqual(canonicalizeSearchConditions(confirmedParsed), effectiveCanonical)) {
+        throw new ApiError('chat_conflict');
+      }
+      return respond(
+        {
+          contractVersion: 'chat-search-decision/v1',
+          chatId,
+          replyId,
+          agentReply: prep.agentReply ?? null,
+          resultMessage: prep.resultMessage ?? null,
+          searchResult: null,
+        },
+        200,
+      );
+    }
+    if (prep.status !== 'pending') {
+      throw new ApiError('chat_conflict');
+    }
+
+    const searchIndex = await deps.getNoticeSearchIndex(request.signal, 'search');
+    if (searchIndex === null) throw new ApiError('search_index_not_ready');
+    if (typeof searchIndex !== 'object' || !('dataOrigin' in searchIndex) || searchIndex.dataOrigin !== 'collected') {
+      throw new Error('invalid_search_index');
+    }
+
+    const searchResult = evaluateNoticeSearch(searchIndex, effectiveCanonical, deps.asOf);
+    let regionNames: ReadonlyMap<string, string> = new Map();
+    try {
+      const dirIndex = await deps.getNoticeSearchIndex(request.signal, 'directory');
+      if (dirIndex && typeof dirIndex === 'object' && 'dataOrigin' in dirIndex && dirIndex.dataOrigin === 'collected') {
+        const split = splitRegionNames(dirIndex);
+        const parsedDir = readIndex(split.index);
+        regionNames = readRegionNames(split.names, parsedDir.regionCodes);
+      }
+    } catch {
+      // 디렉터리 표시명 조회는 보조 표시 용도이므로 실패해도 맞춤 검색 실행을 막지 않는다.
+    }
+
+    const resultSummary = buildChatSearchSummary(searchResult, regionNames);
+    const saved = await deps.chatHome(
+      {
+        action: 'decideSearch',
+        chatId,
+        replyId,
+        decision: 'confirm',
+        conditions: effectiveCanonical,
+        resultSummary,
+      },
+      request.signal,
+    );
+    if (!isDataRecord(saved) || saved.chatId !== chatId) throw new Error('invalid_chat_response');
+    return respond({ ...saved, searchResult }, 200);
   }
 
   // POST /api/v1/chats/:chatId/analyses

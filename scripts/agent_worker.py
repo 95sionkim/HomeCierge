@@ -9,11 +9,11 @@ from uuid import UUID
 
 if __package__:
     from .agent_llm import AgentLLMError, OpenAIResponsesProvider, SUPPORTED_MODELS
-    from .agent_orchestrator import run_turn
+    from .agent_orchestrator import run_chat_turn, run_turn
     from .worker_rpc import WorkerRpc, WorkerRpcError, WorkerRpcResponseTooLarge
 else:
     from agent_llm import AgentLLMError, OpenAIResponsesProvider, SUPPORTED_MODELS
-    from agent_orchestrator import run_turn
+    from agent_orchestrator import run_chat_turn, run_turn
     from worker_rpc import WorkerRpc, WorkerRpcError, WorkerRpcResponseTooLarge
 
 
@@ -37,6 +37,61 @@ def _lease_identity(job):
         raise WorkerRpcError() from None
 
 
+def process_chat_once(client, provider_factory, *, lease_seconds=60, reply_id=None):
+    """채팅 홈 에이전트 응답 대기열에서 만료된 임대를 정리한 뒤 한 건을 처리한다."""
+    if type(lease_seconds) is not int or not 1 <= lease_seconds <= 300:
+        raise ValueError('임대 시간은 1~300초여야 합니다.')
+    claim_args = {'p_lease_seconds': lease_seconds}
+    if reply_id is not None:
+        claim_args['p_reply_id'] = str(UUID(str(reply_id)))
+    job = client.post('claim_chat_agent_reply', claim_args)
+    if job is None:
+        return {'status': 'idle'}
+    lease, model = _lease_identity(job)
+    claimed_id = lease['p_reply_id']
+
+    try:
+        try:
+            context = client.post('read_chat_agent_reply_context', lease, limit=MAX_AGENT_CONTEXT_BYTES)
+        except WorkerRpcResponseTooLarge:
+            client.post('fail_chat_agent_reply', {**lease, 'p_failure_code': 'context_too_large'})
+            return {'status': 'failed', 'replyId': claimed_id, 'failureCode': 'context_too_large'}
+        if not isinstance(context, dict) or not isinstance(context.get('message'), str):
+            client.post('fail_chat_agent_reply', {**lease, 'p_failure_code': 'invalid_context'})
+            return {'status': 'failed', 'replyId': claimed_id, 'failureCode': 'invalid_context'}
+
+        provider = provider_factory(context.get('model') or model)
+        result = run_chat_turn(context['message'], context, provider)
+        completed = client.post('complete_chat_agent_reply', {
+            **lease,
+            'p_status': result['status'],
+            'p_intent': result['intent'],
+            'p_answer': result['answer'],
+            'p_citations': result['citations'],
+            'p_search_proposal': result['searchProposal'],
+            'p_profile_proposal': result['profileProposal'],
+            'p_lookup_query': result['lookupQuery'],
+            'p_usage': result['usage'],
+            'p_validation': result['validation'],
+            'p_prompt_version': result['promptVersion'],
+        })
+        if not isinstance(completed, dict) or completed.get('status') not in ('answered', 'rejected'):
+            raise WorkerRpcError()
+        return {'status': completed['status'], 'replyId': claimed_id, 'queue': 'chat'}
+    except AgentLLMError as exc:
+        try:
+            client.post('fail_chat_agent_reply', {**lease, 'p_failure_code': exc.code})
+        except WorkerRpcError as rpc_exc:
+            if rpc_exc.code in ('PT404', 'PT409'):
+                return {'status': 'lease_lost', 'replyId': claimed_id}
+            raise
+        return {'status': 'failed', 'replyId': claimed_id, 'failureCode': exc.code}
+    except WorkerRpcError as exc:
+        if exc.code in ('PT404', 'PT409'):
+            return {'status': 'lease_lost', 'replyId': claimed_id}
+        raise
+
+
 def process_once(client, provider_factory, *, lease_seconds=60, reply_id=None):
     """대기열에서 만료된 임대를 정리한 뒤 에이전트 응답 작업 한 건을 처리한다."""
     if type(lease_seconds) is not int or not 1 <= lease_seconds <= 300:
@@ -46,6 +101,8 @@ def process_once(client, provider_factory, *, lease_seconds=60, reply_id=None):
         claim_args['p_reply_id'] = str(UUID(str(reply_id)))
     job = client.post('claim_agent_reply', claim_args)
     if job is None:
+        if reply_id is None:
+            return process_chat_once(client, provider_factory, lease_seconds=lease_seconds)
         return {'status': 'idle'}
     lease, model = _lease_identity(job)
     claimed_id = lease['p_reply_id']
