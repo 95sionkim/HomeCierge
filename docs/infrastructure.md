@@ -162,6 +162,8 @@ BE-11에서 서울 개발 DB에 [오늘 공고 목록](../supabase/migrations/20
 
 이어서 [채팅 홈 에이전트 대기열](../supabase/migrations/20261126160000_chat_agent_replies.sql)을 CLI로 적용했고 다시 생성한 타입이 저장소 파일과 같다. 작업자 RPC 5개(임대·문맥·완료·실패·만료)는 서비스 키 전용이고, 사용자 확인 카드의 확인·결정 RPC 2개는 로그인 사용자에게만 실행 권한이 있음을 원격에서 확인했다. 실제 OpenAI 호출로 채팅 응답 품질을 확인하는 검수는 남아 있다. [채팅 홈](api/chat-home.md)
 
+2026-11-27 새 통합 검사(`npm run test:auth -- --upload-supplement`)가 GitHub Actions의 실제 Supabase에서 업로드 보완 문맥 조회의 503을 찾았다. `STABLE`로 선언된 공개 RPC를 PostgREST가 읽기 전용 트랜잭션에서 실행하는데, 공통 로그인 확인이 Auth 사용자 행을 `FOR SHARE`로 잠가 25006으로 실패했다. PGlite 검사는 SQL을 직접 실행해 이 차이를 드러내지 못했다. [변동성 수정](../supabase/migrations/20261127003000_upload_supplement_rpc_volatility.sql)으로 `read_upload_supplement_context`·`get_upload_supplement_run`을 `VOLATILE`로 바꿔 개발 DB에 적용했고, `STABLE`·`IMMUTABLE` 공개 RPC가 행 잠금에 닿으면 실패하는 [정적 검사](../scripts/test_migration_rpc_volatility.py)를 기본 Python 검사에 추가했다.
+
 ## 6. 연결할 환경변수를 구분한다
 
 | 이름을 확인한다 | 설정 위치를 정한다 | 사용 목적을 설명한다 |
