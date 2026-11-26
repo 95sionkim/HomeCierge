@@ -1033,11 +1033,7 @@ export type Database = {
         Returns: Json
       }
       read_auto_evidence_permissions: {
-        Args: {
-          p_generation: number
-          p_lease_token: string
-          p_run_id: string
-        }
+        Args: { p_generation: number; p_lease_token: string; p_run_id: string }
         Returns: Json
       }
       read_chat_detail: { Args: { p_chat_id: string }; Returns: Json }

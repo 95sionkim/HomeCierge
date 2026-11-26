@@ -136,6 +136,8 @@ BE-11에서 서울 개발 DB에 [오늘 공고 목록](../supabase/migrations/20
 
 같은 날 출처별 LLM 입력 허용(Q-42)과 기능 활성화를 개발 DB에 반영했고, 기준 모델을 바꾸는 [`gpt-6.2-sol` 마이그레이션](../supabase/migrations/20261126143000_agent_model_gpt_6_2_sol.sql)(Q-43)을 CLI로 적용했다. 설정은 `gpt-6.2-sol`·켜짐이며, 응답 기록 테이블은 과거 이름 `gpt-6.1-sol`도 허용한다. 다시 생성한 타입은 저장소 파일과 같다.
 
+이어서 [자동 비교 근거](../supabase/migrations/20261126150000_auto_comparison_evidence.sql)(Q-38·Q-39)를 CLI로 적용했다. 사용자·분석 식별자가 없는 공유 캐시 2개(법정동 소속, 단지 근거)를 만들었고, 근거 저장·캐시·권한 확인 RPC 4개는 서비스 키에서만 실행됨을 원격에서 확인했다. 다시 생성한 타입에 맞춰 저장소 파일의 인자 줄바꿈 한 곳을 고쳤다. 실제 청약홈·실거래·카카오 조회로 자동 연결률을 확인하는 `scripts/verify_auto_evidence.py --live`는 아직 실행하지 않았다. [자동 비교 근거](api/auto-comparison-evidence.md)
+
 ## 6. 연결할 환경변수를 구분한다
 
 | 이름을 확인한다 | 설정 위치를 정한다 | 사용 목적을 설명한다 |
