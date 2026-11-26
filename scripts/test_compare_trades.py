@@ -400,19 +400,26 @@ class ComparisonTests(unittest.TestCase):
     def test_area_limits_are_inclusive_and_a_changed_limit_needs_confirmation(self):
         self.sales_only()
         self.area('100')
-        areas = ['94.99', '95', '105', '105.01', None]
+        areas = ['94.99', '95', '97', '103', '105', '105.01', None]
         self.rows(SALE, [self.sale_row(str(i)) for i in range(len(areas))])
         for i in range(len(areas)):
             self.complex(str(i), latitude=f'37.50{i}')
         ingestion = replay(self.bundle)
         self.link_sales(ingestion, {(f'합성 {i}', '84.00'): (str(i), area) for i, area in enumerate(areas)})
-        result = self.compare({'areaTolerancePercent': '6'}, ingestion)
-        self.assertEqual({row['complexId'] for row in result['comparables']}, {'1', '2'})
+        result = self.compare({'areaTolerancePercent': '3'}, ingestion)
+        self.assertEqual({row['complexId'] for row in result['comparables']}, {'1', '2', '3', '4'})
         self.assertEqual(result['conditions']['area']['tolerancePercent'], '5')
         self.assertEqual(result['completeness'], 'partial')
+        self.assertIn('area_change_confirmation_required', {row['reasonCode'] for row in result['holds']})
         self.assertEqual(sum(item['reasonCode'] == 'outside_supply_area' for item in result['exclusions']), 2)
-        changed = self.compare({'areaTolerancePercent': '6', 'areaChangeConfirmed': True}, ingestion)
-        self.assertEqual({row['complexId'] for row in changed['comparables']}, {'0', '1', '2', '3'})
+        changed = self.compare({'areaTolerancePercent': '3', 'areaChangeConfirmed': True}, ingestion)
+        self.assertEqual(changed['conditions']['area']['tolerancePercent'], '3')
+        self.assertEqual({row['complexId'] for row in changed['comparables']}, {'2', '3'})
+        # Q-41: 기본 ±5%보다 넓히는 변경은 확인 플래그가 있어도 허용하지 않고 기본 ±5%를 유지한다.
+        over_cap = self.compare({'areaTolerancePercent': '6', 'areaChangeConfirmed': True}, ingestion)
+        self.assertEqual(over_cap['conditions']['area']['tolerancePercent'], '5')
+        self.assertIn('area_tolerance_invalid', {row['reasonCode'] for row in over_cap['holds']})
+        self.assertEqual({row['complexId'] for row in over_cap['comparables']}, {'1', '2', '3', '4'})
 
     def test_confirmed_out_of_range_area_excludes_an_unpriced_trade(self):
         self.sales_only()
@@ -460,14 +467,18 @@ class ComparisonTests(unittest.TestCase):
 
     def test_area_and_user_tolerance_follow_the_be02_decimal_length(self):
         self.evidence['tradeLinks'][0]['supplyAreaM2'] = '112.' + '4' * 21
-        result = self.compare({'areaTolerancePercent': '5.' + '0' * 22 + '1', 'areaChangeConfirmed': True})
+        result = self.compare({'areaTolerancePercent': '4.' + '0' * 22 + '1', 'areaChangeConfirmed': True})
         self.assertEqual([row['complexId'] for row in result['comparables']], ['comparison-b'])
         self.assertEqual(result['conditions']['area']['tolerancePercent'], '5')
         self.assertTrue({'area_tolerance_invalid', 'trade_supply_area_unverified'}
                         <= {row['reasonCode'] for row in result['holds']})
-        accepted = '5.' + '0' * 21 + '1'
+        accepted = '4.' + '0' * 21 + '1'
         self.assertEqual(self.compare({'areaTolerancePercent': accepted, 'areaChangeConfirmed': True})
                          ['conditions']['area']['tolerancePercent'], accepted)
+        # 길이가 24자 이내여도 상한 5%를 넘으면 거부한다(Q-41).
+        over = self.compare({'areaTolerancePercent': '5.' + '0' * 21 + '1', 'areaChangeConfirmed': True})
+        self.assertEqual(over['conditions']['area']['tolerancePercent'], '5')
+        self.assertIn('area_tolerance_invalid', {row['reasonCode'] for row in over['holds']})
 
     def test_closest_area_only_and_equal_observations_keep_their_locations(self):
         self.sales_only()
@@ -1013,18 +1024,24 @@ class ComparisonTests(unittest.TestCase):
         self.assertFalse(pool['unlinked']['eligible'])
         self.assertNotIn('target', pool)
 
-        # 승인된 허용 범위는 확인 플래그 없이 적용되고 경계는 양 끝 포함이다.
-        widened = run({'areaTolerancePercent': '5.01'})
-        self.assertEqual(widened['conditions']['area'],
-                         {'basis': 'supply', 'tolerancePercent': '5.01', 'minM2': '94.99', 'maxM2': '105.01'})
-        widened_pool = {entry['complexId']: entry for entry in widened['candidatePool']}
-        self.assertTrue(widened_pool['low-out']['eligible'] and widened_pool['high-out']['eligible'])
-        self.assertNotIn('area_change_confirmation_required', {row['reasonCode'] for row in widened['holds']})
+        # Q-41: 승인된 허용 범위는 0% 초과 5% 이하로 좁히는 변경(및 ±5% 복원)만 허용하며 경계는 양 끝 포함이다.
         narrowed = run({'areaTolerancePercent': '4.99'})
-        self.assertEqual((narrowed['conditions']['area']['minM2'], narrowed['conditions']['area']['maxM2']),
-                         ('95.01', '104.99'))
+        self.assertEqual(narrowed['conditions']['area'],
+                         {'basis': 'supply', 'tolerancePercent': '4.99', 'minM2': '95.01', 'maxM2': '104.99'})
         narrowed_pool = {entry['complexId']: entry for entry in narrowed['candidatePool']}
         self.assertFalse(narrowed_pool['low-in']['eligible'] or narrowed_pool['high-in']['eligible'])
+        self.assertNotIn('area_change_confirmation_required', {row['reasonCode'] for row in narrowed['holds']})
+        tighter = run({'areaTolerancePercent': '3'})
+        self.assertEqual(tighter['conditions']['area'],
+                         {'basis': 'supply', 'tolerancePercent': '3', 'minM2': '97', 'maxM2': '103'})
+        tighter_pool = {entry['complexId']: entry for entry in tighter['candidatePool']}
+        self.assertTrue(tighter_pool['near-d']['eligible'])
+        self.assertFalse(tighter_pool['low-in']['eligible'] or tighter_pool['high-in']['eligible'])
+        restored = run({'areaTolerancePercent': '5'})
+        self.assertEqual(restored['conditions']['area'],
+                         {'basis': 'supply', 'tolerancePercent': '5', 'minM2': '95', 'maxM2': '105'})
+        restored_pool = {entry['complexId']: entry for entry in restored['candidatePool']}
+        self.assertTrue(restored_pool['low-in']['eligible'] and restored_pool['high-in']['eligible'])
 
         # A-54: 적격 후보만 기존 단지와 교체해 고유 5개 이하를 유지하고 선정 이유를 남긴다.
         replaced = run({'replacements': [{'complexId': 'high-in', 'replaceComplexId': 'low-in'}]})
@@ -1044,9 +1061,10 @@ class ComparisonTests(unittest.TestCase):
         self.assertEqual([row['complexId'] for row in missing['comparables']], displayed)
         self.assertIn('replacement_target_required', {row['reasonCode'] for row in missing['holds']})
 
-        # 승인 조건 형식 오류와 수집하지 않은 거래 종류는 결과를 만들지 않는다.
-        for bad in [{}, {'areaTolerancePercent': '0'}, {'areaTolerancePercent': '-5'}, {'areaTolerancePercent': '50.0001'},
-                    {'areaTolerancePercent': '5.12345'}, {'areaTolerancePercent': 7}, {'tradeKinds': []},
+        # 승인 조건 형식 오류·상한(5%) 초과·수집하지 않은 거래 종류는 결과를 만들지 않는다.
+        for bad in [{}, {'areaTolerancePercent': '0'}, {'areaTolerancePercent': '-5'}, {'areaTolerancePercent': '5.0001'},
+                    {'areaTolerancePercent': '5.01'}, {'areaTolerancePercent': '7'}, {'areaTolerancePercent': '50'},
+                    {'areaTolerancePercent': '4.12345'}, {'areaTolerancePercent': 3}, {'tradeKinds': []},
                     {'tradeKinds': ['sale', 'sale']}, {'tradeKinds': ['presale_right']},
                     {'replacements': [{'complexId': 'near-a', 'replaceComplexId': 'near-a'}]},
                     {'replacements': [{'complexId': 'high-in', 'replaceComplexId': 'near-a'},

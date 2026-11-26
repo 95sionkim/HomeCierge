@@ -60,7 +60,7 @@ const tradeKindLabels: Record<TradeKind, string> = {
   presale_right: '분양권',
   occupancy_right: '입주권',
 };
-const MAX_AREA_TOLERANCE_SCALED = 500000n; // 50.0000% (10^-4 단위)
+const MAX_AREA_TOLERANCE_SCALED = 50000n; // 5.0000% (10^-4 단위, Q-41)
 const ALLOWED_CONDITION_KEYS = new Set(['period', 'areaTolerancePercent', 'tradeKinds', 'replacements']);
 
 function object(value: unknown): Record<string, unknown> {
@@ -407,6 +407,8 @@ export function interpretChat(message: string, result: Result): InterpretResult 
       else patch.areaTolerancePercent = tolerance;
     } else if (pctMatches.length > 1) {
       return explain('help');
+    } else if (/넓혀|넓히|늘려|늘리|확대/u.test(plain) && !/좁혀|좁히|줄여|줄이/u.test(plain)) {
+      return explain('help');
     }
   }
 
@@ -672,16 +674,30 @@ function describeConditionDiff(proposal: ConditionProposal, result: Result): str
   return parts.join(', ');
 }
 
+function exceedsMaxAreaTolerance(raw: string): boolean {
+  if (!/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(raw)) return false;
+  const [whole, frac = ''] = raw.split('.');
+  const w = BigInt(whole);
+  if (w > 5n) return true;
+  return w === 5n && /[1-9]/.test(frac);
+}
+
 function explainConditionGuidance(message: string, result: Result): string | null {
   const plain = message.normalize('NFC').replace(/\s+/gu, ' ');
   if (negationWords.test(plain) || profileScopeWords.test(plain)) return null;
   if (/전용\s*면적/u.test(plain) && (areaChangeAction.test(plain) || /%/u.test(plain))) {
-    return '비교 기준은 전용면적이 아니라 공급면적입니다. 공급면적 허용 범위를 ±7%처럼 요청해 주세요.';
+    return '비교 기준은 전용면적이 아니라 공급면적입니다. 공급면적 허용 범위를 ±3%처럼 0% 초과 5% 이하로 요청해 주세요.';
   }
   if (areaChangeAction.test(plain) && /(?:공급\s*)?면적|허용\s*(?:범위|오차)|±|\+\/-/u.test(plain)) {
     const pctMatches = Array.from(plain.matchAll(/(?:±|\+\/-|플마)?\s*(-?\d+(?:\.\d+)?)\s*%/gu));
     if (pctMatches.length === 1 && !normalizeAreaTolerance(pctMatches[0][1])) {
-      return '공급면적 허용 범위는 0% 초과 50% 이하의 양수(소수 4자리 이하)로 입력해 주세요.';
+      if (exceedsMaxAreaTolerance(pctMatches[0][1])) {
+        return '공급면적 허용 범위는 기본 ±5%가 상한입니다(Q-41). ±5%보다 넓히면 다른 규모의 주택형이 비교에 섞일 수 있어 확대할 수 없으며, 0% 초과 5% 이하(소수 4자리 이하)로 좁히는 변경만 요청할 수 있습니다.';
+      }
+      return '공급면적 허용 범위는 0% 초과 5% 이하의 양수(소수 4자리 이하)로 입력해 주세요. 기본 ±5%보다 좁히는 변경만 가능합니다.';
+    }
+    if (pctMatches.length === 0 && /넓혀|넓히|늘려|늘리|확대/u.test(plain) && !/좁혀|좁히|줄여|줄이/u.test(plain)) {
+      return '공급면적 허용 범위는 기본 ±5%가 상한입니다(Q-41). ±5%보다 넓히면 다른 규모의 주택형이 비교에 섞일 수 있어 확대할 수 없으며, 0% 초과 5% 이하(소수 4자리 이하)로 좁히는 변경만 요청할 수 있습니다.';
     }
   }
   const rep = resolveReplacementIntent(plain, result);
@@ -742,7 +758,7 @@ function answer(intent: Intent, result: Result, proposal: Proposal | null): stri
       return diff + ' 변경을 제안합니다. 승인하면 같은 수집본으로 새 비교를 계산하며, 공유 프로필은 바뀌지 않습니다.';
     }
     case 'help':
-      return '이 비교에 포함된 거래, 보류 사유, 비교 지역, 호실 가격이나 계약 기간을 물어보세요. 조건을 바꾸려면 “최근 6개월로 다시 비교해줘”, “공급면적 범위를 ±7%로 넓혀줘”, “매매만 비교해줘”처럼 요청하거나 조건 변경 패널을 여세요.';
+      return '이 비교에 포함된 거래, 보류 사유, 비교 지역, 호실 가격이나 계약 기간을 물어보세요. 조건을 바꾸려면 “최근 6개월로 다시 비교해줘”, “공급면적 범위를 ±3%로 좁혀줘”, “매매만 비교해줘”처럼 요청하거나 조건 변경 패널을 여세요.';
   }
 }
 

@@ -2,7 +2,7 @@ import { badge, dateText, esc, icon, isoDate, rangeLabel, reasonText, supplyLabe
 import { tradeNames } from './trade-comparison.js';
 
 const TRADE_ORDER = ['sale', 'presale_right', 'occupancy_right'];
-const AREA_PRESETS = ['3', '5', '7', '10'];
+const AREA_PRESETS = ['1', '2', '3', '5'];
 
 function parseDecimal(str) {
   if (typeof str !== 'string' || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(str)) return null;
@@ -20,13 +20,13 @@ function formatDecimal(digits, scale) {
   return (neg ? '-' : '') + whole + (frac ? '.' + frac : '');
 }
 
-export function normalizeToleranceInput(raw, maxText = '50') {
+export function normalizeToleranceInput(raw, maxText = '5') {
   const trimmed = String(raw ?? '').trim();
   if (!/^(?:0|[1-9]\d*)(?:\.\d{1,4})?$/.test(trimmed)) return null;
   const [w, f = ''] = trimmed.split('.');
   const scaled = BigInt(w) * 10000n + BigInt(f.padEnd(4, '0'));
-  const maxParts = String(maxText || '50').split('.');
-  const maxScaled = BigInt(maxParts[0] || '50') * 10000n + BigInt((maxParts[1] || '').padEnd(4, '0'));
+  const maxParts = String(maxText || '5').split('.');
+  const maxScaled = BigInt(maxParts[0] || '5') * 10000n + BigInt((maxParts[1] || '').padEnd(4, '0'));
   if (scaled <= 0n || scaled > maxScaled) return null;
   return trimmed.includes('.') ? trimmed.replace(/0+$/, '').replace(/\.$/, '') : trimmed;
 }
@@ -100,7 +100,7 @@ function deriveFallbackBounds(comparison) {
     editable: true,
     period: hasPeriod && asOf ? { start: p.start, end: p.end, asOf } : null,
     tradeKinds: kinds,
-    areaToleranceMax: '50',
+    areaToleranceMax: '5',
     areaEditable: Boolean(hasPeriod && areaConfirmed),
     replacementsEditable: Boolean(hasPeriod && scopeOk),
   };
@@ -264,7 +264,7 @@ export function createConditionEditor({ dialog, announce, onSubmit }) {
     if (bounds.areaEditable) {
       const normalized = normalizeToleranceInput(draft.areaInput, bounds.areaToleranceMax);
       if (!normalized) {
-        errors.push(`공급면적 허용 범위는 0% 초과 ${bounds.areaToleranceMax}% 이하의 양수(소수 4자리 이하)로 입력하세요.`);
+        errors.push(`공급면적 허용 범위는 0% 초과 ${bounds.areaToleranceMax}% 이하의 양수(소수 4자리 이하)로 좁혀서 입력하세요. 기본 ±${bounds.areaToleranceMax}%보다 넓힐 수 없습니다.`);
       } else if (normalized !== initial.areaTolerance) {
         patch.areaTolerancePercent = normalized;
         const targetM2 = comparison?.target?.supplyArea?.m2;
@@ -310,7 +310,7 @@ export function createConditionEditor({ dialog, announce, onSubmit }) {
     }
     const normalized = normalizeToleranceInput(draft.areaInput, bounds.areaToleranceMax);
     if (!normalized) {
-      return `<p class="cond-field-error" role="status">0 초과 ${esc(bounds.areaToleranceMax)} 이하의 양수(소수 4자리 이하)로 입력하세요.</p>`;
+      return `<p class="cond-field-error" role="status">기본 ±${esc(bounds.areaToleranceMax)}%보다 넓힐 수 없습니다. 0 초과 ${esc(bounds.areaToleranceMax)} 이하의 양수(소수 4자리 이하)로 입력하세요.</p>`;
     }
     const calc = computeAreaBounds(targetM2, normalized);
     if (!calc) return '';
@@ -428,7 +428,7 @@ export function createConditionEditor({ dialog, announce, onSubmit }) {
       <p class="cond-hint">현재 적용 지역(<strong>${esc(appliedScopeName(comparison))}</strong>)과 같은 비교 기준을 통과한 후보만 기존 단지와 교체할 수 있습니다. 고유 주변 단지는 5개 이하로 유지합니다.</p>
       ${
         comparables.length
-          ? `${availableExtraCount === 0 && !state.initial.replacements.length ? '<p class="cond-empty-note">현재 조건을 통과한 추가 교체 후보 단지가 없습니다. 공급면적 범위나 기간을 먼저 변경해 볼 수 있습니다.</p>' : ''}
+          ? `${availableExtraCount === 0 && !state.initial.replacements.length ? '<p class="cond-empty-note">현재 조건을 통과한 추가 교체 후보 단지가 없습니다. 수집된 기간이나 거래 종류를 먼저 변경해 볼 수 있습니다.</p>' : ''}
              <div class="cond-slot-list">${slotRows}</div>`
           : '<p class="cond-empty-note">현재 비교표에 교체할 주변 단지가 없습니다.</p>'
       }
@@ -539,7 +539,7 @@ export function createConditionEditor({ dialog, announce, onSubmit }) {
             </label>
           </div>
           <div id="cond-area-preview">${renderAreaPreviewHtml()}</div>
-          <p class="cond-hint">전용면적이 아니라 공급면적 기준으로만 비교합니다. 0% 초과 ${esc(bounds.areaToleranceMax)}% 이하로 지정할 수 있습니다.</p>
+          <p class="cond-hint">전용면적이 아니라 공급면적 기준으로만 비교합니다. 기본 ±${esc(bounds.areaToleranceMax)}%가 상한이며, 0% 초과 ${esc(bounds.areaToleranceMax)}% 이하로 좁혀서 지정할 수 있습니다.</p>
         </fieldset>
 
         <fieldset class="cond-section">

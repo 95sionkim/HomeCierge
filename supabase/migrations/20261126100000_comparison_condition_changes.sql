@@ -59,7 +59,7 @@ alter table private.analysis_chat_turns
       )
     );
 
--- 공급면적 허용 오차는 양수 십진수(0 초과, 50 이하, 소수 4자리 이하)로 정규화한다.
+-- 공급면적 허용 오차는 양수 십진수(0 초과, 5 이하, 소수 4자리 이하)로 정규화한다(Q-41).
 create function private.normalize_area_tolerance(p_value jsonb)
 returns text language plpgsql immutable set search_path = '' as $$
 declare
@@ -74,7 +74,7 @@ begin
     return null;
   end if;
   amount := raw::numeric;
-  if amount <= 0 or amount > 50 then
+  if amount <= 0 or amount > 5 then
     return null;
   end if;
   if strpos(raw, '.') > 0 then
@@ -238,7 +238,7 @@ begin
       'editable', false,
       'period', null,
       'tradeKinds', '[]'::jsonb,
-      'areaToleranceMax', '50',
+      'areaToleranceMax', '5',
       'areaEditable', false,
       'replacementsEditable', false
     );
@@ -279,7 +279,7 @@ begin
     'editable', is_editable,
     'period', period_bounds,
     'tradeKinds', snapshot_kinds,
-    'areaToleranceMax', '50',
+    'areaToleranceMax', '5',
     'areaEditable', is_editable and area_editable,
     'replacementsEditable', is_editable and replacements_editable
   );

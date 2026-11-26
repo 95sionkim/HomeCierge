@@ -336,14 +336,14 @@ class AnalysisWorkerTests(TestCase):
             'comparisonPeriod': {'start': '2026-10-15', 'end': '2026-10-25'},
             'comparisonConditions': {
                 'period': {'start': '2026-10-15', 'end': '2026-10-25'},
-                'areaTolerancePercent': '7.5',
+                'areaTolerancePercent': '3.5',
                 'tradeKinds': ['sale'],
             },
         }
         self.client.post.side_effect = [self.job, cond_work, {'status': 'running'}, self.finished]
         self.assertEqual(run_once(self.client), self.finished)
         comparison = self.client.post.call_args.args[1]['p_comparison']
-        self.assertEqual(comparison['conditions']['area']['tolerancePercent'], '7.5')
+        self.assertEqual(comparison['conditions']['area']['tolerancePercent'], '3.5')
         self.assertEqual(comparison['conditions']['tradeKinds'], ['sale'])
         self.assertEqual(comparison['conditions']['period']['start'], '2026-10-15')
         self.assertEqual(comparison['conditions']['period']['end'], '2026-10-25')
@@ -356,7 +356,7 @@ class AnalysisWorkerTests(TestCase):
         self.client.reset_mock()
         self.client.post.side_effect = [
             self.job,
-            {**self.work, 'comparisonConditions': {'areaTolerancePercent': '7'}},
+            {**self.work, 'comparisonConditions': {'areaTolerancePercent': '3'}},
             {'runId': self.run_id, 'status': 'failed'},
         ]
         with patch('run_analysis_worker.FIXTURE') as fixture:
@@ -375,7 +375,7 @@ class AnalysisWorkerTests(TestCase):
                            'comparison': {'modelNo': '01'}},
             'ingestion': None, 'evidence': None, 'useSyntheticFixture': False, 'selectionBindingIssue': None,
             'noticeCapture': {'asOf': '2026-11-10', 'requestRegionCodes': ['99999'], 'allowOfficialPdf': False},
-            'comparisonConditions': {'areaTolerancePercent': '7'},
+            'comparisonConditions': {'areaTolerancePercent': '3'},
         }
         api, pdf = Mock(), Mock()
         self.client.reset_mock()
@@ -385,13 +385,14 @@ class AnalysisWorkerTests(TestCase):
         api.assert_not_called()
         pdf.assert_not_called()
 
-        # 충돌하는 기간·잘못된 허용 범위·잘못된 형식의 comparisonConditions는 쓰기 없이 실패한다.
+        # 충돌하는 기간·잘못된 허용 범위(5% 초과 포함)·잘못된 형식의 comparisonConditions는 쓰기 없이 실패한다.
         self.job['input'] = {'kind': 'snapshot', 'snapshotId': self.snapshot_id}
         for bad in [
             None,
             {},
             {'areaTolerancePercent': '0'},
-            {'areaTolerancePercent': '50.1'},
+            {'areaTolerancePercent': '5.0001'},
+            {'areaTolerancePercent': '7'},
             {'tradeKinds': []},
             {'replacements': [{'complexId': 'a', 'replaceComplexId': 'a'}]},
             {'replacements': [{'complexId': 'x', 'replaceComplexId': 'a'}, {'complexId': 'a', 'replaceComplexId': 'b'}]},

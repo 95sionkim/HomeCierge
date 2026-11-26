@@ -26,7 +26,7 @@ else:
 TARGET_KEYS = ('houseManageNo', 'noticeNo', 'edition')
 PRICE_BASIS = 'sale_price_plus_required_options'
 DEFAULT_TOLERANCE = Decimal('5')
-MAX_AREA_TOLERANCE = Decimal('50')
+MAX_AREA_TOLERANCE = Decimal('5')
 MAX_COMPLEX_ID_LENGTH = 120
 ALLOWED_CONDITION_KEYS = frozenset({'period', 'areaTolerancePercent', 'tradeKinds', 'replacements'})
 MAX_COMPARABLES = 5
@@ -277,7 +277,7 @@ def _area_conditions(supply, selection, holds, *, approved_tolerance=None):
         percent = approved_tolerance
     elif 'areaTolerancePercent' in selection:
         proposed = _area_decimal(selection['areaTolerancePercent'])
-        if proposed is None or proposed <= 0:
+        if proposed is None or proposed <= 0 or proposed > MAX_AREA_TOLERANCE:
             holds.append(_hold('area_tolerance_invalid', subject='selection'))
         elif proposed == DEFAULT_TOLERANCE or selection.get('areaChangeConfirmed') is True:
             percent = proposed
