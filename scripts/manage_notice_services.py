@@ -19,6 +19,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
+from agent_llm import OpenAIResponsesProvider
+from agent_worker import process_once as process_agent_reply
 from notice_run_capture import NoticeWorkerConfigurationError, live_notice_transports
 from process_data_deletion import process_once as process_deletion
 from run_analysis_worker import run_once
@@ -30,8 +32,10 @@ DEV_ORIGIN = 'https://jcaelooqogosbzrfyrhe.supabase.co'
 KST = timezone(timedelta(hours=9))
 WORKER_KEY = 'SUPABASE_WORKER_KEY'
 PROVIDER_KEY = 'DATA_GO_KR_SERVICE_KEY'
+LLM_KEY = 'OPENAI_API_KEY'
 LABELS = {role: 'kr.homecierge.development.notice-' + role for role in ('worker', 'directory')}
 LABELS['deletion'] = 'kr.homecierge.development.data-deletion'
+LABELS['agent'] = 'kr.homecierge.development.agent-worker'
 LAUNCHCTL = '/bin/launchctl'
 POLL_SECONDS = 30
 
@@ -70,17 +74,22 @@ def read_field(path, name, private=True):
     return entries[0] if entries and entries[0] else None
 
 
-def worker_env(secret_dir, require_provider=True):
+def worker_env(secret_dir, require_provider=True, require_llm=False):
     service = read_field(secret_dir / 'worker.env', WORKER_KEY)
     if not service:
         raise ValueError('waiting_for_worker_key')
     env = {'APP_ENV': 'development', 'SUPABASE_URL': DEV_ORIGIN, WORKER_KEY: service}
-    if not require_provider:
-        return env
-    provider = read_field(secret_dir / (PROVIDER_KEY + '.env'), PROVIDER_KEY)
-    if not provider:
-        raise ValueError('waiting_for_provider_key')
-    return {**env, PROVIDER_KEY: provider}
+    if require_provider:
+        provider = read_field(secret_dir / (PROVIDER_KEY + '.env'), PROVIDER_KEY)
+        if not provider:
+            raise ValueError('waiting_for_provider_key')
+        env[PROVIDER_KEY] = provider
+    if require_llm:
+        llm_key = read_field(secret_dir / (LLM_KEY + '.env'), LLM_KEY)
+        if not llm_key:
+            raise ValueError('waiting_for_llm_key')
+        env[LLM_KEY] = llm_key
+    return env
 
 
 def verify_worker(client):
@@ -159,7 +168,11 @@ def serve(secret_dir, role):
         while True:
             delay = POLL_SECONDS
             try:
-                env = worker_env(secret_dir, require_provider=role != 'deletion')
+                env = worker_env(
+                    secret_dir,
+                    require_provider=role in ('worker', 'directory'),
+                    require_llm=role == 'agent',
+                )
                 client = WorkerRpc(env)
                 if role == 'directory':
                     directory_tick(path, state, clock(), env, client)
@@ -167,6 +180,15 @@ def serve(secret_dir, role):
                     outcome = process_deletion(client)
                     record(path, state, outcome)
                     if outcome == 'live_deleted':
+                        delay = 0
+                elif role == 'agent':
+                    llm_key = env[LLM_KEY]
+                    outcome = process_agent_reply(
+                        client,
+                        lambda model: OpenAIResponsesProvider(model=model, api_key=llm_key),
+                    )['status']
+                    record(path, state, outcome, **({} if outcome == 'idle' else {'lastJobStatus': outcome}))
+                    if outcome != 'idle':
                         delay = 0
                 else:
                     os.environ[PROVIDER_KEY] = env[PROVIDER_KEY]
@@ -176,7 +198,8 @@ def serve(secret_dir, role):
                         delay = 0
             except (UnicodeError, ValueError, NoticeWorkerConfigurationError) as exc:
                 code = str(exc)
-                status = code if code in ('waiting_for_worker_key', 'waiting_for_provider_key') else 'configuration_error'
+                status = (code if code in ('waiting_for_worker_key', 'waiting_for_provider_key', 'waiting_for_llm_key')
+                          else 'configuration_error')
                 if state.get('status') != status:
                     record(path, state, status)
             except WorkerRpcError as exc:

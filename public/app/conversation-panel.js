@@ -27,6 +27,8 @@ const PUBLIC_INTENTS = new Set([
   'change_conditions',
   'help',
 ]);
+const AGENT_REPLY_STATUSES = new Set(['queued', 'leased', 'answered', 'rejected', 'failed', 'expired']);
+const AGENT_POLL_MS = 2500;
 const MAX_CODE_POINTS = 800;
 const EXAMPLES = [
   '왜 이 거래만 포함됐어?',
@@ -119,6 +121,43 @@ function validConditionBounds(bounds) {
   return true;
 }
 
+function validAgentReply(reply) {
+  if (reply === undefined || reply === null) return true;
+  if (!isPlainObject(reply)) return false;
+  if (!AGENT_REPLY_STATUSES.has(reply.status)) return false;
+  if (typeof reply.model !== 'string' || !reply.model.trim() || reply.model.length > 80) return false;
+  if (reply.status === 'answered') {
+    if (typeof reply.answer !== 'string' || !reply.answer.trim()) return false;
+    if (typeof reply.completedAt !== 'string' || !Number.isFinite(Date.parse(reply.completedAt))) return false;
+  } else if (reply.answer !== null) {
+    return false;
+  }
+  if (reply.citations !== undefined) {
+    if (!Array.isArray(reply.citations)) return false;
+    if (reply.status !== 'answered' && reply.citations.length > 0) return false;
+    if (
+      !reply.citations.every(
+        (c) =>
+          isPlainObject(c) &&
+          typeof c.kind === 'string' &&
+          typeof c.reference === 'string' &&
+          typeof c.label === 'string' &&
+          c.label.trim().length > 0,
+      )
+    ) {
+      return false;
+    }
+  }
+  if (
+    reply.completedAt !== null &&
+    reply.completedAt !== undefined &&
+    (typeof reply.completedAt !== 'string' || !Number.isFinite(Date.parse(reply.completedAt)))
+  ) {
+    return false;
+  }
+  return true;
+}
+
 function validConversation(data, ctx) {
   if (
     !data ||
@@ -147,7 +186,8 @@ function validConversation(data, ctx) {
       typeof turn.createdAt === 'string' &&
       Number.isFinite(Date.parse(turn.createdAt)) &&
       typeof turn.answer === 'string' &&
-      validProposal(turn.proposal, turn.intent),
+      validProposal(turn.proposal, turn.intent) &&
+      validAgentReply(turn.agentReply),
   );
 }
 
@@ -188,8 +228,36 @@ export function createConversationPanel({
   let loadController = null;
   let sendController = null;
   let decisionController = null;
+  let pollTimer = null;
+
+  function clearPoll() {
+    if (pollTimer !== null) {
+      clearTimeout(pollTimer);
+      pollTimer = null;
+    }
+  }
+
+  function hasPendingAgentReply() {
+    return (
+      Boolean(ctx) &&
+      !ctx.guest &&
+      turns.some((turn) => turn.agentReply && (turn.agentReply.status === 'queued' || turn.agentReply.status === 'leased'))
+    );
+  }
+
+  function scheduleAgentPoll() {
+    clearPoll();
+    if (!hasPendingAgentReply() || document.hidden || sending || Boolean(pendingDecision) || loadError) return;
+    pollTimer = setTimeout(() => {
+      pollTimer = null;
+      if (hasPendingAgentReply() && !document.hidden && !sending && !pendingDecision && !loadController) {
+        void loadHistory({ silent: true, preserveScroll: true });
+      }
+    }, AGENT_POLL_MS);
+  }
 
   function abortAll() {
+    clearPoll();
     loadController?.abort();
     sendController?.abort();
     decisionController?.abort();
@@ -269,9 +337,10 @@ export function createConversationPanel({
     }
   }
 
-  async function loadHistory({ preserveDraft = true, silent = false } = {}) {
+  async function loadHistory({ preserveDraft = true, silent = false, preserveScroll = false } = {}) {
     if (!ctx || ctx.guest || document.hidden) return;
     const here = ctx;
+    clearPoll();
     loadController?.abort();
     const controller = new AbortController();
     loadController = controller;
@@ -302,7 +371,8 @@ export function createConversationPanel({
       if (loadController === controller && ctx === here) {
         loadController = null;
         loading = false;
-        syncPanel({ scrollBottom: turns.length > 0 && !loadError });
+        syncPanel({ scrollBottom: !preserveScroll && turns.length > 0 && !loadError });
+        scheduleAgentPoll();
       }
     }
   }
@@ -479,6 +549,7 @@ export function createConversationPanel({
           scrollBottom: true,
           focusSelector: failedSubmission ? '[data-conv="retry-send"], #conversation-input' : '#conversation-input',
         });
+        scheduleAgentPoll();
       }
     }
   }
@@ -573,6 +644,7 @@ export function createConversationPanel({
             ? `[data-turn-card="${CSS.escape(latest.id)}"] [data-decision="approve"]`
             : '#conversation-input',
       });
+      scheduleAgentPoll();
       return true;
     } catch (error) {
       if (sendController !== controller || ctx !== here) return false;
@@ -648,6 +720,7 @@ export function createConversationPanel({
       syncPanel({
         focusSelector: `[data-turn-card="${CSS.escape(turnId)}"] .conv-approve-result, #conversation-input`,
       });
+      scheduleAgentPoll();
     } catch (error) {
       if (decisionController !== controller || ctx !== here) return;
       if (controller.signal.aborted || error?.name === 'AbortError') return;
@@ -813,6 +886,38 @@ export function createConversationPanel({
     </section>`;
   }
 
+  function renderAgentReply(turn) {
+    const ar = turn.agentReply;
+    if (!ar) return '';
+    if (ar.status === 'answered' && typeof ar.answer === 'string' && ar.answer.trim()) {
+      const aiTime = formatStamp(ar.completedAt);
+      const citations =
+        Array.isArray(ar.citations) && ar.citations.length
+          ? `<div class="conv-ai-citations" aria-label="AI 설명 근거">${ar.citations
+              .map((c) => `<span class="conv-ai-cite">${esc(c.label)}</span>`)
+              .join('')}</div>`
+          : '';
+      return `<article class="conv-msg conv-msg-ai" data-agent-reply="answered" aria-label="AI 설명">
+        <div class="conv-msg-meta">
+          <span class="conv-ai-badge">AI 설명</span>
+          <code class="conv-ai-model">${esc(ar.model)}</code>
+          ${aiTime}
+        </div>
+        <div class="conv-msg-body">${renderParagraphs(ar.answer)}</div>
+        ${citations}
+      </article>`;
+    }
+    if (ar.status === 'queued' || ar.status === 'leased') {
+      return `<div class="conv-ai-pending" data-agent-reply="${esc(ar.status)}" role="status">
+        ${icon('loader-circle', 'spin')}
+        <span>AI 설명 작성 중</span>
+        <code class="conv-ai-model">${esc(ar.model)}</code>
+      </div>`;
+    }
+    // rejected · failed · expired 상태에서는 규칙 기반 답변만 보이고 '작성 중'을 표시하지 않는다(A-58).
+    return '';
+  }
+
   function renderTurn(turn) {
     const time = formatStamp(turn.createdAt);
     return `<div class="conv-turn" data-turn-id="${esc(turn.id)}">
@@ -824,6 +929,7 @@ export function createConversationPanel({
         <div class="conv-msg-meta"><span class="conv-msg-author">HomeCierge</span>${time}</div>
         <div class="conv-msg-body">${renderParagraphs(turn.answer)}</div>
       </article>
+      ${renderAgentReply(turn)}
       ${turn.profileGuest ? renderGuestProfileNotice(turn) : renderProposal(turn)}
     </div>`;
   }
@@ -1056,6 +1162,7 @@ export function createConversationPanel({
       syncPanel({
         focusSelector: `[data-turn-card="${CSS.escape(turnId)}"] .conv-approve-result, #conversation-input`,
       });
+      scheduleAgentPoll();
     }
   });
 

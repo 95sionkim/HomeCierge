@@ -10,7 +10,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ALLOWED = {'DATA_GO_KR_SERVICE_KEY', 'KAKAO_REST_API_KEY', 'LAW_OC',
-           'NAVER_API_CLIENT_ID', 'NAVER_API_CLIENT_SECRET', 'ODSAY_API_KEY'}
+           'NAVER_API_CLIENT_ID', 'NAVER_API_CLIENT_SECRET', 'ODSAY_API_KEY',
+           'OPENAI_API_KEY'}
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)

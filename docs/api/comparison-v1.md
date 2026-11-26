@@ -69,10 +69,12 @@ python3 scripts/run_analysis_worker.py --demo
 
 | 요청한다 | 응답을 사용한다 |
 | --- | --- |
-| 실행 주소의 `/conversation`에 GET | `analysis-conversation/v1`의 최근 대화 30개를 시간순으로 읽는다. `hasEarlier`는 앞선 대화가 더 있는지를, `previousRunId`는 이 결과를 요청한 이전 실행을 가리키고, `conditionBounds`는 이 실행에서 편집 가능한 기간·거래 종류·면적 상한·단지 교체 가능 여부를 제공한다. |
-| 같은 주소에 POST `{requestId, message}` | 질문을 보낸 뒤 응답을 받지 못하면 같은 요청 UUID로 재시도한다. 비교 기간·지역·대상 거래·보류 사유·호실 소계에 답하고, 규칙 기반 분류로 기간·공급면적 허용 범위·거래 종류·단지 교체 변경 제안을 생성한다(LLM 미사용). |
+| 실행 주소의 `/conversation`에 GET | `analysis-conversation/v1`의 최근 대화 30개를 시간순으로 읽는다. `hasEarlier`는 앞선 대화가 더 있는지를, `previousRunId`는 이 결과를 요청한 이전 실행을 가리키고, `conditionBounds`는 이 실행에서 편집 가능한 기간·거래 종류·면적 상한·단지 교체 가능 여부를 제공한다. 각 턴에는 비동기 LLM 에이전트 응답 상태(`agentReply`: `null` 또는 `queued`/`leased`/`answered`/`rejected`/`failed`/`expired`)가 포함된다. |
+| 같은 주소에 POST `{requestId, message}` | 질문을 보낸 뒤 응답을 받지 못하면 같은 요청 UUID로 재시도한다. 비교 기간·지역·대상 거래·보류 사유·호실 소계에 답하고, 규칙 기반 분류로 기간·공급면적 허용 범위·거래 종류·단지 교체 변경 제안을 즉시 생성한다. `private.agent_settings.enabled = true`이면 비동기 에이전트 대기열(`private.analysis_agent_replies`)도 함께 생성되며, 꺼져 있으면 규칙 기반 동작 그대로다. |
 | 같은 주소에 POST `{requestId, message, conditions}` | O-1 비교 조건 편집 패널에서 구조화된 조건 변경(`period`, `areaTolerancePercent`, `tradeKinds`, `replacements` 중 1개 이상)을 제안한다. 같은 요청 UUID로 같은 내용을 재전송하면 동일한 결과를 반환한다. |
-| `/conversation/{turnId}/decision`에 POST `{decision}` | `approve`는 제안한 조건의 실행을 같은 수집본으로 접수한다. 같은 제안을 중복 승인해도 새 실행은 하나다. `reject`와 `cancel`은 기존 조건을 유지한 채 사용자의 결정만 기록한다. 승인된 `proposal.resultRunId`로 실행 상태와 새 비교표를 연다. |
+| `/conversation/{turnId}/decision`에 POST `{decision}` | `approve`는 제안한 조건의 실행을 같은 수집본으로 접수한다. 같은 제안을 중복 승인해도 새 실행은 하나다. `reject`와 `cancel`은 기존 조건을 유지한 채 사용자의 결정만 기록한다. 승인된 `proposal.resultRunId`로 실행 상태와 새 비교표를 연다. LLM이 제안한 조건 변경도 같은 서버 검증을 거쳐 `pending` 제안으로만 첨부되며 사용자가 직접 승인해야 적용된다. |
+
+비교 대화 화면은 항상 규칙 기반 답변을 먼저 보여준다. 에이전트 기능이 켜져 `agentReply.status = "answered"`가 도착하면 **AI 설명**과 모델 이름을 함께 표시하고 규칙 기반 답변도 유지한다. `rejected`·`failed`·`expired` 또는 대기열이 없는(`null`) 턴은 규칙 기반 답변만 보이고 `작성 중`을 표시하지 않는다(A-58). 자세한 검증·출처 권한·비용 기록은 [LLM 에이전트 코어 계약](agent-core.md)을 따른다.
 
 “최근 6개월로 다시 비교해줘”의 기준은 이 분석의 저장된 기준일이다. 제안에는 이전 기간과 새 기간의 시작일·종료일이 표시된다. 실제 수집한 날짜 범위 안에서 “2026-10-24부터 2026-10-26까지”처럼 양 끝을 지정할 수도 있다. 수집 범위 밖이면 `409 conversation_period_unavailable`을 반환한다. 다른 기기에서도 원래 실행을 열면 당시의 비교표, 질문과 결정이 표시된다.
 

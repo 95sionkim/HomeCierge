@@ -295,3 +295,45 @@ test('다른 계정·조건 불가·제안 응답 형식을 검사하고 저장�
     assert.equal((await badBounds.send()).status, 503, badMax);
   }
 });
+
+test('에이전트 응답(agentReply)을 규칙 기반 답변과 함께 병합하고 잘못된 형식은 503으로 차단한다', async () => {
+  const validTurns = [
+    {
+      id, runId: rid, message: '왜 이 거래만 포함됐어?', intent: 'inclusion', createdAt: at, proposal: null,
+      agentReply: {
+        status: 'answered',
+        model: 'gpt-6.1-sol',
+        answer: '가람동에서 공급면적 ±5% 기준으로 주변 단지 2곳을 확인했습니다.',
+        citations: [{ kind: 'comparison', reference: 'comparison/v1', label: '비교 결과 요약' }],
+        completedAt: at,
+      },
+    },
+    {
+      id: next, runId: rid, message: '보류 사유 알려줘', intent: 'holds', createdAt: at, proposal: null,
+      agentReply: { status: 'rejected', model: 'gpt-6.1-sol', answer: null, citations: [], completedAt: at },
+    },
+  ];
+  const f = fixture(validTurns);
+  const res = await f.send();
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  // 규칙 기반 답변은 항상 유지되며 에이전트 응답이 함께 반환된다.
+  assert.match(data.turns[0].answer, /비교표에 포함된 주변 단지는 2곳입니다/);
+  assert.equal(data.turns[0].agentReply.status, 'answered');
+  assert.equal(data.turns[0].agentReply.model, 'gpt-6.1-sol');
+  assert.match(data.turns[0].agentReply.answer, /주변 단지 2곳/);
+  assert.equal(data.turns[1].agentReply.status, 'rejected');
+  assert.equal(data.turns[1].agentReply.answer, null);
+
+  // rejected에 텍스트가 남았거나 answered에 빈 텍스트·시각 누락 등 계약 위반은 503으로 거부한다.
+  for (const badAgentReply of [
+    { status: 'rejected', model: 'gpt-6.1-sol', answer: '버려야 할 문장', citations: [], completedAt: at },
+    { status: 'answered', model: 'gpt-6.1-sol', answer: '', citations: [], completedAt: at },
+    { status: 'answered', model: 'gpt-6.1-sol', answer: '정상 문장', citations: [], completedAt: null },
+    { status: 'queued', model: 'gpt-6.1-sol', answer: '대기 중 문장', citations: [], completedAt: null },
+    { status: 'unknown_status', model: 'gpt-6.1-sol', answer: null, citations: [], completedAt: null },
+  ]) {
+    const broken = fixture([{ id, runId: rid, message: '질문', intent: 'scope', createdAt: at, proposal: null, agentReply: badAgentReply }]);
+    assert.equal((await broken.send()).status, 503, JSON.stringify(badAgentReply));
+  }
+});

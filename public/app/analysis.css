@@ -419,6 +419,62 @@
   max-width: 88%;
   white-space: pre-wrap;
 }
+.conv-msg-ai {
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  padding: 10px 12px;
+  gap: 6px;
+}
+.conv-ai-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 700;
+}
+.conv-ai-model {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--muted);
+}
+.conv-ai-citations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+.conv-ai-cite {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--muted);
+}
+.conv-ai-pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--muted);
+  padding: 4px 2px;
+}
+.conv-ai-pending .icon {
+  width: 14px;
+  height: 14px;
+  color: var(--primary);
+  flex: none;
+}
 .conv-approve {
   background: var(--surface);
   border: 1px solid var(--border);

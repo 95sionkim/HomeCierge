@@ -733,8 +733,32 @@ export type Database = {
         Args: { p_analysis_id: string; p_run_id: string }
         Returns: Json
       }
+      claim_agent_reply: {
+        Args: { p_lease_seconds?: number; p_reply_id?: string }
+        Returns: Json
+      }
       claim_analysis_run: {
         Args: { p_lease_seconds: number; p_run_id?: string }
+        Returns: Json
+      }
+      complete_agent_reply: {
+        Args: {
+          p_answer?: string
+          p_citations?: Json
+          p_generation: number
+          p_intent?: string
+          p_lease_token: string
+          p_prompt_version?: string
+          p_proposal?: Json
+          p_reply_id: string
+          p_status: string
+          p_usage?: Json
+          p_validation?: Json
+        }
+        Returns: Json
+      }
+      configure_agent_settings: {
+        Args: { p_enabled: boolean; p_model?: string }
         Returns: Json
       }
       confirm_commute_destination: {
@@ -804,6 +828,17 @@ export type Database = {
           p_base_run_id: string
           p_idempotency_key: string
           p_upload_id: string
+        }
+        Returns: Json
+      }
+      expire_stale_agent_replies: { Args: never; Returns: number }
+      fail_agent_reply: {
+        Args: {
+          p_failure_code: string
+          p_generation: number
+          p_lease_token: string
+          p_reply_id: string
+          p_usage?: Json
         }
         Returns: Json
       }
@@ -946,6 +981,14 @@ export type Database = {
       publish_notice_search_index: {
         Args: { p_index: Json }
         Returns: undefined
+      }
+      read_agent_reply_context: {
+        Args: {
+          p_generation: number
+          p_lease_token: string
+          p_reply_id: string
+        }
+        Returns: Json
       }
       read_analysis_conversation: {
         Args: { p_analysis_id: string; p_run_id: string }

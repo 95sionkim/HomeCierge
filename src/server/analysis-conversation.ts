@@ -927,6 +927,82 @@ function readConditionBounds(value: unknown): ConditionBounds {
   };
 }
 
+const agentReplyStatuses = ['queued', 'leased', 'answered', 'rejected', 'failed', 'expired'] as const;
+export type AgentReplyStatus = typeof agentReplyStatuses[number];
+const citationKinds = new Set([
+  'comparison', 'condition', 'hold', 'exclusion', 'document', 'trade', 'region', 'source_restriction',
+]);
+export type AgentCitation = { kind: string; reference: string; label: string };
+export type AgentReply = {
+  status: AgentReplyStatus;
+  model: string;
+  answer: string | null;
+  citations: AgentCitation[];
+  completedAt: string | null;
+};
+
+function agentAnswerValid(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value === value.trim()
+    && [...value].length <= 2000 && !/[\u0000-\u0009\u000b-\u001f\u007f]|\p{Cs}/u.test(value);
+}
+
+function readAgentReply(value: unknown): AgentReply | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid_conversation_response');
+  const raw = value as Record<string, unknown>;
+  const status = agentReplyStatuses.find(s => s === raw.status);
+  if (!status) throw new Error('invalid_conversation_response');
+  if (typeof raw.model !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,79}$/i.test(raw.model)) {
+    throw new Error('invalid_conversation_response');
+  }
+  let parsedAnswer: string | null = null;
+  if (status === 'answered') {
+    if (!agentAnswerValid(raw.answer)) throw new Error('invalid_conversation_response');
+    parsedAnswer = raw.answer;
+  } else if (raw.answer !== null) {
+    throw new Error('invalid_conversation_response');
+  }
+
+  const parsedCitations: AgentCitation[] = [];
+  if (raw.citations !== undefined) {
+    if (!Array.isArray(raw.citations) || raw.citations.length > 20) {
+      throw new Error('invalid_conversation_response');
+    }
+    if (status !== 'answered' && raw.citations.length > 0) {
+      throw new Error('invalid_conversation_response');
+    }
+    for (const item of raw.citations) {
+      const c = object(item);
+      if (typeof c.kind !== 'string' || !citationKinds.has(c.kind)
+        || !isPublicLabel(c.reference, 120) || !isPublicLabel(c.label, 120)) {
+        throw new Error('invalid_conversation_response');
+      }
+      parsedCitations.push({ kind: c.kind, reference: c.reference, label: c.label });
+    }
+  }
+
+  let completedAt: string | null = null;
+  if (status === 'queued' || status === 'leased') {
+    if (raw.completedAt !== null && raw.completedAt !== undefined) {
+      throw new Error('invalid_conversation_response');
+    }
+  } else if (status === 'answered') {
+    if (!isTimestamp(raw.completedAt)) throw new Error('invalid_conversation_response');
+    completedAt = raw.completedAt;
+  } else if (raw.completedAt !== null && raw.completedAt !== undefined) {
+    if (!isTimestamp(raw.completedAt)) throw new Error('invalid_conversation_response');
+    completedAt = raw.completedAt;
+  }
+
+  return {
+    status,
+    model: raw.model,
+    answer: parsedAnswer,
+    citations: parsedCitations,
+    completedAt,
+  };
+}
+
 function history(raw: unknown, snapshot: ComparisonSnapshot) {
   const record = object(raw);
   const { analysisId, runId, previousRunId = null, turns, hasEarlier } = record;
@@ -944,9 +1020,10 @@ function history(raw: unknown, snapshot: ComparisonSnapshot) {
       throw new Error('invalid_conversation_response');
     ids.add(id);
     const proposal = readProposal(turn.proposal, intent);
+    const agentReply = readAgentReply(turn.agentReply);
     const explanation = explainTurn(message, intent, previousIntent, snapshot.result, proposal);
     previousIntent = explanation.topic;
-    return { id, runId, message, intent, createdAt, proposal, answer: explanation.answer };
+    return { id, runId, message, intent, createdAt, proposal, answer: explanation.answer, agentReply };
   });
   return {
     contractVersion: 'analysis-conversation/v1',

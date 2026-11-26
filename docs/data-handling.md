@@ -16,6 +16,8 @@ ODsay 이용약관 4.5.10에는 사전 동의 없는 결과 데이터의 복제�
 
 NAVER API HUB의 검색 특약에 따라 뉴스는 등록 앱의 독립된 검색결과 영역에 출처·원문 링크와 함께 표시한다. 제품은 기사 제목·발췌·링크를 무저장으로 전달하며 LLM 입력·평가, 저장 보고서, PDF에는 포함하지 않는다. 계정별 과금과 실설정 한도는 별도 확인 항목이다. 공공 API와 공고 PDF도 출처별 표시·재사용 조건을 확인한다. [NAVER 검색 특약과 사용 범위](api/be-10-news-sources.md)
 
+비교 대화 LLM 에이전트 문맥 구성(`read_agent_reply_context` 및 `agent_tools.filter_comparison_for_llm`)은 `public.source_registry.llm_permission = 'allowed'`인 출처의 값만 포함한다. 허용되지 않은 출처(`unknown`·`denied`)의 값은 문맥에서 제외하고 제외 사실을 `llmSourcePolicy.restrictedSources`에 표시한다. `naver_news`와 사용자 업로드(`user_upload`)는 어떤 경우에도 LLM 입력에서 제외하며, OpenAI Responses API 호출에는 `store: false`를 적용하고 프롬프트 원문과 결과 전체는 DB에 따로 저장하지 않는다. [LLM 에이전트 코어 계약](api/agent-core.md)
+
 기존 진단 스크립트는 일반 조회에서 `api-evidence/`에 응답을 저장한다. 뉴스 진단은 상태와 건수만 출력하고 뉴스 응답의 증거 파일 등록은 차단한다. ODsay는 보관 조건 확인 후 저장 경로를 사용한다. 기본 테스트와 CI는 외부 제공자의 인증값·실응답을 사용하지 않는다.
 
 `.gitignore`는 추적하지 않는 파일을 제외하는 장치다. 이미 추적된 비밀정보를 제거하거나 과거 이력을 정리해 주지는 않는다. 게시 전에는 실제 커밋 대상과 문서·샘플을 확인한다. 공개 테스트의 문자열 제거 검사는 모든 형태의 비밀정보 탐지를 보장하지 않는다.

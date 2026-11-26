@@ -7,6 +7,7 @@
 | `kr.homecierge.development.notice-directory` | 매일 한국 시각 09:17부터 30초 안에 확인 | 최근 90일의 두 공고 목록을 갱신한다. 해당 시각을 놓친 날은 깨어난 뒤 한 번 실행한다. 수집이 불완전하면 최근 정상 게시본을 유지한다. |
 | `kr.homecierge.development.notice-worker` | 대기열을 30초마다 조회 | 새 분석을 한 건씩 임대한다. 완료 뒤 곧바로 다음 실행을 확인한다. 실행 상태와 결과는 소유자 API에서 조회한다. |
 | `kr.homecierge.development.data-deletion` | 대기열을 30초마다 조회 | 접수된 소유자 파일을 정리한다. 계정 전체 삭제는 파일 부재를 확인한 뒤 Auth 계정까지 정리한다. [삭제 처리](data-deletion.md) |
+| `kr.homecierge.development.agent-worker` | 대기열을 30초마다 조회 | 비교 대화의 비동기 에이전트 응답(`private.analysis_agent_replies`)을 임대·실행·검증하고 만료 임대를 `expired`로 정리한다. [에이전트 코어](agent-core.md) |
 
 ## 설치와 자격 설정
 
@@ -22,13 +23,15 @@ python3 scripts/manage_notice_services.py status
 
 기존 개발 작업자 자격으로 삭제 서비스만 설치·갱신할 때는 `python3 scripts/manage_notice_services.py install --role deletion`을 실행한다. 이 서비스에는 공공데이터 API 키가 필요 없다.
 
+비교 대화 에이전트 작업자(`--role agent`)는 `SUPABASE_WORKER_KEY`와 `.secrets/OPENAI_API_KEY.env`의 `OPENAI_API_KEY`를 사용하며 공공데이터 API 키는 요구하지 않는다. OpenAI 키는 `python3 scripts/store_api_key.py OPENAI_API_KEY`로 숨김 입력해 저장한다.
+
 ## 상태 확인과 재시작
 
 `status`는 서비스마다 한 줄의 JSON을 출력한다. `launchd`의 `running`은 프로세스가 실행 중임을 뜻한다. 최근 실행 내용은 `status`와 `checkedAt`으로 확인한다.
 
 | 상태 | 확인할 내용 |
 | --- | --- |
-| `waiting_for_worker_key`, `waiting_for_provider_key` | 해당 자격을 등록하면 자동으로 재개한다. |
+| `waiting_for_worker_key`, `waiting_for_provider_key`, `waiting_for_llm_key` | 해당 자격을 등록하면 자동으로 재개한다. |
 | `worker_key_rejected`, `rpc_unavailable` | 개발 프로젝트 작업자 권한과 네트워크 연결을 점검한다. |
 | `idle` | 작업자가 개발 DB에 연결해 대기 작업이 없음을 확인했다. 직전에 처리한 실행의 상태는 `lastJobStatus`에 남는다. |
 | `scheduled`, `refreshing` | 갱신 시각을 기다리거나 당일 갱신을 실행 중이다. |
@@ -42,4 +45,4 @@ python3 scripts/manage_notice_services.py status
 python3 scripts/manage_notice_services.py uninstall --role directory
 ```
 
-`--role`을 생략하면 등록된 세 서비스를 함께 해제한다. 마지막 상태와 자격 파일은 체크아웃의 `.secrets/`에서 소유자가 관리한다.
+`--role`을 생략하면 등록된 네 서비스(`worker`, `directory`, `deletion`, `agent`)를 함께 해제한다. 마지막 상태와 자격 파일은 체크아웃의 `.secrets/`에서 소유자가 관리한다.

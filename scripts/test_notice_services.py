@@ -173,6 +173,32 @@ class NoticeServiceTests(unittest.TestCase):
         run.assert_called_once_with([ops.LAUNCHCTL, 'bootout', f'gui/{os.getuid()}/' + ops.LABELS['directory']],
                                     check=True)
 
+    def test_agent_role_waits_for_worker_and_llm_keys_and_processes_queue(self):
+        self.assertIn('agent', ops.LABELS)
+        # 키가 없으면 원격 호출 없이 waiting_for_worker_key -> waiting_for_llm_key로 대기한다.
+        for expected_status in ('waiting_for_worker_key', 'waiting_for_llm_key'):
+            with mock.patch.object(ops, 'WorkerRpc') as rpc, \
+                    mock.patch.object(ops.time, 'sleep', side_effect=KeyboardInterrupt):
+                with self.assertRaises(KeyboardInterrupt):
+                    ops.serve(self.secrets, 'agent')
+            rpc.assert_not_called()
+            self.assertEqual(ops.read_state(ops.state_file(self.secrets, 'agent'))['status'], expected_status)
+            ops.write_private(self.secrets / 'worker.env', (ops.WORKER_KEY + '=test-fixture\n').encode())
+
+        # OPENAI_API_KEY만 등록하면 공공데이터 키 없이도 에이전트 대기열을 처리한다.
+        ops.write_private(self.secrets / (ops.LLM_KEY + '.env'), (ops.LLM_KEY + '=sk-synthetic-test\n').encode())
+        with mock.patch.object(ops, 'WorkerRpc') as rpc, \
+                mock.patch.object(ops, 'process_agent_reply', side_effect=[{'status': 'answered'}, {'status': 'idle'}]) as proc, \
+                mock.patch.object(ops.time, 'sleep', side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                ops.serve(self.secrets, 'agent')
+        self.assertEqual(set(rpc.call_args.args[0]), {'APP_ENV', 'SUPABASE_URL', ops.WORKER_KEY, ops.LLM_KEY})
+        self.assertEqual(proc.call_count, 2)
+        state = ops.read_state(ops.state_file(self.secrets, 'agent'))
+        self.assertEqual((state['lastJobStatus'], state['status']), ('answered', 'idle'))
+        self.assertEqual(set(state), {'status', 'lastJobStatus', 'checkedAt'})
+        self.assertNotIn('sk-synthetic-test', json.dumps(state))
+
 
 if __name__ == '__main__':
     unittest.main()

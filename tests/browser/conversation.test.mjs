@@ -911,3 +911,139 @@ test('browser UI integrates end-to-end with real createHandler conversation rout
     await new Promise((resolve) => realServer.close(resolve));
   }
 });
+
+test('comparison conversation renders AI explanation with model alongside rule-based answer and hides pending indicator on rejected/failed/expired/null', async () => {
+  const aid = 'f1000000-0000-4000-8000-000000000001';
+  const rid = 'f1000000-0000-4000-8000-000000000002';
+  const snap = 'f1000000-0000-4000-8000-000000000003';
+  const owner = { id: 'f1000000-0000-4000-8000-000000000004', email: 'agent-ui@example.invalid' };
+  const tAnswered = 'f1000000-0000-4000-8000-000000000010';
+  const tRejected = 'f1000000-0000-4000-8000-000000000011';
+  const tFailed = 'f1000000-0000-4000-8000-000000000012';
+  const tExpired = 'f1000000-0000-4000-8000-000000000013';
+  const tNone = 'f1000000-0000-4000-8000-000000000014';
+
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await installMockAuth(ctx, owner, [
+    { id: aid, latest_run_id: rid, title: '합성 가람 아파트', status: 'completed', updated_at: '2026-11-10T01:00:00Z' },
+  ]);
+
+  let pollCount = 0;
+  await ctx.route('**/*', async (route) => {
+    const req = route.request();
+    const url = new URL(req.url());
+    if (url.origin !== origin) return route.abort();
+    const p = url.pathname;
+    if (p === `/api/v1/analyses/${aid}/runs/${rid}`) {
+      return route.fulfill({ json: { analysisId: aid, runId: rid, snapshotId: snap, status: 'finished', input: { kind: 'snapshot' } } });
+    }
+    if (p === `/api/v1/analyses/${aid}/runs/${rid}/result`) {
+      return route.fulfill({ json: { analysisId: aid, runId: rid, snapshotId: snap, result: comparisonFixture } });
+    }
+    if (p === `/api/v1/analyses/${aid}/runs/${rid}/conversation` && req.method() === 'GET') {
+      pollCount += 1;
+      const firstReply =
+        pollCount === 1
+          ? { status: 'queued', model: 'gpt-6.1-sol', answer: null, citations: [], completedAt: null }
+          : {
+              status: 'answered',
+              model: 'gpt-6.1-sol',
+              answer: '가람동에서 공급면적 ±5% 기준으로 주변 단지 2곳을 확인했습니다. <img src=x onerror="window.__aiXss=1">',
+              citations: [{ kind: 'comparison', reference: 'comparison/v1', label: '비교 결과 요약' }],
+              completedAt: '2026-11-10T01:02:00Z',
+            };
+      return route.fulfill({
+        json: {
+          contractVersion: 'analysis-conversation/v1',
+          analysisId: aid,
+          runId: rid,
+          hasEarlier: false,
+          turns: [
+            {
+              id: tAnswered,
+              runId: rid,
+              message: '왜 이 거래만 포함됐어?',
+              intent: 'inclusion',
+              createdAt: '2026-11-10T01:01:00Z',
+              answer: '규칙 기반: 비교표에 포함된 주변 단지는 2곳입니다.',
+              proposal: null,
+              agentReply: firstReply,
+            },
+            {
+              id: tRejected,
+              runId: rid,
+              message: '보류 사유 알려줘',
+              intent: 'holds',
+              createdAt: '2026-11-10T01:03:00Z',
+              answer: '규칙 기반: 보류 항목 안내입니다.',
+              proposal: null,
+              agentReply: { status: 'rejected', model: 'gpt-6.1-sol', answer: null, citations: [], completedAt: '2026-11-10T01:03:05Z' },
+            },
+            {
+              id: tFailed,
+              runId: rid,
+              message: '계약 기간 알려줘',
+              intent: 'period',
+              createdAt: '2026-11-10T01:04:00Z',
+              answer: '규칙 기반: 2026-10-10부터 2026-10-31까지입니다.',
+              proposal: null,
+              agentReply: { status: 'failed', model: 'gpt-6.1-sol', answer: null, citations: [], completedAt: '2026-11-10T01:04:05Z' },
+            },
+            {
+              id: tExpired,
+              runId: rid,
+              message: '비교 지역 알려줘',
+              intent: 'scope',
+              createdAt: '2026-11-10T01:05:00Z',
+              answer: '규칙 기반: 비교 범위는 가람동입니다.',
+              proposal: null,
+              agentReply: { status: 'expired', model: 'gpt-6.1-sol', answer: null, citations: [], completedAt: '2026-11-10T01:06:00Z' },
+            },
+            {
+              id: tNone,
+              runId: rid,
+              message: '기능 꺼짐 질문',
+              intent: 'help',
+              createdAt: '2026-11-10T01:07:00Z',
+              answer: '규칙 기반: 기능 꺼짐 상태의 답변입니다.',
+              proposal: null,
+              agentReply: null,
+            },
+          ],
+        },
+      });
+    }
+    return route.continue();
+  });
+
+  try {
+    const page = await ctx.newPage();
+    page.setDefaultTimeout(8000);
+    await page.goto(`${origin}/#run/${aid}/${rid}`);
+
+    // 최초 응답에서 규칙 기반 답변이 바로 보이고, queued 턴에만 'AI 설명 작성 중'이 표시된다.
+    const turn1 = page.locator(`[data-turn-id="${tAnswered}"]`);
+    await turn1.locator('.conv-msg-agent').getByText('규칙 기반: 비교표에 포함된 주변 단지는 2곳입니다.').waitFor();
+    await turn1.locator('.conv-ai-pending').getByText('AI 설명 작성 중').waitFor();
+
+    // rejected · failed · expired · null 턴에는 '작성 중'이나 AI 블록이 표시되지 않고 규칙 기반 답변만 보인다(A-58).
+    for (const tid of [tRejected, tFailed, tExpired, tNone]) {
+      const turn = page.locator(`[data-turn-id="${tid}"]`);
+      assert.equal(await turn.locator('.conv-msg-agent').count(), 1);
+      assert.equal(await turn.locator('.conv-msg-ai').count(), 0);
+      assert.equal(await turn.locator('.conv-ai-pending').count(), 0);
+    }
+
+    // 폴링 후 answered로 도착하면 'AI 설명'과 모델 이름이 표시되고 규칙 기반 답변도 계속 보인다.
+    const aiBlock = turn1.locator('.conv-msg-ai');
+    await aiBlock.waitFor();
+    await aiBlock.getByText('AI 설명').waitFor();
+    await aiBlock.getByText('gpt-6.1-sol').waitFor();
+    await aiBlock.getByText('비교 결과 요약').waitFor();
+    await turn1.locator('.conv-msg-agent').getByText('규칙 기반: 비교표에 포함된 주변 단지는 2곳입니다.').waitFor();
+    assert.equal(await page.locator('.conv-ai-pending').count(), 0);
+    assert.equal(await page.evaluate(() => window.__aiXss ?? null), null);
+  } finally {
+    await ctx.close();
+  }
+});
