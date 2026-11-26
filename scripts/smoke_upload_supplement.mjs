@@ -176,6 +176,12 @@ export async function checkUploadSupplement({
 
       // 2) 보완 컨텍스트 조회 및 타 계정 404
       const ctxReply = await requestJson(requestApi, baseSupplementPath, { token: owner.accessToken });
+      if (ctxReply.status !== 200) {
+        // 진단: API가 숨긴 DB 오류의 SQLSTATE와 메시지만 남긴다(토큰·응답 본문은 출력하지 않는다).
+        const direct = await owner.client.rpc('read_upload_supplement_context', { p_analysis_id: analysisId, p_run_id: baseRunId });
+        const err = direct.error;
+        process.stderr.write(`supplement_context direct rpc: ${err ? `${err.code} ${String(err.message).slice(0, 200)} ${String(err.details ?? '').slice(0, 200)} ${String(err.hint ?? '').slice(0, 120)}` : 'no error'}\n`);
+      }
       checkNoStore(ctxReply, check, 'supplement_context');
       const ctx = await expectJson(ctxReply, 200, check, 'supplement_context');
       check(
