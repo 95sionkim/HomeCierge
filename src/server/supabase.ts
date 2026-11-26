@@ -54,6 +54,47 @@ export function createBackend(config: BackendConfig): Backend {
       if (error) throw new Error('database_unavailable');
       return data;
     },
+    async chatHome(op, signal) {
+      const rpc = op.action === 'list'
+        ? client.rpc('list_chats', { ...(op.before ? { p_before: op.before } : {}), p_limit: op.limit })
+        : op.action === 'create'
+          ? client.rpc('create_chat', { p_request_key: op.requestId, ...(op.title !== null ? { p_title: op.title } : {}) })
+          : op.action === 'detail'
+            ? client.rpc('read_chat_detail', { p_chat_id: op.chatId })
+            : op.action === 'rename'
+              ? client.rpc('rename_chat', { p_chat_id: op.chatId, p_title: op.title })
+              : op.action === 'message'
+                ? client.rpc('post_chat_message', {
+                    p_chat_id: op.chatId,
+                    p_request_key: op.requestId,
+                    p_message: op.message,
+                    p_action: op.replyAction,
+                    ...(op.query !== null ? { p_query: op.query } : {}),
+                    ...(op.mode !== null ? { p_mode: op.mode } : {}),
+                  })
+                : client.rpc('start_chat_notice_workspace', {
+                    p_chat_id: op.chatId,
+                    p_request_key: op.requestId,
+                    p_input: op.input,
+                  });
+      const { data, error } = await rpc.abortSignal(signal);
+      if (error) {
+        if (error.code === '42501') throw new ApiError('authentication_required');
+        if (error.code === 'PT404') throw new ApiError('chat_not_found');
+        if (error.code === 'PT403') throw new ApiError('notice_source_restricted');
+        if (error.code === 'PT429') throw new ApiError('run_rate_limited');
+        if (error.code === 'PT409') {
+          if (op.action === 'startAnalysis') {
+            const cause = noticeConflicts.find(code => code === error.message);
+            if (cause) throw new ApiError(cause);
+          }
+          throw new ApiError(op.action === 'startAnalysis' && error.message !== 'chat_request_conflict' ? 'run_conflict' : 'chat_conflict');
+        }
+        if (error.code === '22023') throw new ApiError(op.action === 'startAnalysis' ? 'invalid_run_input' : 'invalid_chat_input');
+        throw new Error('database_unavailable');
+      }
+      return data;
+    },
     async dataDeletion(op, signal) {
       const query = op.action === 'items'
         ? client.rpc('list_deletion_items', { p_kind:op.kind, ...(op.before ? { p_before:op.before } : {}) })

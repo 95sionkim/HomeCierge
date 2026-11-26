@@ -209,6 +209,6 @@ export function directoryView(state) {
   </section><aside id="directory-summary" class="side-stack" aria-label="일정 요약">${panels.summary}</aside></div>`;
 }
 
-export function homeView(state, history) {
-  return `${hero(state, true)}<section class="home-links" aria-label="워크스페이스 바로가기"><a class="panel home-link" href="#search">${icon('sliders-horizontal')}<strong>맞춤 공고 찾기</strong><span>지역과 예산에 맞는 호실을 찾습니다.</span>${icon('arrow-right')}</a><a class="panel home-link" href="#analyses">${icon('folder-open')}<strong>내 분석 이어보기</strong><span>저장한 공고의 가격과 근거를 다시 확인합니다.</span>${icon('arrow-right')}</a></section><section class="full-section"><div class="section-top"><h2>${state.session ? '최근 분석' : '예시 분석'}</h2><a class="text-button" href="#analyses">전체 보기 ${icon('arrow-right')}</a></div>${history}</section>`;
+export function homeView(state, chatHomeMarkup) {
+  return chatHomeMarkup;
 }

@@ -24,7 +24,7 @@ export function createDevServer(handle: (request: Request) => Promise<Response>)
       const init: RequestInit & { duplex?: 'half' } = {
         method: incoming.method, headers, signal: connection.signal,
       };
-      if (incoming.method === 'POST') {
+      if (incoming.method === 'POST' || incoming.method === 'PATCH') {
         // 크기 제한으로 읽기를 멈춰도 오류 응답을 보내기 전에는 소켓을 닫지 않는다.
         const body = NodeReadableStream.from<Uint8Array>(incoming.iterator({ destroyOnReturn: false }));
         init.body = body as unknown as ReadableStream<Uint8Array>;

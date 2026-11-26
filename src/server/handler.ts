@@ -6,6 +6,8 @@ import { readLegalEvidence } from './legal-evidence.js';
 import { readRegionalNews } from './regional-news-request.js';
 import { parseNoticeSearchConditions, evaluateNoticeSearch } from './notice-search.js';
 import { evaluateNoticeDirectory, noticeRegionOptions, parseNoticeDirectoryQuery } from './notice-directory.js';
+import { evaluateNoticeLookup, parseNoticeLookupQuery, serveChatHome } from './notice-lookup.js';
+import type { ChatHomeOperation } from './notice-lookup.js';
 import { readAnalysisRunOperation } from './analysis-runs.js';
 import type { AnalysisRun, AnalysisRunOperation, ComparisonEvidenceDetail, ComparisonSnapshot } from './analysis-runs.js';
 import { readConversation } from './analysis-conversation.js';
@@ -38,6 +40,7 @@ export type Backend = {
   analysisConversation: (operation: ChatOperation, signal: AbortSignal) => Promise<unknown>;
   savedReport: (operation: ReportOperation, signal: AbortSignal) => Promise<unknown>;
   dataDeletion: (operation: DeletionOperation, signal: AbortSignal) => Promise<unknown>;
+  chatHome?: (operation: ChatHomeOperation, signal: AbortSignal) => Promise<unknown>;
 };
 export type BackendConfig = { url: string; key: string; token: string };
 
@@ -48,6 +51,7 @@ const saveReportPath = /^\/api\/v1\/analyses\/([^/]+)\/runs\/([^/]+)\/reports$/;
 const savedReportPath = /^\/api\/v1\/reports(?:\/([^/]+)(?:\/(pdf))?)?$/;
 const fundingPlanPath = /^\/api\/v1\/analyses\/([^/]+)\/funding-plan$/;
 const snapshotServicePath = /^\/api\/v1\/analyses\/([^/]+)\/snapshots\/([^/]+)\/(legal-evidence|regional-news|commute)$/;
+const chatHomePath = /^\/api\/v1\/chats(?:\/([^/]+)(?:\/(messages|analyses))?)?$/;
 
 function readConfig(env: Environment, token: string): BackendConfig {
   const url = env.SUPABASE_URL;
@@ -93,8 +97,13 @@ export function createHandler(deps: {
     const search = path === '/api/v1/notices/search';
     const directory = path === '/api/v1/notices';
     const regions = path === '/api/v1/notices/regions';
+    const lookup = path === '/api/v1/notices/lookup';
+    const chatHome = path.match(chatHomePath);
     const enqueues = run !== null && !run[2];
+    const createsChat = chatHome !== null && !chatHome[1];
+    const startsChatAnalysis = chatHome?.[2] === 'analyses';
     const methods = privacy ? [privacy === 'items' ? 'GET' : 'POST'] : saveReport ? ['POST'] : savedReport?.[1] && !savedReport[2] ? ['GET', 'DELETE']
+      : chatHome ? (!chatHome[1] ? ['GET', 'POST'] : !chatHome[2] ? ['GET', 'PATCH'] : ['POST'])
       : conversation && !conversation[3] ? ['GET', 'POST']
       : search || funding || news || commute || enqueues || run?.[3] === 'cancel' || conversation?.[3] ? ['POST'] : ['GET'];
     const allowedMethods = [...methods, 'OPTIONS'].join(', ');
@@ -104,7 +113,7 @@ export function createHandler(deps: {
       'X-Content-Type-Options': 'nosniff',
       'X-Request-Id': requestId,
     });
-    if (privacy || search || directory || regions || funding || snapshotService || upload || run?.[3] === 'result' || run?.[3] === 'evidence' || conversation || saveReport || savedReport) {
+    if (privacy || search || directory || regions || lookup || chatHome || funding || snapshotService || upload || run?.[3] === 'result' || run?.[3] === 'evidence' || conversation || saveReport || savedReport) {
       headers.set('Cache-Control', 'private, no-store');
       headers.set('Vary', 'Authorization, Origin');
       headers.set('Vercel-CDN-Cache-Control', 'no-store');
@@ -117,7 +126,7 @@ export function createHandler(deps: {
       headers.set('Access-Control-Allow-Origin', origin);
       headers.set('Access-Control-Allow-Methods', allowedMethods);
       headers.set('Access-Control-Allow-Headers', enqueues ? 'Authorization, Content-Type, Idempotency-Key' : 'Authorization, Content-Type');
-      if (enqueues || saveReport) headers.set('Access-Control-Expose-Headers', 'Location');
+      if (enqueues || saveReport || createsChat || startsChatAnalysis) headers.set('Access-Control-Expose-Headers', 'Location');
     }
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     if (!methods.includes(request.method)) {
@@ -134,7 +143,7 @@ export function createHandler(deps: {
         return respond({ error: 'configuration_unavailable', requestId }, 503);
       }
     }
-    if (!privacy && !upload && !run && !conversation && !saveReport && !savedReport && !search && !directory && !regions && !funding && !snapshotService && !['/api/v1/me','/api/ready'].includes(path)) return respond({ error: 'not_found', requestId }, 404);
+    if (!privacy && !upload && !run && !conversation && !saveReport && !savedReport && !search && !directory && !regions && !lookup && !chatHome && !funding && !snapshotService && !['/api/v1/me','/api/ready'].includes(path)) return respond({ error: 'not_found', requestId }, 404);
 
     const authorization = request.headers.get('authorization');
     const match = authorization?.match(/^Bearer ([^\s]+)$/i);
@@ -189,7 +198,17 @@ export function createHandler(deps: {
         const inputs = await backend.getFundingInputs(selection, request.signal);
         return respond(calculateFundingPlan(inputs), 200);
       }
-      if (directory || search || regions) {
+      if (chatHome) {
+        if (!backend.chatHome) throw new Error('backend_unavailable');
+        const asOf = koreaDate.format(deps.now?.() ?? new Date());
+        return await serveChatHome(
+          request,
+          headers,
+          { chatId: chatHome[1], sub: chatHome[2] as 'messages' | 'analyses' | undefined },
+          { chatHome: backend.chatHome, getNoticeSearchIndex: backend.getNoticeSearchIndex, asOf },
+        );
+      }
+      if (directory || search || regions || lookup) {
         const readPublishedIndex = async () => {
           const index = await backend.getNoticeSearchIndex(request.signal, search ? 'search' : 'directory');
           if (index === null) throw new ApiError('search_index_not_ready');
@@ -202,6 +221,11 @@ export function createHandler(deps: {
         if (regions) {
           if (url.search) throw new ApiError('invalid_directory_input');
           return respond(noticeRegionOptions(await readPublishedIndex()), 200);
+        }
+        if (lookup) {
+          const query = parseNoticeLookupQuery(url.searchParams);
+          if (!query) throw new ApiError('invalid_lookup_input');
+          return respond(evaluateNoticeLookup(await readPublishedIndex(), query, asOf), 200);
         }
         if (directory) {
           const options = parseNoticeDirectoryQuery(url.searchParams);

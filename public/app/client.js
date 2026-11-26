@@ -25,6 +25,10 @@ const publicErrors = new Set([
   'search_source_restricted',
   'directory_page_changed',
   'invalid_directory_input',
+  'invalid_lookup_input',
+  'invalid_chat_input',
+  'chat_not_found',
+  'chat_conflict',
   'invalid_search_input',
   'invalid_funding_input',
   'funding_not_found',
@@ -223,6 +227,59 @@ export function listNotices({ limit, cursor, includeClosed } = {}) {
   if (cursor != null) query.set('cursor', cursor);
   if (includeClosed != null) query.set('includeClosed', String(includeClosed));
   return request('/api/v1/notices?' + query);
+}
+
+export function lookupNotices({ q, mode = 'auto' } = {}, signal) {
+  const query = new URLSearchParams();
+  if (typeof q === 'string') query.set('q', q);
+  if (mode) query.set('mode', mode);
+  return request('/api/v1/notices/lookup?' + query, 'GET', undefined, signal);
+}
+
+export async function listChats({ before = null, limit = 20 } = {}, signal) {
+  if (before !== null && !uuid.test(before)) throw apiError('invalid_chat_input');
+  const query = new URLSearchParams();
+  if (before) query.set('before', before);
+  if (limit != null) query.set('limit', String(limit));
+  const data = await request('/api/v1/chats' + (query.size ? '?' + query : ''), 'GET', undefined, signal);
+  if (data?.contractVersion !== 'chat-home/v1' || !Array.isArray(data.chats)) throw apiError('backend_unavailable');
+  return data;
+}
+
+export async function createChat({ requestId, title = null } = {}, signal) {
+  if (!uuid.test(requestId)) throw apiError('invalid_chat_input');
+  const body = title === null ? { requestId } : { requestId, title };
+  const data = await request('/api/v1/chats', 'POST', body, signal);
+  if (data?.contractVersion !== 'chat-home/v1' || !uuid.test(data.chat?.chatId)) throw apiError('backend_unavailable');
+  return data;
+}
+
+export async function getChat(chatId, signal) {
+  if (!uuid.test(chatId)) throw apiError('invalid_chat_input');
+  const data = await request('/api/v1/chats/' + chatId, 'GET', undefined, signal);
+  if (
+    data?.contractVersion !== 'chat-detail/v1' ||
+    !uuid.test(data.chat?.chatId) ||
+    !Array.isArray(data.messages) ||
+    !Array.isArray(data.analyses)
+  ) {
+    throw apiError('backend_unavailable');
+  }
+  return data;
+}
+
+export async function renameChat(chatId, title, signal) {
+  if (!uuid.test(chatId) || typeof title !== 'string') throw apiError('invalid_chat_input');
+  const data = await request('/api/v1/chats/' + chatId, 'PATCH', { title }, signal);
+  if (data?.contractVersion !== 'chat-home/v1' || !uuid.test(data.chat?.chatId)) throw apiError('backend_unavailable');
+  return data;
+}
+
+export async function sendChatMessage(chatId, { requestId, message, mode = 'auto' } = {}, signal) {
+  if (!uuid.test(chatId) || !uuid.test(requestId) || typeof message !== 'string') throw apiError('invalid_chat_input');
+  const data = await request('/api/v1/chats/' + chatId + '/messages', 'POST', { requestId, message, mode }, signal);
+  if (data?.contractVersion !== 'chat-message/v1' || data.chatId !== chatId) throw apiError('backend_unavailable');
+  return data;
 }
 
 export function listDeletionItems(kind, before = null, signal) {
@@ -472,7 +529,7 @@ function forgetRequest(name) {
   }
 }
 
-export async function startAnalysis(notice, model) {
+export async function startAnalysis(notice, model, { chatId = null } = {}) {
   const proposed = model?.analysisInput;
   if (
     !proposed ||
@@ -481,24 +538,38 @@ export async function startAnalysis(notice, model) {
     proposed.noticeNo !== notice?.noticeNo ||
     proposed.edition !== notice?.edition ||
     proposed.modelNo !== model.modelNo ||
-    !['applyhome_apt', 'applyhome_remainder'].includes(proposed.noticeSource)
+    !['applyhome_apt', 'applyhome_remainder'].includes(proposed.noticeSource) ||
+    (chatId !== null && !uuid.test(chatId))
   )
     throw apiError('invalid_run_input');
   const { kind, noticeSource, houseManageNo, noticeNo, edition, modelNo } = proposed;
   const input = { kind, noticeSource, houseManageNo, noticeNo, edition, modelNo };
   const owner = await getSession();
   if (!owner) throw apiError('authentication_required');
-  const name = intentPrefix + [owner.id, noticeSource, houseManageNo, noticeNo, edition, modelNo].join('/');
+  const scopeParts = chatId
+    ? [owner.id, 'chat', chatId, noticeSource, houseManageNo, noticeNo, edition, modelNo]
+    : [owner.id, noticeSource, houseManageNo, noticeNo, edition, modelNo];
+  const name = intentPrefix + scopeParts.join('/');
   if (inFlight.has(name)) return inFlight.get(name);
   const key = rememberRequest(name);
   const task = (async () => {
-    const { data, error } = await (
-      await client()
-    ).rpc('start_notice_workspace', { p_request_key: key, p_input: input });
-    if (error) {
-      const mapped = databaseError(error);
-      if (mapped.code !== 'backend_unavailable' && mapped.code !== 'run_rate_limited') forgetRequest(name);
-      throw mapped;
+    let data;
+    if (chatId) {
+      try {
+        data = await request('/api/v1/chats/' + chatId + '/analyses', 'POST', { requestId: key, input });
+      } catch (error) {
+        if (error?.code !== 'backend_unavailable' && error?.code !== 'run_rate_limited') forgetRequest(name);
+        throw error;
+      }
+      if (data?.chatId !== chatId) throw apiError('backend_unavailable');
+    } else {
+      const response = await (await client()).rpc('start_notice_workspace', { p_request_key: key, p_input: input });
+      if (response.error) {
+        const mapped = databaseError(response.error);
+        if (mapped.code !== 'backend_unavailable' && mapped.code !== 'run_rate_limited') forgetRequest(name);
+        throw mapped;
+      }
+      data = response.data;
     }
     if (
       !uuid.test(data?.analysisId) ||

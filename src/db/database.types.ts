@@ -205,6 +205,8 @@ export type Database = {
           content: string
           created_at: string
           id: string
+          message_order: number
+          request_key: string | null
           role: string
           user_id: string
         }
@@ -213,6 +215,8 @@ export type Database = {
           content: string
           created_at?: string
           id?: string
+          message_order?: number
+          request_key?: string | null
           role: string
           user_id: string
         }
@@ -221,6 +225,8 @@ export type Database = {
           content?: string
           created_at?: string
           id?: string
+          message_order?: number
+          request_key?: string | null
           role?: string
           user_id?: string
         }
@@ -238,6 +244,7 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          request_key: string | null
           title: string
           updated_at: string
           user_id: string
@@ -245,6 +252,7 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
+          request_key?: string | null
           title?: string
           updated_at?: string
           user_id: string
@@ -252,6 +260,7 @@ export type Database = {
         Update: {
           created_at?: string
           id?: string
+          request_key?: string | null
           title?: string
           updated_at?: string
           user_id?: string
@@ -736,6 +745,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      create_chat: {
+        Args: { p_request_key: string; p_title?: string }
+        Returns: Json
+      }
       decide_analysis_chat_turn: {
         Args: {
           p_analysis_id: string
@@ -861,12 +874,27 @@ export type Database = {
         Args: { p_analysis_id: string; p_run_id: string }
         Returns: Json
       }
+      list_chats: {
+        Args: { p_before?: string; p_limit?: number }
+        Returns: Json
+      }
       list_deletion_items: {
         Args: { p_before?: string; p_kind: string }
         Returns: Json
       }
       list_saved_analysis_reports: {
         Args: { p_before?: string }
+        Returns: Json
+      }
+      post_chat_message: {
+        Args: {
+          p_action: string
+          p_chat_id: string
+          p_message: string
+          p_mode?: string
+          p_query?: string
+          p_request_key: string
+        }
         Returns: Json
       }
       prepare_analysis_commute: {
@@ -914,6 +942,10 @@ export type Database = {
         Args: { p_analysis_id: string; p_snapshot_id: string }
         Returns: Json
       }
+      read_chat_detail: {
+        Args: { p_chat_id: string }
+        Returns: Json
+      }
       read_comparison_work: {
         Args: { p_generation: number; p_lease_token: string; p_run_id: string }
         Returns: Json
@@ -957,6 +989,10 @@ export type Database = {
           p_source_ids: string[]
         }
         Returns: string
+      }
+      rename_chat: {
+        Args: { p_chat_id: string; p_title: string }
+        Returns: Json
       }
       renew_analysis_run: {
         Args: {
@@ -1013,6 +1049,10 @@ export type Database = {
           p_user_id: string
         }
         Returns: string
+      }
+      start_chat_notice_workspace: {
+        Args: { p_chat_id: string; p_input: Json; p_request_key: string }
+        Returns: Json
       }
       start_notice_workspace: {
         Args: { p_input: Json; p_request_key: string }

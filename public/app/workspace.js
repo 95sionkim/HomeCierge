@@ -15,6 +15,8 @@ import { createProfilePage } from './profile-page.js';
 import { createProfileReview } from './profile-review.js';
 import { createReportPage } from './report-page.js';
 import { createPrivacyPage } from './privacy-page.js';
+import { createChatHome } from './chat-home.js';
+import { createChatView } from './chat-view.js';
 import { reportExample } from '/vendor/planning-example.js';
 
 const root = document.querySelector('#app');
@@ -57,6 +59,8 @@ let epoch = 0,
   restoreVersion = 0,
   pollTimer;
 let dialogNotice = null,
+  dialogChatId = null,
+  pendingChatLookup = null,
   sendingStart = false,
   sessionSubscription;
 let demoDirectory, demoComparison, demoEvidenceBundle;
@@ -69,6 +73,43 @@ let reportFundingChoice = null;
 let reviewFromProfile = null;
 let signedOutReceipt = null;
 const searchPage = createSearchPage({ root, render, user: () => state.session, selectNotice: selectSearchNotice });
+const chatHome = createChatHome({
+  root,
+  render,
+  announce,
+  user: () => state.session,
+  navigate,
+  openAuth() {
+    openDialog(authDialog(), '#auth-email');
+  },
+  onOpenChat(chatId, initialLookup) {
+    pendingChatLookup = initialLookup ? { owner: state.session?.id ?? null, chatId, ...initialLookup } : null;
+  },
+});
+const chatView = createChatView({
+  root,
+  render,
+  announce,
+  user: () => state.session,
+  navigate,
+  openAuth() {
+    openDialog(authDialog(), '#auth-email');
+  },
+  openNoticeModels(notice, chatId) {
+    dialogNotice = notice;
+    dialogChatId = chatId;
+    openDialog(noticeDialog(notice, !state.session));
+    const radio = dialog.querySelector('input[name=model]:not(:disabled)');
+    if (radio) {
+      radio.checked = true;
+      radio.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  },
+  onOpenChat(chatId, initialLookup) {
+    pendingChatLookup = initialLookup ? { owner: state.session?.id ?? null, chatId, ...initialLookup } : null;
+  },
+  onChatsChanged() {},
+});
 const profilePage = createProfilePage({ root, render, announce, user: () => state.session });
 const reportPage = createReportPage({ root, render, announce, user: () => state.session, navigate });
 const privacyPage = createPrivacyPage({
@@ -175,7 +216,7 @@ function clearEvidenceState() {
 }
 const resultSections = { comparison: '비교 결과', funding: '호실 자금표', law: '법령 근거', news: '지역 뉴스', commute: '출퇴근 경로', report: '보고서' };
 const navs = [
-  ['home', 'house', '홈'],
+  ['home', 'house', '채팅 홈'],
   ['notices', 'calendar-days', '오늘의 청약'],
   ['search', 'sliders-horizontal', '맞춤 검색'],
   ['analyses', 'folder-open', '내 분석'],
@@ -187,6 +228,14 @@ const samplePresets = new Set(['saved', 'expanded', 'held']);
 function readRoute() {
   const bits = location.hash.replace(/^#\/?/, '').split('/');
   if (bits.length === 1 && bits[0] === 'privacy') return { key:'privacy' };
+  if (bits[0] === 'chat' && bits.length === 2) {
+    return uuid.test(bits[1])
+      ? { key: 'chat', chatId: bits[1].toLowerCase() }
+      : { key: 'chat', chatId: bits[1], invalid: true };
+  }
+  if (bits[0] === 'lookup' && (bits.length === 1 || (bits.length === 2 && ['name', 'number'].includes(bits[1])))) {
+    return { key: 'lookup', mode: bits[1] ?? 'auto' };
+  }
   let section = 'comparison';
   const isPreset = bits[0] === 'sample' && samplePresets.has(bits[1]);
   const sectionAt = isPreset ? 2 : 3;
@@ -220,8 +269,11 @@ function resetPrivate(keepPrivacy = false) {
   originRun = null;
   profileDraft = null;
   reviewFromProfile = null;
+  pendingChatLookup = null;
   state.conditionsOpen = false;
   state.tradeKind = 'sale';
+  chatHome.reset();
+  chatView.reset();
   searchPage.reset();
   profilePage.reset();
   if (!keepPrivacy) privacyPage.reset();
@@ -275,7 +327,9 @@ function setUser(user, force = false) {
   state.suspended = false;
   state.session = user;
   const route = readRoute();
-  if ((leaving && (route.key === 'run' || (route.key === 'reports' && route.reportId))) || (user && route.key === 'sample'))
+  if (leaving && route.key === 'chat')
+    history.replaceState(null, '', '#home');
+  else if ((leaving && (route.key === 'run' || (route.key === 'reports' && route.reportId))) || (user && route.key === 'sample'))
     history.replaceState(null, '', '#notices');
   render();
   void loadDirectory();
@@ -368,6 +422,7 @@ async function selectSearchNotice(notice, model) {
     && m.analysisInput?.noticeSource === source[0] && !m.selectionBlockers?.length);
   if (!selected) fail();
   dialogNotice = { ...entry, models: [selected] };
+  dialogChatId = null;
   openDialog(noticeDialog(dialogNotice, !state.session));
   const radio = dialog.querySelector('input[name=model]:not(:disabled)');
   if (radio) { radio.checked = true; radio.dispatchEvent(new Event('change', {bubbles:true})); }
@@ -509,8 +564,8 @@ function historyRail() {
 }
 function shell(body, route) {
   const analysis = ['run', 'sample'].includes(route.key);
-  const active = analysis ? 'analyses' : route.key;
-  const label = active === 'privacy' ? '내 데이터 관리' : navs.find((n) => n[0] === active)?.[2] ?? '오늘의 청약';
+  const active = analysis ? 'analyses' : ['chat', 'lookup'].includes(route.key) ? 'home' : route.key;
+  const label = route.key === 'chat' ? '채팅' : route.key === 'lookup' ? '공고 찾기' : active === 'privacy' ? '내 데이터 관리' : navs.find((n) => n[0] === active)?.[2] ?? '오늘의 청약';
   const nav = (mobile = false) =>
     navs
       .filter(([key]) => !mobile || !['profile', 'reports'].includes(key))
@@ -541,6 +596,9 @@ function focusedControl(node) {
     'data-open-evidence',
     'data-date',
     'data-month',
+    'data-lookup-mode',
+    'data-chat-home',
+    'data-chat-view',
     'href',
   ].find((name) => node.hasAttribute(name));
   return section && attribute
@@ -552,7 +610,7 @@ function render() {
   const focus = document.activeElement;
   const previousControl = focusedControl(focus);
   const searchFocus =
-    ['notice-search', 'commute-destination', 'conversation-input'].includes(focus?.id)
+    ['notice-search', 'commute-destination', 'conversation-input', 'chat-home-input', 'chat-message-input', 'lookup-query', 'chat-title-input'].includes(focus?.id)
       ? { id: focus.id, start: focus.selectionStart, end: focus.selectionEnd }
       : null;
   let body;
@@ -565,7 +623,10 @@ function render() {
         ? '<button type="button" class="action secondary" data-action="restore">다시 연결</button>'
         : '',
     );
-  else if (route.key === 'home') body = homeView(state, historyList(true));
+  else if (route.key === 'home')
+    body = state.authPending ? emptyState('loader-circle', '세션을 확인하고 있습니다.') : homeView(state, chatHome.view());
+  else if (route.key === 'chat' || route.key === 'lookup')
+    body = state.authPending ? emptyState('loader-circle', '세션을 확인하고 있습니다.') : chatView.view(route.key);
   else if (route.key === 'search') body = searchPage.view();
   else if (route.key === 'profile') body = state.authPending ? emptyState('loader-circle', '계정을 확인하고 있습니다.') : profilePage.view();
   else if (route.key === 'privacy') body = state.authPending ? emptyState('loader-circle', '계정을 확인하고 있습니다.') : privacyPage.view();
@@ -617,7 +678,7 @@ function render() {
   }
   root.innerHTML = shell(body, route);
   document.title =
-    (route.section === 'funding' ? '호실별 자금표' : route.section === 'report' ? '분석 보고서' : isReference(route) ? resultSections[route.section] : { notices: '오늘의 청약', search: '맞춤 공고 찾기', home: '홈', analyses: '내 분석', reports: '저장 보고서', profile: '공유 프로필', privacy:'내 데이터 관리', run: '분석 결과', sample: '분석 예시' }[
+    (route.section === 'funding' ? '호실별 자금표' : route.section === 'report' ? '분석 보고서' : isReference(route) ? resultSections[route.section] : { notices: '오늘의 청약', search: '맞춤 공고 찾기', home: '채팅 홈', chat: '채팅', lookup: '공고 찾기', analyses: '내 분석', reports: '저장 보고서', profile: '공유 프로필', privacy:'내 데이터 관리', run: '분석 결과', sample: '분석 예시' }[
       route.key
     ] ?? '오늘의 청약') + ' | HomeCierge';
   if (searchFocus) {
@@ -804,6 +865,8 @@ function routeChanged(focus = false) {
   const draft = route.key === 'profile' && state.session && profileDraft?.owner === state.session.id
     ? { message: profileDraft.message, analysisId: profileDraft.analysisId, runId: profileDraft.runId } : null;
   profileDraft = null;
+  chatHome.reset();
+  chatView.reset();
   profilePage.reset();
   privacyPage.reset();
   if (route.key !== 'privacy') signedOutReceipt = null;
@@ -822,7 +885,19 @@ function routeChanged(focus = false) {
   state.runError = null;
   state.sample = null;
   state.sampleError = null;
-  if (route.key === 'sample' && !state.session && !state.suspended && !state.authPending)
+  if (route.key !== 'chat') pendingChatLookup = null;
+  if (route.key === 'home' && !state.suspended && !state.authPending && !state.sessionProblem)
+    void chatHome.enter();
+  else if (route.key === 'chat' && !state.suspended && !state.authPending && !state.sessionProblem) {
+    const handoff =
+      pendingChatLookup && pendingChatLookup.owner === state.session?.id && pendingChatLookup.chatId === route.chatId
+        ? { lookup: pendingChatLookup.lookup, lookupError: pendingChatLookup.lookupError }
+        : null;
+    pendingChatLookup = null;
+    chatView.enter({ kind: 'chat', chatId: route.chatId, invalid: Boolean(route.invalid), initialLookup: handoff });
+  } else if (route.key === 'lookup' && !state.suspended && !state.authPending && !state.sessionProblem)
+    chatView.enter({ kind: 'lookup', mode: route.mode });
+  else if (route.key === 'sample' && !state.session && !state.suspended && !state.authPending)
     void readSample(route, version);
   else if (route.key === 'search' && !state.suspended && !state.authPending && !state.sessionProblem)
     void searchPage.enter();
@@ -853,6 +928,7 @@ function closeDialog() {
   profileReview.reset();
   if (dialog.open) dialog.close();
   dialogNotice = null;
+  dialogChatId = null;
   sendingStart = false;
 }
 function feedback(text, success = false) {
@@ -937,6 +1013,7 @@ root.addEventListener('click', (event) => {
     const entry = state.directory?.notices[Number(notice)];
     if (!entry) return;
     dialogNotice = entry;
+    dialogChatId = null;
     openDialog(noticeDialog(entry, state.directory.dataOrigin === 'synthetic'));
     return;
   }
@@ -1066,6 +1143,7 @@ dialog.addEventListener('change', (event) => {
 dialog.addEventListener('cancel', () => {
   profileReview.reset();
   dialogNotice = null;
+  dialogChatId = null;
   sendingStart = false;
 });
 dialog.addEventListener('click', async (event) => {
@@ -1122,6 +1200,7 @@ dialog.addEventListener('click', async (event) => {
   }
   if (action === 'start') {
     const n = dialogNotice,
+      linkedChatId = dialogChatId,
       m = n?.models?.find(
         (x) => x.modelNo === dialog.querySelector('input[name=model]:checked')?.value && x.analysisInput,
       );
@@ -1136,7 +1215,7 @@ dialog.addEventListener('click', async (event) => {
     button.disabled = true;
     feedback('분석을 접수하고 있습니다.', true);
     try {
-      const r = await api.startAnalysis(n, m);
+      const r = await api.startAnalysis(n, m, linkedChatId ? { chatId: linkedChatId } : {});
       if (account !== epoch) return;
       if (!uuid.test(r.analysisId) || !uuid.test(r.runId)) throw new Error('invalid run');
       void loadHistory();
