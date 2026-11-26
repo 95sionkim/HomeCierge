@@ -13,13 +13,22 @@ import os
 import re
 import time
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
+from decimal import InvalidOperation
 from http.client import HTTPException
 from typing import Callable, Optional
 from urllib import error as urllib_error, parse as urllib_parse, request as urllib_request
 from uuid import UUID
 
-from compare_trades import compare_snapshot
+from compare_trades import _checked_target_area, _documents, _selected_model, compare_snapshot
+from complex_coordinates import KakaoCoordinateBudgetExceeded, live_kakao_transport
+from complex_evidence import (
+    DEFAULT_APPLYHOME_REQUEST_LIMIT,
+    EvidenceBudgetExceeded,
+    LegalRegionCatalog,
+    build_comparison_evidence,
+    prefetch_cache_keys,
+)
 from ingestion_notices import NOTICE_SOURCES
 from ingestion_pages import request_unit
 from ingestion_trades import SOURCE_KINDS, TRADE_KINDS, trade_period
@@ -45,8 +54,9 @@ MAX_ATTEMPTS = 3  # DB claim_analysis_run의 최대 인수 횟수와 같다.
 # 한 번 더 조회하면 해소될 수 있는 상류 장애. 인증 거절·업무 오류·형식 오류는 재시도하지 않는다.
 TRANSIENT_ERRORS = frozenset(('upstream_timeout', 'upstream_unavailable'))
 # 개발 실행 한도. PDF 상한은 상세 1쪽과 첨부 5개의 리디렉션 3회까지를 포함한다.
-LIMITS = {'deadlineSeconds': 900, 'apiRequests': 400, 'pdfRequests': 24, 'requestIntervalSeconds': 0.2,
-          'leaseSeconds': 120}
+LIMITS = {'deadlineSeconds': 900, 'apiRequests': 400, 'pdfRequests': 24,
+          'evidenceApplyhomeRequests': DEFAULT_APPLYHOME_REQUEST_LIMIT, 'evidenceKakaoRequests': 30,
+          'requestIntervalSeconds': 0.2, 'leaseSeconds': 120}
 EDITION = re.compile(r'[0-9]{4}-[0-9]{2}-[0-9]{2}')
 MODEL_NO = re.compile(r'[0-9]{1,20}')
 NOTICE_NO = re.compile(r'[0-9]{10}')
@@ -86,6 +96,8 @@ class NoticeTransports:
     inspect: Optional[Callable] = None  # 검사용 PDF 판독기. None이면 inspect_notice_pdf
     limits: Optional[dict] = None  # LIMITS 일부를 덮어쓴다
     upload: Optional[Callable] = None  # read(upload_id, object_path) -> {'id': upload_id, 'content': bytes} | None
+    regions: Optional[Callable] = None  # load(sgg_code) -> LegalRegionCatalog | None
+    kakao: Optional[Callable] = None  # fetch(query) -> 카카오 로컬 응답 봉투 (키 없으면 None)
 
 
 class CaptureGuard:
@@ -96,7 +108,7 @@ class CaptureGuard:
         # 실조회 한 건(최대 25초)이 끝나기 전에 임대가 만료되지 않도록 공고 수집은 더 긴 임대로 갱신한다.
         self.lease_seconds = min(300, max(lease_seconds, limits['leaseSeconds']))
         self._deadline = clock() + limits['deadlineSeconds']
-        self.requests = {'api': 0, 'pdf': 0}
+        self.requests = {'api': 0, 'pdf': 0, 'evidenceApplyhome': 0, 'evidenceKakao': 0}
         self._last = None
 
     def remaining(self):
@@ -128,6 +140,21 @@ class CaptureGuard:
         self._last = self._clock()
         return remaining
 
+    def _evidence_request(self, channel, budget_error_cls):
+        remaining = self.remaining()
+        if self.requests[channel] >= self.limits[channel + 'Requests']:
+            raise budget_error_cls()
+        if self._last is not None:
+            wait = self.limits['requestIntervalSeconds'] - (self._clock() - self._last)
+            if wait >= remaining:
+                raise CaptureStopped()
+            if wait > 0:
+                self._sleep(wait)
+        remaining = self.confirm_lease()
+        self.requests[channel] += 1
+        self._last = self._clock()
+        return remaining
+
     def api(self, transport):
         def fetch(source, scope, page, page_size):
             self._request('api')
@@ -140,6 +167,23 @@ class CaptureGuard:
                 raise NoticeRunFailure('notice_feed_unavailable', True)
             return envelope
         return _with_supplied_pages(fetch, transport)
+
+    def evidence_api(self, transport):
+        """비교 근거 자동 조회용 청약홈 전송. 상한 도달 시 실행을 중단하지 않고 미확인 단지를 보류한다."""
+        def fetch(source, scope, page, page_size):
+            self._evidence_request('evidenceApplyhome', EvidenceBudgetExceeded)
+            return transport(source, scope, page, page_size)
+        return _with_supplied_pages(fetch, transport)
+
+    def kakao(self, transport):
+        """단지 대표 좌표용 카카오 로컬 전송. 키 누락(None)과 상한 도달은 좌표 미확인으로 처리한다."""
+        if transport is None:
+            return None
+
+        def fetch(query):
+            self._evidence_request('evidenceKakao', KakaoCoordinateBudgetExceeded)
+            return transport(query)
+        return fetch
 
     def pdf(self, transport):
         def fetch(url, *, max_bytes, timeout):
@@ -355,8 +399,153 @@ def capture_notice(plan, transports, guard, generation, *, official_index=(), re
     return snapshot_input(request), capture, schedules
 
 
-def prepare_notice_comparison(selection, work, *, generation, transports, renew, lease_seconds):
-    """read_comparison_work 응답으로 공고 캡처와 comparison/v1을 만든다. renew(seconds)는 임대 갱신 RPC다."""
+def has_confirmed_target_area(capture, selection):
+    """비교 엔진과 같은 기준으로 대상 주택형의 공급면적이 문서 대조까지 확정되었는지 판정한다."""
+    if not isinstance(capture, dict) or capture.get('dataOrigin') != 'collected':
+        return False
+    period = capture.get('period')
+    if not isinstance(period, dict) or period.get('status') != 'confirmed':
+        return False
+    catalog = capture.get('catalog')
+    target = capture.get('target')
+    if not isinstance(catalog, dict) or not isinstance(target, dict):
+        return False
+    model, _ = _selected_model(catalog, selection if isinstance(selection, dict) else {})
+    if model is None:
+        return False
+    documents = _documents(catalog, target)
+    _, area = _checked_target_area(model, documents)
+    return area is not None
+
+
+def build_capture_auto_evidence(
+    capture, plan, transports, guard,
+    *, read_permissions=None, read_cache=None, upsert_cache=None,
+):
+    """거래 수집 뒤 comparison-evidence/v1 근거를 자동으로 구성하고 공유 캐시를 갱신한다.
+
+    기존 근거가 이미 있거나 대상 공급면적이 미확정이거나 지역 로더가 없으면 외부 조회 없이 (plan['evidence'], None)을 돌려준다.
+    """
+    if plan['evidence'] is not None:
+        return plan['evidence'], None
+    if transports.regions is None or not has_confirmed_target_area(capture, plan['comparison']):
+        return None, None
+
+    guard.confirm_lease()
+    if read_permissions is not None:
+        try:
+            perms = read_permissions()
+        except WorkerRpcError as exc:
+            raise CaptureStopped(exc) from None
+        if not isinstance(perms, dict):
+            return None, None
+    else:
+        perms = {
+            'applyhomeApt': True,
+            'applyhomeRemainder': True,
+            'moisRegions': True,
+            'kakaoRuntime': True,
+            'kakaoStorage': False,
+        }
+    if not perms.get('moisRegions'):
+        return None, None
+
+    req_regions = capture.get('requestRegionCodes') or []
+    if len(req_regions) != 1:
+        return None, None
+    sgg_code = req_regions[0]
+    cache_keys = prefetch_cache_keys(capture)
+
+    cached_region = None
+    applyhome_cache = {}
+    kakao_cache = {}
+    if read_cache is not None:
+        guard.confirm_lease()
+        try:
+            cache_reply = read_cache(sgg_code, cache_keys)
+        except WorkerRpcError as exc:
+            raise CaptureStopped(exc) from None
+        if isinstance(cache_reply, dict):
+            cached_region = cache_reply.get('region')
+            if isinstance(cache_reply.get('applyhome'), dict):
+                applyhome_cache = cache_reply['applyhome']
+            if perms.get('kakaoStorage') and isinstance(cache_reply.get('kakao'), dict):
+                kakao_cache = cache_reply['kakao']
+
+    region_catalog = None
+    region_calls = 0
+    region_cache_hits = 0
+    new_region_record = None
+    if isinstance(cached_region, dict):
+        try:
+            region_catalog = LegalRegionCatalog.from_cache_record(cached_region)
+            region_cache_hits = 1
+        except (KeyError, TypeError, ValueError):
+            region_catalog = None
+    if region_catalog is None:
+        guard.confirm_lease()
+        try:
+            region_catalog = transports.regions(sgg_code)
+        except CaptureStopped:
+            raise
+        except Exception:
+            region_catalog = None
+        if region_catalog is not None:
+            region_calls = 1
+            observed_iso = datetime.now(timezone.utc).isoformat()
+            new_region_record = region_catalog.to_cache_record(sgg_code, observed_iso)
+
+    if region_catalog is None:
+        return None, None
+
+    try:
+        built = build_comparison_evidence(
+            capture,
+            region_catalog=region_catalog,
+            api_fetch=guard.evidence_api(transports.api),
+            kakao_fetch=guard.kakao(transports.kakao),
+            model_no=plan['modelNo'],
+            permissions=perms,
+            applyhome_cache=applyhome_cache,
+            kakao_cache=kakao_cache if perms.get('kakaoStorage') else None,
+            max_applyhome_calls=guard.limits['evidenceApplyhomeRequests'],
+            max_kakao_calls=guard.limits['evidenceKakaoRequests'],
+        )
+    except (AttributeError, HTTPException, InvalidOperation, KeyError, OSError, RuntimeError, TypeError, ValueError):
+        # 근거 구성의 예기치 않은 자료 형식은 수집 실패가 아니라 근거 미등록(비교 보류)으로 남긴다.
+        return None, None
+    meta = built['metadata']
+    meta['calls']['regions'] = region_calls
+    meta['cacheHits']['regions'] = region_cache_hits
+
+    if built['status'] != 'ready' or built['persistedEvidence'] is None:
+        return None, None
+
+    if upsert_cache is not None:
+        entries = [
+            entry for entry in built['newCacheEntries']
+            if entry.get('cacheKind') != 'kakao_road_coordinate' or perms.get('kakaoStorage')
+        ]
+        if new_region_record is not None or entries:
+            guard.confirm_lease()
+            try:
+                upsert_cache(new_region_record, entries)
+            except WorkerRpcError as exc:
+                if exc.code in ('PT404', 'PT409'):
+                    raise CaptureStopped(exc) from None
+
+    return built['runtimeEvidence'], {
+        'evidence': built['persistedEvidence'],
+        'sources': built['persistedSourceIds'],
+        'metadata': meta,
+    }
+
+
+def prepare_notice_comparison(
+    selection, work, *, generation, transports, renew, lease_seconds,
+    read_permissions=None, read_cache=None, upsert_cache=None, return_evidence=False,
+):
+    """read_comparison_work 응답으로 공고 캡처, 자동 비교 근거와 comparison/v1을 만든다. renew(seconds)는 임대 갱신 RPC다."""
     try:
         plan = notice_plan(selection, work)
     except (KeyError, TypeError, ValueError):
@@ -370,10 +559,16 @@ def prepare_notice_comparison(selection, work, *, generation, transports, renew,
                          limits=limits)
     try:
         inputs, capture, schedules = capture_notice(plan, transports, guard, generation)
-        comparison = compare_snapshot(capture, plan['comparison'], plan['evidence'])
+        runtime_evidence, evidence_bundle = build_capture_auto_evidence(
+            capture, plan, transports, guard,
+            read_permissions=read_permissions, read_cache=read_cache, upsert_cache=upsert_cache,
+        )
+        comparison = compare_snapshot(capture, plan['comparison'], runtime_evidence)
     except (AttributeError, HTTPException, KeyError, OSError, RuntimeError, TypeError, ValueError):
         raise NoticeRunFailure('notice_feed_unavailable') from None
     guard.confirm_lease()
+    if return_evidence:
+        return inputs, capture, comparison, schedules, evidence_bundle
     return inputs, capture, comparison, schedules
 
 
@@ -394,8 +589,9 @@ def _merge_official_index(*groups):
 
 def prepare_upload_supplement_comparison(
     selection, work, *, generation, transports, renew, lease_seconds, lookup_index=None,
+    read_permissions=None, read_cache=None, upsert_cache=None, return_evidence=False,
 ):
-    """read_upload_supplement_work 응답으로 업로드 대조·점검과 comparison/v1을 만든다."""
+    """read_upload_supplement_work 응답으로 업로드 대조·점검, 자동 비교 근거와 comparison/v1을 만든다."""
     try:
         plan = upload_supplement_plan(selection, work)
     except (KeyError, TypeError, ValueError):
@@ -438,10 +634,16 @@ def prepare_upload_supplement_comparison(
             plan, transports, guard, generation,
             official_index=official_index, read_upload={'id': upload_meta['uploadId'], 'content': content},
         )
-        comparison = compare_snapshot(capture, plan['comparison'], plan['evidence'])
+        runtime_evidence, evidence_bundle = build_capture_auto_evidence(
+            capture, plan, transports, guard,
+            read_permissions=read_permissions, read_cache=read_cache, upsert_cache=upsert_cache,
+        )
+        comparison = compare_snapshot(capture, plan['comparison'], runtime_evidence)
     except (AttributeError, HTTPException, KeyError, OSError, RuntimeError, TypeError, ValueError):
         raise NoticeRunFailure('notice_feed_unavailable') from None
     guard.confirm_lease()
+    if return_evidence:
+        return inputs, capture, comparison, schedules, evidence_bundle
     return inputs, capture, comparison, schedules
 
 
@@ -460,16 +662,41 @@ def execute_upload_supplement_lease(client, lease, selection, lease_seconds, tra
     def lookup_index(sha256_hex):
         return client.post('lookup_official_notice_document_index', {**lease, 'p_sha256': sha256_hex})
 
+    def read_permissions():
+        return client.post('read_auto_evidence_permissions', lease)
+
+    def read_cache(region_code, complex_keys):
+        return client.post('read_auto_evidence_cache', {
+            **lease, 'p_region_code': region_code, 'p_complex_keys': complex_keys,
+        })
+
+    def upsert_cache(region_record, entries):
+        return client.post('upsert_auto_evidence_cache', {
+            **lease, 'p_region': region_record, 'p_entries': entries,
+        })
+
     try:
         try:
             work = client.post('read_upload_supplement_work', lease, limit=MAX_UPLOAD_SUPPLEMENT_WORK_BYTES)
         except WorkerRpcResponseTooLarge:
             raise NoticeRunFailure('notice_capture_limit', False) from None
-        inputs, capture, comparison, schedules = prepare_upload_supplement_comparison(
+        inputs, capture, comparison, schedules, evidence_bundle = prepare_upload_supplement_comparison(
             selection, work, generation=lease['p_generation'], transports=transports,
             renew=renew, lease_seconds=lease_seconds, lookup_index=lookup_index,
+            read_permissions=read_permissions, read_cache=read_cache, upsert_cache=upsert_cache,
+            return_evidence=True,
         )
         payload = {**lease, 'p_input': inputs, 'p_result': capture, 'p_comparison': comparison}
+        if evidence_bundle is not None:
+            body = dict(
+                payload,
+                p_evidence=evidence_bundle['evidence'],
+                p_evidence_sources=evidence_bundle['sources'],
+                p_evidence_metadata=evidence_bundle['metadata'],
+            )
+            if schedules is not None:
+                body['p_schedules'] = schedules
+            return client.post('finish_notice_with_evidence', body)
         if schedules is not None:
             return client.post('finish_notice_with_funding', dict(payload, p_schedules=schedules))
         return client.post('finish_analysis_comparison', payload)
@@ -524,7 +751,7 @@ def read_worker_storage_upload(env, upload_id, object_path, *, opener=None, time
 
 
 def live_notice_transports():
-    """선택된 공고의 공공데이터 전송을 만들고, 공식 문서·업로드 전송은 첫 허용 요청까지 미룬다."""
+    """선택된 공고의 공공데이터 전송을 만들고, 공식 문서·업로드·법정동·카카오 전송은 첫 필요 시점까지 미룬다."""
     from review_notice_documents import live_api_transport
     try:
         api = live_api_transport()
@@ -533,6 +760,7 @@ def live_notice_transports():
     except (KeyError, OSError):
         raise NoticeWorkerConfigurationError('공고·거래 API 명세를 작업자에서 읽을 수 없습니다.') from None
     pdf = None
+    region_cache = {}
 
     def fetch_pdf(url, *, max_bytes, timeout):
         nonlocal pdf
@@ -544,4 +772,11 @@ def live_notice_transports():
     def fetch_upload(upload_id, object_path):
         return read_worker_storage_upload(os.environ, upload_id, object_path)
 
-    return NoticeTransports(api=api, pdf=fetch_pdf, upload=fetch_upload)
+    def fetch_regions(sgg_code):
+        if 'catalog' not in region_cache:
+            from refresh_notice_index import download_region_zip
+            region_cache['catalog'] = LegalRegionCatalog.from_mois_tsv_bytes(download_region_zip())
+        return region_cache['catalog']
+
+    kakao = live_kakao_transport()
+    return NoticeTransports(api=api, pdf=fetch_pdf, upload=fetch_upload, regions=fetch_regions, kakao=kakao)

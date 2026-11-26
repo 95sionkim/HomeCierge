@@ -32,6 +32,7 @@ DEV_ORIGIN = 'https://jcaelooqogosbzrfyrhe.supabase.co'
 KST = timezone(timedelta(hours=9))
 WORKER_KEY = 'SUPABASE_WORKER_KEY'
 PROVIDER_KEY = 'DATA_GO_KR_SERVICE_KEY'
+KAKAO_KEY = 'KAKAO_REST_API_KEY'
 LLM_KEY = 'OPENAI_API_KEY'
 LABELS = {role: 'kr.homecierge.development.notice-' + role for role in ('worker', 'directory')}
 LABELS['deletion'] = 'kr.homecierge.development.data-deletion'
@@ -84,6 +85,10 @@ def worker_env(secret_dir, require_provider=True, require_llm=False):
         if not provider:
             raise ValueError('waiting_for_provider_key')
         env[PROVIDER_KEY] = provider
+        # 카카오 로컬 키는 선택 항목이다. 없어도 작업자 기동을 막지 않으며 단지 대표 좌표만 미확인으로 둔다.
+        kakao = read_field(secret_dir / (KAKAO_KEY + '.env'), KAKAO_KEY)
+        if kakao:
+            env[KAKAO_KEY] = kakao
     if require_llm:
         llm_key = read_field(secret_dir / (LLM_KEY + '.env'), LLM_KEY)
         if not llm_key:
@@ -192,6 +197,10 @@ def serve(secret_dir, role):
                         delay = 0
                 else:
                     os.environ[PROVIDER_KEY] = env[PROVIDER_KEY]
+                    if KAKAO_KEY in env:
+                        os.environ[KAKAO_KEY] = env[KAKAO_KEY]
+                    else:
+                        os.environ.pop(KAKAO_KEY, None)
                     outcome = run_once(client, notice=live_notice_transports)['status']
                     record(path, state, outcome, **({} if outcome == 'idle' else {'lastJobStatus': outcome}))
                     if outcome != 'idle':
@@ -274,6 +283,9 @@ def manage(root, command, api_env=None, requested_role=None):
             if not provider:
                 raise ValueError('지정 파일에 데이터포털 키가 없습니다.')
             write_private(secrets / (PROVIDER_KEY + '.env'), (PROVIDER_KEY + '=' + provider + '\n').encode())
+            kakao = read_field(api_env, KAKAO_KEY, private=False)
+            if kakao:
+                write_private(secrets / (KAKAO_KEY + '.env'), (KAKAO_KEY + '=' + kakao + '\n').encode())
         runtime = release(root, secrets)
         agents.mkdir(parents=True, exist_ok=True)
     domain = 'gui/' + str(os.getuid())

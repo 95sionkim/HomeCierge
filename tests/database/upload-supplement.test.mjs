@@ -208,11 +208,13 @@ print(json.dumps({'request': request, 'result': result, 'comparison': comparison
 }
 
 async function finishBaseNoticeRun(userId, analysisId, { withEvidence = false, docMode = 'missing', uploadHash } = {}) {
+  const now = new Date();
+  const todayKst = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(now);
   const index = {
     contractVersion: 'notice-search-index/v1',
     dataOrigin: 'collected',
-    observedAt: new Date().toISOString(),
-    publicationWindow: { start: identity.edition, end: new Date().toISOString().slice(0, 10) },
+    observedAt: now.toISOString(),
+    publicationWindow: { start: identity.edition, end: todayKst },
     regionCodes: [regionCode],
     coverage: {
       status: 'complete',

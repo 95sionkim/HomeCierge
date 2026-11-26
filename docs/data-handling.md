@@ -14,6 +14,8 @@
 
 ODsay 이용약관 4.5.10에는 사전 동의 없는 결과 데이터의 복제·저장·가공·배포·전송 제한이 있다. 운영 캐시·장기 보관·모델 입력·공유 허용 범위는 D-07에서 확인한다. 키를 등록했다는 사실만으로 결과 재사용 허용을 가정하지 않는다. [ODsay 정책 및 약관](https://lab.odsay.com/doc/totalPolicy), 확인 2026-11-09.
 
+카카오 로컬 주소 검색(`kakao_address`)은 약관 제11조제3항과 운영정책 제5조의 데이터 복제·캐시 제한을 고려해 `public.source_registry`의 저장·재사용·표시 허용을 매 실행마다 확인한다. `storage_permission`과 `reuse_permission`이 모두 `allowed`가 아니면 단지 대표 좌표(위·경도)를 공유 캐시(`private.complex_evidence_cache`)나 `private.comparison_evidence`에 저장하지 않고 실행 메모리 안에서만 직선거리를 계산해 거리(출처·조회 시각 포함)만 비교 결과에 남긴다. 청약홈 구조화 자료와 행정안전부 법정동코드의 공유 캐시에는 사용자·분석 식별자를 두지 않고 관측 시각(`observed_at`)과 재사용 기한(`expires_at`, 최대 90일)을 기록하며 조회·저장 시마다 출처 허용을 다시 검사한다. [자동 비교 근거 계약](api/auto-comparison-evidence.md) · [출처별 약관 검토](api/be-01-evidence.md#5-v4--출처별-이용-조건)
+
 NAVER API HUB의 검색 특약에 따라 뉴스는 등록 앱의 독립된 검색결과 영역에 출처·원문 링크와 함께 표시한다. 제품은 기사 제목·발췌·링크를 무저장으로 전달하며 LLM 입력·평가, 저장 보고서, PDF에는 포함하지 않는다. 계정별 과금과 실설정 한도는 별도 확인 항목이다. 공공 API와 공고 PDF도 출처별 표시·재사용 조건을 확인한다. [NAVER 검색 특약과 사용 범위](api/be-10-news-sources.md)
 
 비교 대화 LLM 에이전트 문맥 구성(`read_agent_reply_context` 및 `agent_tools.filter_comparison_for_llm`)은 `public.source_registry.llm_permission = 'allowed'`인 출처의 값만 포함한다. 허용되지 않은 출처(`unknown`·`denied`)의 값은 문맥에서 제외하고 제외 사실을 `llmSourcePolicy.restrictedSources`에 표시한다. `naver_news`와 사용자 업로드(`user_upload`)는 어떤 경우에도 LLM 입력에서 제외하며, OpenAI Responses API 호출에는 `store: false`를 적용하고 프롬프트 원문과 결과 전체는 DB에 따로 저장하지 않는다. [LLM 에이전트 코어 계약](api/agent-core.md)

@@ -158,8 +158,18 @@ def lease_identity(job, expected_run_id):
         raise WorkerRpcError() from None
 
 
-def finish_comparison(client, lease, inputs, capture, comparison, schedules=None):
+def finish_comparison(client, lease, inputs, capture, comparison, schedules=None, evidence_bundle=None):
     payload = {**lease, 'p_input': inputs, 'p_result': capture, 'p_comparison': comparison}
+    if evidence_bundle is not None:
+        body = dict(
+            payload,
+            p_evidence=evidence_bundle['evidence'],
+            p_evidence_sources=evidence_bundle['sources'],
+            p_evidence_metadata=evidence_bundle['metadata'],
+        )
+        if schedules is not None:
+            body['p_schedules'] = schedules
+        return client.post('finish_notice_with_evidence', body)
     if schedules is not None:
         return client.post('finish_notice_with_funding', dict(payload, p_schedules=schedules))
     return client.post('finish_analysis_comparison', payload)
@@ -176,6 +186,19 @@ def execute_notice_lease(client, lease, selection, lease_seconds, transports):
                 or reply['attempt'] != lease['p_generation']):
             raise WorkerRpcError()
 
+    def read_permissions():
+        return client.post('read_auto_evidence_permissions', lease)
+
+    def read_cache(region_code, complex_keys):
+        return client.post('read_auto_evidence_cache', {
+            **lease, 'p_region_code': region_code, 'p_complex_keys': complex_keys,
+        })
+
+    def upsert_cache(region_record, entries):
+        return client.post('upsert_auto_evidence_cache', {
+            **lease, 'p_region': region_record, 'p_entries': entries,
+        })
+
     try:
         try:
             work = client.post('read_comparison_work', lease, limit=MAX_COMPARISON_INPUT_BYTES)
@@ -183,11 +206,13 @@ def execute_notice_lease(client, lease, selection, lease_seconds, transports):
             raise NoticeRunFailure('notice_capture_limit', False) from None
         if not isinstance(work, dict) or 'comparisonPeriod' in work or 'comparisonConditions' in work:
             raise NoticeRunFailure('notice_selection_unverified', False)
-        inputs, capture, comparison, schedules = prepare_notice_comparison(
+        inputs, capture, comparison, schedules, evidence_bundle = prepare_notice_comparison(
             selection, work, generation=lease['p_generation'], transports=transports,
             renew=renew, lease_seconds=lease_seconds,
+            read_permissions=read_permissions, read_cache=read_cache, upsert_cache=upsert_cache,
+            return_evidence=True,
         )
-        return finish_comparison(client, lease, inputs, capture, comparison, schedules)
+        return finish_comparison(client, lease, inputs, capture, comparison, schedules, evidence_bundle)
     except CaptureStopped as exc:
         if exc.rpc_error is not None:
             # 갱신 응답이 유실된 경우도 새 RPC로 현재 세대의 상태를 쓰지 않는다.

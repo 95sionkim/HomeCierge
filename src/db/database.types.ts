@@ -898,6 +898,21 @@ export type Database = {
         }
         Returns: Json
       }
+      finish_notice_with_evidence: {
+        Args: {
+          p_comparison: Json
+          p_evidence: Json
+          p_evidence_metadata?: Json
+          p_evidence_sources: string[]
+          p_generation: number
+          p_input: Json
+          p_lease_token: string
+          p_result: Json
+          p_run_id: string
+          p_schedules?: Json
+        }
+        Returns: Json
+      }
       finish_notice_with_funding: {
         Args: {
           p_comparison: Json
@@ -1005,6 +1020,24 @@ export type Database = {
       }
       read_analysis_legal_evidence: {
         Args: { p_analysis_id: string; p_snapshot_id: string }
+        Returns: Json
+      }
+      read_auto_evidence_cache: {
+        Args: {
+          p_complex_keys?: string[]
+          p_generation: number
+          p_lease_token: string
+          p_region_code: string
+          p_run_id: string
+        }
+        Returns: Json
+      }
+      read_auto_evidence_permissions: {
+        Args: {
+          p_generation: number
+          p_lease_token: string
+          p_run_id: string
+        }
         Returns: Json
       }
       read_chat_detail: { Args: { p_chat_id: string }; Returns: Json }
@@ -1146,6 +1179,16 @@ export type Database = {
           p_conditions: Json
           p_message: string
           p_request_id: string
+          p_run_id: string
+        }
+        Returns: Json
+      }
+      upsert_auto_evidence_cache: {
+        Args: {
+          p_entries?: Json
+          p_generation: number
+          p_lease_token: string
+          p_region?: Json
           p_run_id: string
         }
         Returns: Json

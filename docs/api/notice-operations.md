@@ -19,7 +19,7 @@ python3 scripts/manage_notice_services.py set-key
 python3 scripts/manage_notice_services.py status
 ```
 
-첫 명령은 지정한 파일의 `DATA_GO_KR_SERVICE_KEY` 한 항목을 `.secrets/DATA_GO_KR_SERVICE_KEY.env`에 복사한다. 이미 등록했으면 `install`만 실행해도 된다. `set-key`에는 Supabase Dashboard에서 같은 개발 프로젝트의 **secret key**를 터미널 숨김 입력으로 전달한다. 작업자 전용 읽기 RPC로 권한을 확인한 뒤 `.secrets/worker.env`에 저장한다. 두 파일의 접근 권한은 소유자 읽기·쓰기(`0600`)다. 기존 서비스가 다음 30초 주기에 자격을 읽는다. [Supabase 공식 API 키 안내](https://supabase.com/docs/guides/getting-started/api-keys)
+첫 명령은 지정한 파일의 `DATA_GO_KR_SERVICE_KEY`를 `.secrets/DATA_GO_KR_SERVICE_KEY.env`에 복사하며, 같은 파일에 `KAKAO_REST_API_KEY`가 있으면 `.secrets/KAKAO_REST_API_KEY.env`에도 함께 복사한다. 이미 등록했으면 `install`만 실행해도 된다. `KAKAO_REST_API_KEY`는 비교 작업자(`worker`)의 단지 대표 좌표 조회(Q-39)에 쓰는 **선택** 키다. 따로 등록하려면 `python3 scripts/store_api_key.py KAKAO_REST_API_KEY`를 사용한다. 키가 없어도 `worker`는 정상 기동하며 단지 대표 좌표만 미확인 상태로 둔다(`deletion`·`agent` 서비스에는 전달하지 않는다). `set-key`에는 Supabase Dashboard에서 같은 개발 프로젝트의 **secret key**를 터미널 숨김 입력으로 전달한다. 작업자 전용 읽기 RPC로 권한을 확인한 뒤 `.secrets/worker.env`에 저장한다. 자격 파일의 접근 권한은 모두 소유자 읽기·쓰기(`0600`)다. 기존 서비스가 다음 30초 주기에 자격을 읽는다. [Supabase 공식 API 키 안내](https://supabase.com/docs/guides/getting-started/api-keys) · [자동 비교 근거](auto-comparison-evidence.md)
 
 기존 개발 작업자 자격으로 삭제 서비스만 설치·갱신할 때는 `python3 scripts/manage_notice_services.py install --role deletion`을 실행한다. 이 서비스에는 공공데이터 API 키가 필요 없다.
 
