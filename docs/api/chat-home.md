@@ -40,7 +40,7 @@
 
 ## 4. DB 영속 구조와 삭제 범위 연동을 확인한다
 
-[채팅 홈·공고 찾기 마이그레이션](../../supabase/migrations/20261126120000_chat_home_and_lookup.sql)은 새 사용자 데이터 테이블을 만들지 않고 기존 `public.chats`, `public.chat_messages`, `public.analyses`를 사용한다.
+[채팅 홈·공고 찾기 마이그레이션](../../supabase/migrations/20261126080318_chat_home_and_lookup.sql)은 새 사용자 데이터 테이블을 만들지 않고 기존 `public.chats`, `public.chat_messages`, `public.analyses`를 사용한다.
 
 - `public.chats.request_key`, `public.chat_messages.request_key`, `public.chat_messages.message_order`를 추가해 중복 요청 멱등성과 동일 시각 메시지의 시간순 정렬을 보장한다.
 - 기존 개인 자료 삭제 범위(`chat`, `analysis`, `message`, `account`)와 계정 삭제 울타리가 채팅·사용자 및 서버 기록 메시지·연결된 분석·은퇴 작업 키를 그대로 포함한다.

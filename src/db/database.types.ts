@@ -215,7 +215,7 @@ export type Database = {
           content: string
           created_at?: string
           id?: string
-          message_order?: number
+          message_order?: never
           request_key?: string | null
           role: string
           user_id: string
@@ -225,7 +225,7 @@ export type Database = {
           content?: string
           created_at?: string
           id?: string
-          message_order?: number
+          message_order?: never
           request_key?: string | null
           role?: string
           user_id?: string
@@ -942,10 +942,7 @@ export type Database = {
         Args: { p_analysis_id: string; p_snapshot_id: string }
         Returns: Json
       }
-      read_chat_detail: {
-        Args: { p_chat_id: string }
-        Returns: Json
-      }
+      read_chat_detail: { Args: { p_chat_id: string }; Returns: Json }
       read_comparison_work: {
         Args: { p_generation: number; p_lease_token: string; p_run_id: string }
         Returns: Json
