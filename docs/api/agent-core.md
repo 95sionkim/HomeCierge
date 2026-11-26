@@ -73,4 +73,6 @@ python3 scripts/agent_cli.py \
 ## 6. 현재 검수 범위와 한계
 
 - 이번 작업은 합성 비교 결과, `StubProvider`, 모의 HTTP 응답, PGlite DB, 합성 브라우저 세션으로 검증했다. 실제 OpenAI API 실호출, 모델 4종(`gpt-6.1-sol`/`terra`/`luna`/`astra`) 비교 평가, 원격 Supabase 마이그레이션 적용 및 실제 Auth 통합 검수는 별도 단계다.
+- 2026-11-26 총괄이 개발 Mac에서 합성 `comparison-example.json`과 질문 "왜 이 거래만 포함됐어?"로 `--provider openai --model gpt-6.1-sol`을 한 번 실행했다. 상태 `answered`, 의도 `inclusion`, 검증 `passed`(날짜·면적·비율·건수 7개 대조), 입력 3,496·출력 460(추론 74) 토큰, 지연 11.3초, 추정 비용 US$0.0116이었다. 한 번의 합성 실행이며 모델 품질·지연·비용의 평가 결과가 아니다.
+- 같은 날 사용자 결정(Q-42)으로 서울 개발 DB에서 `naver_news`를 뺀 11개 출처의 `llm_permission`을 `allowed`로 바꾸고 `configure_agent_settings(true, 'gpt-6.1-sol')`로 기능을 켰다. 아래 문장은 작업 당시 상태다.
 - 기존 `public.source_registry.llm_permission` 값은 이번 작업에서 바꾸지 않았다(기본 `unknown`, `naver_news`는 `denied`). 실제 수집 공고·실거래 결과에 LLM 설명을 켜려면 운영 전 출처별 약관 근거를 확인하고 허용할 출처 목록을 사용자 결정으로 확정해야 한다.
