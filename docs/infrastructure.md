@@ -132,6 +132,8 @@ BE-11에서 서울 개발 DB에 [오늘 공고 목록](../supabase/migrations/20
 
 같은 날 이 저장소에서 Supabase CLI를 개발 프로젝트에 연결하고(`npx supabase link --project-ref jcaelooqogosbzrfyrhe`, 연결 정보는 Git 제외 폴더 `supabase/.temp/`), [비교 조건 변경](../supabase/migrations/20261126100000_comparison_condition_changes.sql)과 [업로드 보완](../supabase/migrations/20261126110000_upload_supplement.sql) 마이그레이션을 `npx supabase db push`로 파일 그대로 같은 버전에 적용했다. 적용 전 `--dry-run`으로 대상이 두 파일뿐임을 확인했다. 원격에서 다시 생성한 타입은 저장소 파일과 같다. 보안 점검에는 새 비공개 테이블 3개(공식 첨부 해시 색인·수집본 업로드 바인딩·업로드 보완 실행)가 기존 비공개 테이블처럼 정책 없는 RLS 활성(INFO)으로만 표시됐다. 실제 Auth·Storage로 업로드 보완과 조건 변경 재계산을 확인하는 통합 검사는 남아 있다. 이후 마이그레이션도 이 방식으로 적용한다.
 
+이어서 [에이전트 응답 대기열](../supabase/migrations/20261126140000_analysis_agent_replies.sql)을 같은 방식으로 적용하고 타입 일치를 확인했다. 에이전트 기능 설정은 기본 꺼짐(`enabled=false`, 모델 `gpt-6.1-sol`)이며, 설정·임대·문맥 읽기·완료·실패 RPC 6개는 서비스 키에서만 실행되고 익명·일반 로그인 역할에는 실행 권한이 없음을 원격에서 확인했다. 실제 OpenAI 호출과 출처별 LLM 입력 허용은 아직 설정하지 않았다. [에이전트 코어](api/agent-core.md)
+
 ## 6. 연결할 환경변수를 구분한다
 
 | 이름을 확인한다 | 설정 위치를 정한다 | 사용 목적을 설명한다 |
