@@ -20,7 +20,7 @@ NAVER API HUB의 검색 특약에 따라 뉴스는 등록 앱의 독립된 검�
 
 비교 대화 LLM 에이전트 문맥 구성(`read_agent_reply_context` 및 `agent_tools.filter_comparison_for_llm`)은 `public.source_registry.llm_permission = 'allowed'`인 출처의 값만 포함한다. 허용되지 않은 출처(`unknown`·`denied`)의 값은 문맥에서 제외하고 제외 사실을 `llmSourcePolicy.restrictedSources`에 표시한다. `naver_news`와 사용자 업로드(`user_upload`)는 어떤 경우에도 LLM 입력에서 제외하며, OpenAI Responses API 호출에는 `store: false`를 적용하고 프롬프트 원문과 결과 전체는 DB에 따로 저장하지 않는다. [LLM 에이전트 코어 계약](api/agent-core.md)
 
-카카오 로컬로 얻은 좌표는 저장·캐시하지 않고 해당 실행 안에서만 쓴다(Q-44). 카카오 개발자 운영정책 제5조 제20호는 사용자 환경 개선 목적의 캐시만 허용하고 최신 상태 유지를 요구하며, 제30호는 사전 승낙 없는 복사·복제·기타 사용을 금지한다. [카카오 운영정책](https://developers.kakao.com/terms/latest/ko/site-policies)
+카카오 로컬로 얻은 좌표는 저장·캐시하지 않고 해당 실행 안에서만 쓴다(Q-44). 카카오 개발자 운영정책 제5조 제20호는 사용자 환경 개선 목적의 캐시만 허용하고 최신 상태 유지를 요구하며, 제30호는 사전 승낙 없는 복사·복제·기타 사용을 금지한다. [카카오 운영정책](https://developers.kakao.com/terms/ko/site-policies)
 
 2026-11-26 사용자 결정(Q-42)으로 서울 개발 DB의 레지스트리에서 네이버 뉴스를 뺀 11개 출처의 `llm_permission`을 `allowed`로 바꿨다. 네이버 뉴스는 검색 특약 1.3에 따라 `denied`를 유지한다. 같은 날 에이전트 기능 설정을 켰다(당시 `gpt-6.1-sol`, 이어서 Q-43으로 `gpt-6.2-sol`). 이 값은 개발 환경 기록이며, 운영 DB에는 출처별 약관의 허용 근거를 확인한 뒤 따로 설정한다. [결정 기록](prd/02-decision-log.md)
 
