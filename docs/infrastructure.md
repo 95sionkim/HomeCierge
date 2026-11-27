@@ -168,6 +168,8 @@ BE-11에서 서울 개발 DB에 [오늘 공고 목록](../supabase/migrations/20
 
 같은 날 개발 Mac에 운영 전용 작업자 서비스 4개(`kr.homecierge.production.*`)를 설치했다(설치 커밋 `72f95aa`). 운영 작업자 키는 `.secrets/production/worker.env`에 두었고 운영 프로젝트 권한 확인을 통과했다. 운영 공고 목록은 197건으로 처음 게시됐다(새 PDF 점검 코드 설치 전 판). Vercel Production에는 `SUPABASE_URL`·`SUPABASE_PUBLISHABLE_KEY`·`APP_ENV=production`·`ALLOWED_ORIGINS=https://homecierge-api.vercel.app`·`KAKAO_REST_API_KEY`를 등록했다. `NAVER_API_CLIENT_ID`·`NAVER_API_CLIENT_SECRET`·`ODSAY_WEB_API_KEY`는 사용자가 등록한다. 운영 DB에는 개발과 같은 출처 허용 값 12개와 에이전트 설정(`gpt-6.2-sol` 켬)을 CLI로 넣었다.
 
+PR #2를 `main`에 병합해(`64b3ebc`) Vercel Production 배포가 `READY`가 됐다. `https://homecierge-api.vercel.app`에서 `/api/health` 200, `/api/v1/client-config`가 운영 프로젝트 주소를 반환하고, 로그인 필요 경로는 토큰 없이 401(환경 불일치 503 아님)이었다. 운영 계정으로 로그인한 흐름과 실제 카카오·ODsay 경로는 아직 검수하지 않았다.
+
 ## 6. 연결할 환경변수를 구분한다
 
 | 이름을 확인한다 | 설정 위치를 정한다 | 사용 목적을 설명한다 |
