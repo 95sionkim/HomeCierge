@@ -1,4 +1,3 @@
-// Supabase 개발 DB에서 생성한 타입. 재생성 절차: docs/infrastructure.md
 export type Json =
   | string
   | number
@@ -20,8 +19,10 @@ export type Database = {
           chat_id: string
           conditions_snapshot: Json
           created_at: string
+          directory_request_key: string | null
           housing_type_id: string | null
           id: string
+          latest_run_id: string | null
           notice_id: string | null
           rules_version: string
           status: string
@@ -33,8 +34,10 @@ export type Database = {
           chat_id: string
           conditions_snapshot?: Json
           created_at?: string
+          directory_request_key?: string | null
           housing_type_id?: string | null
           id?: string
+          latest_run_id?: string | null
           notice_id?: string | null
           rules_version?: string
           status?: string
@@ -46,8 +49,10 @@ export type Database = {
           chat_id?: string
           conditions_snapshot?: Json
           created_at?: string
+          directory_request_key?: string | null
           housing_type_id?: string | null
           id?: string
+          latest_run_id?: string | null
           notice_id?: string | null
           rules_version?: string
           status?: string
@@ -79,12 +84,129 @@ export type Database = {
           },
         ]
       }
+      analysis_input_snapshots: {
+        Row: {
+          analysis_id: string
+          as_of: string
+          capture_key: string
+          conditions_snapshot: Json
+          contract_version: string
+          created_at: string
+          data_origin: string
+          edition: string
+          house_manage_no: string
+          housing_type_id: string | null
+          id: string
+          input_snapshot: Json
+          notice_id: string | null
+          notice_no: string
+          notice_source: string
+          page_size: number
+          period_end: string | null
+          period_start: string | null
+          result_snapshot: Json
+          rules_version: string
+          target_binding_status: string
+          user_id: string
+        }
+        Insert: {
+          analysis_id: string
+          as_of: string
+          capture_key: string
+          conditions_snapshot: Json
+          contract_version: string
+          created_at?: string
+          data_origin: string
+          edition: string
+          house_manage_no: string
+          housing_type_id?: string | null
+          id?: string
+          input_snapshot: Json
+          notice_id?: string | null
+          notice_no: string
+          notice_source: string
+          page_size: number
+          period_end?: string | null
+          period_start?: string | null
+          result_snapshot: Json
+          rules_version: string
+          target_binding_status: string
+          user_id: string
+        }
+        Update: {
+          analysis_id?: string
+          as_of?: string
+          capture_key?: string
+          conditions_snapshot?: Json
+          contract_version?: string
+          created_at?: string
+          data_origin?: string
+          edition?: string
+          house_manage_no?: string
+          housing_type_id?: string | null
+          id?: string
+          input_snapshot?: Json
+          notice_id?: string | null
+          notice_no?: string
+          notice_source?: string
+          page_size?: number
+          period_end?: string | null
+          period_start?: string | null
+          result_snapshot?: Json
+          rules_version?: string
+          target_binding_status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analysis_input_snapshots_analysis_id_user_id_fkey"
+            columns: ["analysis_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "analyses"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
+      analysis_uploads: {
+        Row: {
+          analysis_id: string
+          id: string
+          object_path: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          analysis_id: string
+          id: string
+          object_path?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          analysis_id?: string
+          id?: string
+          object_path?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analysis_uploads_analysis_id_user_id_fkey"
+            columns: ["analysis_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "analyses"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
       chat_messages: {
         Row: {
           chat_id: string
           content: string
           created_at: string
           id: string
+          message_order: number
+          request_key: string | null
           role: string
           user_id: string
         }
@@ -93,6 +215,8 @@ export type Database = {
           content: string
           created_at?: string
           id?: string
+          message_order?: never
+          request_key?: string | null
           role: string
           user_id: string
         }
@@ -101,6 +225,8 @@ export type Database = {
           content?: string
           created_at?: string
           id?: string
+          message_order?: never
+          request_key?: string | null
           role?: string
           user_id?: string
         }
@@ -118,6 +244,7 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          request_key: string | null
           title: string
           updated_at: string
           user_id: string
@@ -125,6 +252,7 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
+          request_key?: string | null
           title?: string
           updated_at?: string
           user_id: string
@@ -132,6 +260,7 @@ export type Database = {
         Update: {
           created_at?: string
           id?: string
+          request_key?: string | null
           title?: string
           updated_at?: string
           user_id?: string
@@ -148,6 +277,7 @@ export type Database = {
           id: string
           kind: string
           note: string | null
+          request_key: string | null
           updated_at: string
           user_id: string
         }
@@ -160,6 +290,7 @@ export type Database = {
           id?: string
           kind: string
           note?: string | null
+          request_key?: string | null
           updated_at?: string
           user_id: string
         }
@@ -172,6 +303,7 @@ export type Database = {
           id?: string
           kind?: string
           note?: string | null
+          request_key?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -412,6 +544,7 @@ export type Database = {
       source_registry: {
         Row: {
           display_name: string
+          display_permission: string
           documentation_url: string | null
           export_permission: string
           id: string
@@ -423,6 +556,7 @@ export type Database = {
         }
         Insert: {
           display_name: string
+          display_permission?: string
           documentation_url?: string | null
           export_permission?: string
           id: string
@@ -434,6 +568,7 @@ export type Database = {
         }
         Update: {
           display_name?: string
+          display_permission?: string
           documentation_url?: string | null
           export_permission?: string
           id?: string
@@ -474,9 +609,211 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      ingestion_collection_pages: {
+        Row: {
+          analysis_id: string | null
+          collection_kind: string | null
+          contract_month: string | null
+          data_origin: string | null
+          page: number | null
+          page_size: number | null
+          page_status: string | null
+          record_id: string | null
+          request_region_code: string | null
+          request_scope: Json | null
+          snapshot_id: string | null
+          source_id: string | null
+          user_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analysis_input_snapshots_analysis_id_user_id_fkey"
+            columns: ["analysis_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "analyses"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
+      ingestion_collections: {
+        Row: {
+          analysis_id: string | null
+          collected_at: string | null
+          collection_kind: string | null
+          contract_month: string | null
+          data_origin: string | null
+          error: Json | null
+          missing_pages: number[] | null
+          page_size: number | null
+          pages_expected: number | null
+          reasons: Json | null
+          record_id: string | null
+          reported_total_count: number | null
+          request_region_code: string | null
+          request_scope: Json | null
+          rows_received: number | null
+          snapshot_id: string | null
+          source_id: string | null
+          status: string | null
+          total_count_changed: boolean | null
+          trade_kinds: Json | null
+          user_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analysis_input_snapshots_analysis_id_user_id_fkey"
+            columns: ["analysis_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "analyses"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
+      ingestion_document_versions: {
+        Row: {
+          acquisition_source: string | null
+          analysis_id: string | null
+          data_origin: string | null
+          document: Json | null
+          document_id: string | null
+          edition: string | null
+          house_manage_no: string | null
+          notice_no: string | null
+          origin_check: string | null
+          snapshot_id: string | null
+          status: string | null
+          user_id: string | null
+          version: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analysis_input_snapshots_analysis_id_user_id_fkey"
+            columns: ["analysis_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "analyses"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
+      ingestion_trade_observations: {
+        Row: {
+          amount_won: string | null
+          analysis_id: string | null
+          cancellation_status: string | null
+          contract_date: string | null
+          contract_month: string | null
+          data_origin: string | null
+          disposition: string | null
+          exclusive_area_m2: string | null
+          observation: Json | null
+          page: number | null
+          record_id: string | null
+          request_region_code: string | null
+          row_position: number | null
+          snapshot_id: string | null
+          source_id: string | null
+          supply_area_m2: string | null
+          trade_kind: string | null
+          user_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analysis_input_snapshots_analysis_id_user_id_fkey"
+            columns: ["analysis_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "analyses"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
     }
     Functions: {
+      advance_deletion_work: { Args: { p_receipt: string }; Returns: Json }
+      cancel_analysis_run: {
+        Args: { p_analysis_id: string; p_run_id: string }
+        Returns: Json
+      }
+      claim_agent_reply: {
+        Args: { p_lease_seconds?: number; p_reply_id?: string }
+        Returns: Json
+      }
+      claim_analysis_run: {
+        Args: { p_lease_seconds: number; p_run_id?: string }
+        Returns: Json
+      }
+      claim_chat_agent_reply: {
+        Args: { p_lease_seconds?: number; p_reply_id?: string }
+        Returns: Json
+      }
+      complete_agent_reply: {
+        Args: {
+          p_answer?: string
+          p_citations?: Json
+          p_generation: number
+          p_intent?: string
+          p_lease_token: string
+          p_prompt_version?: string
+          p_proposal?: Json
+          p_reply_id: string
+          p_status: string
+          p_usage?: Json
+          p_validation?: Json
+        }
+        Returns: Json
+      }
+      complete_chat_agent_reply: {
+        Args: {
+          p_answer?: string
+          p_citations?: Json
+          p_generation: number
+          p_intent?: string
+          p_lease_token: string
+          p_lookup_query?: Json
+          p_profile_proposal?: Json
+          p_prompt_version?: string
+          p_reply_id: string
+          p_search_proposal?: Json
+          p_status: string
+          p_usage?: Json
+          p_validation?: Json
+        }
+        Returns: Json
+      }
+      configure_agent_settings: {
+        Args: { p_enabled: boolean; p_model?: string }
+        Returns: Json
+      }
+      confirm_commute_destination: {
+        Args: {
+          p_base_revision: number
+          p_destination: string
+          p_user_id: string
+        }
+        Returns: undefined
+      }
+      create_chat: {
+        Args: { p_request_key: string; p_title?: string }
+        Returns: Json
+      }
+      decide_analysis_chat_turn: {
+        Args: {
+          p_analysis_id: string
+          p_decision: string
+          p_run_id: string
+          p_turn_id: string
+        }
+        Returns: Json
+      }
+      decide_chat_search_proposal: {
+        Args: {
+          p_chat_id: string
+          p_conditions?: Json
+          p_decision: string
+          p_reply_id: string
+          p_result_summary?: Json
+        }
+        Returns: Json
+      }
       decide_profile_change: {
         Args: { decision: string; request_id: string }
         Returns: {
@@ -495,6 +832,421 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      decide_search_profile_change: {
+        Args: { p_change_id: string; p_decision: string }
+        Returns: Json
+      }
+      delete_personal_data: {
+        Args: { p_receipt: string; p_scope: string; p_target?: string }
+        Returns: Json
+      }
+      delete_saved_analysis_report: {
+        Args: { p_report_id: string }
+        Returns: undefined
+      }
+      deletion_work: { Args: { p_receipt?: string }; Returns: Json }
+      enqueue_analysis_run: {
+        Args: {
+          p_analysis_id: string
+          p_idempotency_key: string
+          p_input: Json
+        }
+        Returns: Json
+      }
+      enqueue_upload_supplement_run: {
+        Args: {
+          p_analysis_id: string
+          p_base_run_id: string
+          p_idempotency_key: string
+          p_upload_id: string
+        }
+        Returns: Json
+      }
+      expire_stale_agent_replies: { Args: never; Returns: number }
+      expire_stale_chat_agent_replies: { Args: never; Returns: number }
+      fail_agent_reply: {
+        Args: {
+          p_failure_code: string
+          p_generation: number
+          p_lease_token: string
+          p_reply_id: string
+          p_usage?: Json
+        }
+        Returns: Json
+      }
+      fail_analysis_run: {
+        Args: {
+          p_generation: number
+          p_lease_token: string
+          p_retryable: boolean
+          p_run_id: string
+        }
+        Returns: Json
+      }
+      fail_chat_agent_reply: {
+        Args: {
+          p_failure_code: string
+          p_generation: number
+          p_lease_token: string
+          p_reply_id: string
+          p_usage?: Json
+        }
+        Returns: Json
+      }
+      fail_notice_analysis_run: {
+        Args: {
+          p_error_code: string
+          p_generation: number
+          p_lease_token: string
+          p_retryable: boolean
+          p_run_id: string
+        }
+        Returns: Json
+      }
+      finalize_analysis_upload_deletion: {
+        Args: { analysis_id: string; upload_id: string }
+        Returns: {
+          analysis_id: string
+          id: string
+          object_path: string | null
+          status: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "analysis_uploads"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      finish_analysis_comparison: {
+        Args: {
+          p_comparison: Json
+          p_generation: number
+          p_input: Json
+          p_lease_token: string
+          p_result: Json
+          p_run_id: string
+        }
+        Returns: Json
+      }
+      finish_analysis_run: {
+        Args: {
+          p_generation: number
+          p_input: Json
+          p_lease_token: string
+          p_result: Json
+          p_run_id: string
+        }
+        Returns: Json
+      }
+      finish_notice_with_evidence: {
+        Args: {
+          p_comparison: Json
+          p_evidence: Json
+          p_evidence_metadata?: Json
+          p_evidence_sources: string[]
+          p_generation: number
+          p_input: Json
+          p_lease_token: string
+          p_result: Json
+          p_run_id: string
+          p_schedules?: Json
+        }
+        Returns: Json
+      }
+      finish_notice_with_funding: {
+        Args: {
+          p_comparison: Json
+          p_generation: number
+          p_input: Json
+          p_lease_token: string
+          p_result: Json
+          p_run_id: string
+          p_schedules: Json
+        }
+        Returns: Json
+      }
+      get_analysis_comparison: {
+        Args: { p_analysis_id: string; p_run_id: string }
+        Returns: Json
+      }
+      get_analysis_run: {
+        Args: { p_analysis_id: string; p_run_id: string }
+        Returns: Json
+      }
+      get_upload_supplement_run: {
+        Args: { p_analysis_id: string; p_run_id: string }
+        Returns: Json
+      }
+      list_chats: {
+        Args: { p_before?: string; p_limit?: number }
+        Returns: Json
+      }
+      list_deletion_items: {
+        Args: { p_before?: string; p_kind: string }
+        Returns: Json
+      }
+      list_saved_analysis_reports: {
+        Args: { p_before?: string }
+        Returns: Json
+      }
+      lookup_official_notice_document_index: {
+        Args: {
+          p_generation: number
+          p_lease_token: string
+          p_run_id: string
+          p_sha256: string
+        }
+        Returns: Json
+      }
+      post_chat_message: {
+        Args: {
+          p_action: string
+          p_chat_id: string
+          p_message: string
+          p_mode?: string
+          p_query?: string
+          p_request_key: string
+        }
+        Returns: Json
+      }
+      prepare_analysis_commute: {
+        Args: { p_analysis_id: string; p_snapshot_id: string }
+        Returns: Json
+      }
+      prepare_analysis_regional_news: {
+        Args: { p_analysis_id: string; p_snapshot_id: string }
+        Returns: Json
+      }
+      prepare_chat_search_confirmation: {
+        Args: { p_chat_id: string; p_reply_id: string }
+        Returns: Json
+      }
+      propose_search_profile_change: {
+        Args: {
+          p_analysis_id?: string
+          p_base_revision: number
+          p_patch: Json
+          p_reason: string
+          p_request_id: string
+          p_run_id?: string
+        }
+        Returns: Json
+      }
+      publish_law_reference: { Args: { p_reference: Json }; Returns: undefined }
+      publish_notice_directory: {
+        Args: { p_index: Json; p_regions: Json }
+        Returns: undefined
+      }
+      publish_notice_search_index: {
+        Args: { p_index: Json }
+        Returns: undefined
+      }
+      read_agent_reply_context: {
+        Args: {
+          p_generation: number
+          p_lease_token: string
+          p_reply_id: string
+        }
+        Returns: Json
+      }
+      read_analysis_commute_origin: {
+        Args: { p_analysis_id: string; p_snapshot_id: string }
+        Returns: Json
+      }
+      read_analysis_conversation: {
+        Args: { p_analysis_id: string; p_run_id: string }
+        Returns: Json
+      }
+      read_analysis_funding_inputs: {
+        Args: {
+          p_analysis_id: string
+          p_model_no: string
+          p_room: string
+          p_snapshot_id: string
+        }
+        Returns: Json
+      }
+      read_analysis_legal_evidence: {
+        Args: { p_analysis_id: string; p_snapshot_id: string }
+        Returns: Json
+      }
+      read_auto_evidence_cache: {
+        Args: {
+          p_complex_keys?: string[]
+          p_generation: number
+          p_lease_token: string
+          p_region_code: string
+          p_run_id: string
+        }
+        Returns: Json
+      }
+      read_auto_evidence_permissions: {
+        Args: { p_generation: number; p_lease_token: string; p_run_id: string }
+        Returns: Json
+      }
+      read_chat_agent_reply_context: {
+        Args: {
+          p_generation: number
+          p_lease_token: string
+          p_reply_id: string
+        }
+        Returns: Json
+      }
+      read_chat_detail: { Args: { p_chat_id: string }; Returns: Json }
+      read_comparison_work: {
+        Args: { p_generation: number; p_lease_token: string; p_run_id: string }
+        Returns: Json
+      }
+      read_deletion_impact: {
+        Args: { p_scope: string; p_target?: string }
+        Returns: Json
+      }
+      read_deletion_receipt: { Args: { p_receipt: string }; Returns: Json }
+      read_notice_directory_index: { Args: never; Returns: Json }
+      read_notice_search_index: { Args: never; Returns: Json }
+      read_saved_analysis_report: {
+        Args: { p_for_export?: boolean; p_report_id: string }
+        Returns: Json
+      }
+      read_search_profile: { Args: { p_before?: string }; Returns: Json }
+      read_upload_supplement_context: {
+        Args: { p_analysis_id: string; p_run_id: string }
+        Returns: Json
+      }
+      read_upload_supplement_work: {
+        Args: { p_generation: number; p_lease_token: string; p_run_id: string }
+        Returns: Json
+      }
+      record_deletion_backup_review: {
+        Args: { p_receipt: string; p_verified_at: string }
+        Returns: Json
+      }
+      register_analysis_upload: {
+        Args: { analysis_id: string; upload_id: string }
+        Returns: {
+          analysis_id: string
+          id: string
+          object_path: string | null
+          status: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "analysis_uploads"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      register_comparison_evidence: {
+        Args: {
+          p_evidence: Json
+          p_snapshot_id: string
+          p_source_ids: string[]
+        }
+        Returns: string
+      }
+      rename_chat: {
+        Args: { p_chat_id: string; p_title: string }
+        Returns: Json
+      }
+      renew_analysis_run: {
+        Args: {
+          p_generation: number
+          p_lease_seconds: number
+          p_lease_token: string
+          p_run_id: string
+        }
+        Returns: Json
+      }
+      request_account_deletion: { Args: { p_receipt: string }; Returns: Json }
+      request_analysis_upload_deletion: {
+        Args: { analysis_id: string; upload_id: string }
+        Returns: {
+          analysis_id: string
+          id: string
+          object_path: string | null
+          status: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "analysis_uploads"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      save_analysis_report: {
+        Args: {
+          p_analysis_id: string
+          p_funding_room?: string
+          p_request_id: string
+          p_run_id: string
+        }
+        Returns: Json
+      }
+      save_funding_schedule_snapshot: {
+        Args: {
+          p_analysis_id: string
+          p_capture_key: string
+          p_input: Json
+          p_result: Json
+          p_schedules: Json
+          p_user_id: string
+        }
+        Returns: string
+      }
+      save_ingestion_snapshot: {
+        Args: {
+          p_analysis_id: string
+          p_capture_key: string
+          p_input: Json
+          p_result: Json
+          p_user_id: string
+        }
+        Returns: string
+      }
+      start_chat_notice_workspace: {
+        Args: { p_chat_id: string; p_input: Json; p_request_key: string }
+        Returns: Json
+      }
+      start_notice_workspace: {
+        Args: { p_input: Json; p_request_key: string }
+        Returns: Json
+      }
+      submit_analysis_chat_turn: {
+        Args: {
+          p_analysis_id: string
+          p_end?: string
+          p_intent: string
+          p_message: string
+          p_request_id: string
+          p_run_id: string
+          p_start?: string
+        }
+        Returns: Json
+      }
+      submit_analysis_condition_turn: {
+        Args: {
+          p_analysis_id: string
+          p_conditions: Json
+          p_message: string
+          p_request_id: string
+          p_run_id: string
+        }
+        Returns: Json
+      }
+      upsert_auto_evidence_cache: {
+        Args: {
+          p_entries?: Json
+          p_generation: number
+          p_lease_token: string
+          p_region?: Json
+          p_run_id: string
+        }
+        Returns: Json
       }
     }
     Enums: {

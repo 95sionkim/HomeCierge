@@ -14,7 +14,8 @@ venv/
 node_modules/
 tests/
 dev/
-scripts/
+scripts/*
+!scripts/prepare_web.mjs
 supabase/
 docs/
 *.pdf

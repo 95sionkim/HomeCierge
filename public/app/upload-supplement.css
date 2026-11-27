@@ -1,0 +1,338 @@
+/* 공식 PDF 확보 실패·판본 미확인 시 사용자 업로드 보완 패널과 업로드 출처 표시 */
+#upload-supplement-slot:empty {
+  display: none;
+}
+
+.upload-supp-panel {
+  margin-bottom: 18px;
+  padding: clamp(16px, 1.8vw, 24px);
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  display: grid;
+  gap: 16px;
+}
+
+.upload-supp-panel.is-verified {
+  background: var(--soft);
+}
+
+.upload-supp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+}
+
+.upload-supp-head h2 {
+  margin: 0;
+  font-size: 19px;
+}
+
+.upload-supp-lead {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.upload-supp-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 20px;
+}
+
+.upload-supp-box {
+  background: var(--soft);
+  border: 1px solid var(--soft-line);
+  border-radius: 14px;
+  padding: 14px 16px;
+  min-width: 0;
+}
+
+.upload-supp-box h3,
+.upload-supp-docs h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.upload-supp-box ul {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--foreground);
+}
+
+.upload-supp-box li + li {
+  margin-top: 4px;
+}
+
+.upload-supp-dl,
+.upload-supp-meta {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+  font-size: 13.5px;
+}
+
+.upload-supp-dl > div,
+.upload-supp-meta > div {
+  display: grid;
+  grid-template-columns: minmax(84px, auto) minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+}
+
+.upload-supp-dl dt,
+.upload-supp-meta dt {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.upload-supp-dl dd,
+.upload-supp-meta dd {
+  margin: 0;
+  font-weight: 550;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.upload-supp-docs {
+  border-top: 1px solid var(--soft-line);
+  padding-top: 12px;
+}
+
+.upload-supp-docs ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.upload-supp-docs li {
+  border: 1px dashed var(--input);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: var(--surface);
+  display: grid;
+  gap: 4px;
+}
+
+.upload-supp-doc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13.5px;
+}
+
+.upload-supp-doc-meta {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 12.5px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.upload-supp-doc-reason {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--foreground);
+}
+
+.upload-supp-rules {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--soft);
+  border: 1px solid var(--soft-line);
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.upload-supp-rules > .icon {
+  flex: none;
+  margin-top: 2px;
+  width: 16px;
+  height: 16px;
+}
+
+.upload-supp-rules strong {
+  display: block;
+  color: var(--foreground);
+  font-size: 13.5px;
+  margin-bottom: 4px;
+}
+
+.upload-supp-rules ul {
+  margin: 0;
+  padding-left: 16px;
+  line-height: 1.5;
+}
+
+.upload-supp-rules li + li {
+  margin-top: 3px;
+}
+
+.upload-supp-form {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--soft-line);
+  padding-top: 14px;
+}
+
+.upload-supp-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+
+.upload-supp-file-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--soft);
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.upload-supp-file-label:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.upload-supp-input {
+  max-width: 100%;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.upload-supp-selected,
+.upload-supp-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.upload-supp-selected strong {
+  display: block;
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.upload-supp-error {
+  margin: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px dashed var(--input);
+  background: var(--soft);
+  color: var(--foreground);
+  font-size: 13.5px;
+}
+
+.upload-supp-error .icon {
+  flex: none;
+  margin-top: 2px;
+  width: 16px;
+  height: 16px;
+}
+
+.upload-supp-progress {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--soft);
+}
+
+.upload-supp-progress > div {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.upload-supp-progress strong {
+  display: block;
+  font-size: 14px;
+}
+
+.upload-supp-progress small {
+  display: block;
+  font-size: 12.5px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.upload-supp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.upload-supp-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  font-size: 12.5px;
+  color: var(--muted);
+  border-top: 1px solid var(--soft-line);
+  padding-top: 10px;
+}
+
+.upload-supp-foot a {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.upload-provenance-summary {
+  margin: 4px 0 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .upload-supp-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .upload-supp-dl > div,
+  .upload-supp-meta > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+
+  .upload-supp-actions {
+    justify-content: stretch;
+  }
+
+  .upload-supp-actions > button {
+    flex: 1 1 100%;
+  }
+}

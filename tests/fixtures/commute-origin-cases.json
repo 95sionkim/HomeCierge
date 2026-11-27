@@ -1,0 +1,276 @@
+{
+  "dataOrigin": "synthetic",
+  "note": "출퇴근 출발지 추출과 비교 좌표(Q-39) Python/TypeScript 규칙 일치를 검증하는 합성 주소 사례표입니다. 실제 공고·개인 주소가 아닙니다.",
+  "cases": [
+    {
+      "id": "road_with_parenthetical_note",
+      "noticeAddress": "서울특별시 광진구 가람로 999 (가람동, 합성아파트)",
+      "stripped": "서울특별시 광진구 가람로 999",
+      "ambiguous": false,
+      "road": { "roadName": "가람로", "mainNo": 999, "subNo": 0 },
+      "parcel": null,
+      "origin": {
+        "noticeAddress": "서울특별시 광진구 가람로 999 (가람동, 합성아파트)",
+        "address": "서울특별시 광진구 가람로 999",
+        "basis": "notice_address",
+        "reason": null,
+        "suggestion": null
+      }
+    },
+    {
+      "id": "road_with_parenthetical_block_note",
+      "noticeAddress": "경기도 합성과천시 갈현로 15 (갈현동, S6블록)",
+      "stripped": "경기도 합성과천시 갈현로 15",
+      "ambiguous": false,
+      "road": { "roadName": "갈현로", "mainNo": 15, "subNo": 0 },
+      "parcel": null,
+      "origin": {
+        "noticeAddress": "경기도 합성과천시 갈현로 15 (갈현동, S6블록)",
+        "address": "경기도 합성과천시 갈현로 15",
+        "basis": "notice_address",
+        "reason": null,
+        "suggestion": null
+      }
+    },
+    {
+      "id": "road_special_name_and_sub_no",
+      "noticeAddress": "서울시 금천구 G밸리로 20-3",
+      "stripped": "서울시 금천구 G밸리로 20-3",
+      "ambiguous": false,
+      "road": { "roadName": "G밸리로", "mainNo": 20, "subNo": 3 },
+      "parcel": null,
+      "origin": {
+        "noticeAddress": "서울시 금천구 G밸리로 20-3",
+        "address": "서울특별시 금천구 G밸리로 20-3",
+        "basis": "notice_address",
+        "reason": null,
+        "suggestion": null
+      }
+    },
+    {
+      "id": "road_numeric_dot_name",
+      "noticeAddress": "서울 강북구 4.19로 15",
+      "stripped": "서울 강북구 4.19로 15",
+      "ambiguous": false,
+      "road": { "roadName": "4.19로", "mainNo": 15, "subNo": 0 },
+      "parcel": null,
+      "origin": {
+        "noticeAddress": "서울 강북구 4.19로 15",
+        "address": "서울특별시 강북구 4.19로 15",
+        "basis": "notice_address",
+        "reason": null,
+        "suggestion": null
+      }
+    },
+    {
+      "id": "road_underground_rejected",
+      "noticeAddress": "경기도 합성과천시 갈현로 지하 15",
+      "stripped": "경기도 합성과천시 갈현로 지하 15",
+      "ambiguous": false,
+      "road": null,
+      "parcel": null,
+      "origin": {
+        "noticeAddress": "경기도 합성과천시 갈현로 지하 15",
+        "address": null,
+        "basis": null,
+        "reason": "unnumbered",
+        "suggestion": null
+      }
+    },
+    {
+      "id": "parcel_with_beonji",
+      "noticeAddress": "서울특별시 종로구 합성동 28번지",
+      "stripped": "서울특별시 종로구 합성동 28번지",
+      "ambiguous": false,
+      "road": null,
+      "parcel": { "localityToken": "합성동", "isMountain": false, "mainNo": 28, "subNo": 0 },
+      "origin": {
+        "noticeAddress": "서울특별시 종로구 합성동 28번지",
+        "address": "서울특별시 종로구 합성동 28",
+        "basis": "notice_address",
+        "reason": null,
+        "suggestion": null
+      }
+    },
+    {
+      "id": "parcel_beonji_ilwon_suggestion",
+      "noticeAddress": "서울특별시 종로구 합성동 28번지 일원",
+      "stripped": "서울특별시 종로구 합성동 28번지 일원",
+      "ambiguous": true,
+      "road": null,
+      "parcel": null,
+      "origin": {
+        "noticeAddress": "서울특별시 종로구 합성동 28번지 일원",
+        "address": null,
+        "basis": null,
+        "reason": "ambiguous_area",
+        "suggestion": "서울특별시 종로구 합성동 28"
+      }
+    },
+    {
+      "id": "parcel_ga_subno_ilwon_suggestion",
+      "noticeAddress": "서울특별시 영등포구 합성동3가 27-1번지 일원",
+      "stripped": "서울특별시 영등포구 합성동3가 27-1번지 일원",
+      "ambiguous": true,
+      "road": null,
+      "parcel": null,
+      "origin": {
+        "noticeAddress": "서울특별시 영등포구 합성동3가 27-1번지 일원",
+        "address": null,
+        "basis": null,
+        "reason": "ambiguous_area",
+        "suggestion": "서울특별시 영등포구 합성동3가 27-1"
+      }
+    },
+    {
+      "id": "block_bl_no_suggestion",
+      "noticeAddress": "인천광역시 서해구 합성역세권 공공주택지구 내 B-1BL",
+      "stripped": "인천광역시 서해구 합성역세권 공공주택지구 내 B-1BL",
+      "ambiguous": true,
+      "road": null,
+      "parcel": null,
+      "origin": {
+        "noticeAddress": "인천광역시 서해구 합성역세권 공공주택지구 내 B-1BL",
+        "address": null,
+        "basis": null,
+        "reason": "ambiguous_area",
+        "suggestion": null
+      }
+    },
+    {
+      "id": "parcel_oe_3_pilji_suggestion",
+      "noticeAddress": "경기도 합성과천시 갈현동 827 외 3필지",
+      "stripped": "경기도 합성과천시 갈현동 827 외 3필지",
+      "ambiguous": true,
+      "road": null,
+      "parcel": null,
+      "origin": {
+        "noticeAddress": "경기도 합성과천시 갈현동 827 외 3필지",
+        "address": null,
+        "basis": null,
+        "reason": "ambiguous_area",
+        "suggestion": "경기도 합성과천시 갈현동 827"
+      }
+    },
+    {
+      "id": "unnumbered_dong",
+      "noticeAddress": "서울특별시 종로구 합성동",
+      "stripped": "서울특별시 종로구 합성동",
+      "ambiguous": false,
+      "road": null,
+      "parcel": null,
+      "origin": {
+        "noticeAddress": "서울특별시 종로구 합성동",
+        "address": null,
+        "basis": null,
+        "reason": "unnumbered",
+        "suggestion": null
+      }
+    },
+    {
+      "id": "multiple_parcels",
+      "noticeAddress": "서울특별시 종로구 합성동 28, 가람동 29",
+      "stripped": "서울특별시 종로구 합성동 28, 가람동 29",
+      "ambiguous": false,
+      "road": null,
+      "parcel": null,
+      "origin": {
+        "noticeAddress": "서울특별시 종로구 합성동 28, 가람동 29",
+        "address": null,
+        "basis": null,
+        "reason": "multiple_points",
+        "suggestion": null
+      }
+    },
+    {
+      "id": "multiple_roads",
+      "noticeAddress": "서울특별시 가람구 가람로 10, 예시로 20",
+      "stripped": "서울특별시 가람구 가람로 10, 예시로 20",
+      "ambiguous": false,
+      "road": null,
+      "parcel": null,
+      "origin": {
+        "noticeAddress": "서울특별시 가람구 가람로 10, 예시로 20",
+        "address": null,
+        "basis": null,
+        "reason": "multiple_points",
+        "suggestion": null
+      }
+    },
+    {
+      "id": "mountain_parcel_eup_ri",
+      "noticeAddress": "강원도 고성군 가람읍 가람리 산999-3",
+      "stripped": "강원도 고성군 가람읍 가람리 산999-3",
+      "ambiguous": false,
+      "road": null,
+      "parcel": { "localityToken": "가람리", "isMountain": true, "mainNo": 999, "subNo": 3 },
+      "origin": {
+        "noticeAddress": "강원도 고성군 가람읍 가람리 산999-3",
+        "address": "강원특별자치도 고성군 가람읍 가람리 산 999-3",
+        "basis": "notice_address",
+        "reason": null,
+        "suggestion": null
+      }
+    },
+    {
+      "id": "province_alias_sgg_city_gu",
+      "noticeAddress": "경기 성남시 분당구 가람동 100-2번지",
+      "stripped": "경기 성남시 분당구 가람동 100-2번지",
+      "ambiguous": false,
+      "road": null,
+      "parcel": { "localityToken": "가람동", "isMountain": false, "mainNo": 100, "subNo": 2 },
+      "origin": {
+        "noticeAddress": "경기 성남시 분당구 가람동 100-2번지",
+        "address": "경기도 성남시 분당구 가람동 100-2",
+        "basis": "notice_address",
+        "reason": null,
+        "suggestion": null
+      }
+    },
+    {
+      "id": "sejong_alias_road",
+      "noticeAddress": "세종시 가람대로 100",
+      "stripped": "세종시 가람대로 100",
+      "ambiguous": false,
+      "road": { "roadName": "가람대로", "mainNo": 100, "subNo": 0 },
+      "parcel": null,
+      "origin": {
+        "noticeAddress": "세종시 가람대로 100",
+        "address": "세종특별자치시 가람대로 100",
+        "basis": "notice_address",
+        "reason": null,
+        "suggestion": null
+      }
+    },
+    {
+      "id": "ambiguous_project_district_with_single_parcel",
+      "noticeAddress": "경기도 평택시 합성국제화지구 가람동 123번지 외 2필지",
+      "stripped": "경기도 평택시 합성국제화지구 가람동 123번지 외 2필지",
+      "ambiguous": true,
+      "road": null,
+      "parcel": null,
+      "origin": {
+        "noticeAddress": "경기도 평택시 합성국제화지구 가람동 123번지 외 2필지",
+        "address": null,
+        "basis": null,
+        "reason": "ambiguous_area",
+        "suggestion": "경기도 평택시 가람동 123"
+      }
+    },
+    {
+      "id": "ambiguous_multiple_parcels_no_suggestion",
+      "noticeAddress": "서울특별시 종로구 합성동 28, 가람동 29 일원",
+      "stripped": "서울특별시 종로구 합성동 28, 가람동 29 일원",
+      "ambiguous": true,
+      "road": null,
+      "parcel": null,
+      "origin": {
+        "noticeAddress": "서울특별시 종로구 합성동 28, 가람동 29 일원",
+        "address": null,
+        "basis": null,
+        "reason": "ambiguous_area",
+        "suggestion": null
+      }
+    }
+  ]
+}

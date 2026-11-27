@@ -2,7 +2,7 @@
 
 ## 현재 개발 자산을 확인한다
 
-PRD와 API 접근·필드·페이지 수집·주소 연결 검증 코드가 준비돼 있다. 2026-11-11 사용자 선택에 따라 서울의 Supabase 개발 DB에 스키마·RLS·프로필 승인 함수를 적용하고 Vercel 인증 조회 API를 보호된 Preview로 배포했다. 원격 DB의 합성 역할 검사·롤백과 배포 HTTP 응답을 확인했다. 실제 가입·로그인·세션 갱신과 화면 통합은 후속 검수다. 웹 화면·공고 처리·비교 엔진·LLM 구성은 구현하지 않았으며 화면은 별도 팀이 제작한다. Python 도구는 과거 검증 자산으로 유지한다.
+서울 Supabase 개발 DB와 보호된 Vercel Preview API를 사용한다. 공고·주택형·실거래를 정규화하고, 조회 조건과 결과를 분석별로 저장해 다시 읽을 수 있다. 비공개 PDF의 등록·삭제와 사용자별 접근은 두 시험 계정으로 검수한다. 분석을 접수하면 작업자가 수집본과 근거를 대조해 지역, 비교 단지, 거래 종류별 가격과 보류 사유를 저장한다. 로컬에서 `python3 scripts/run_analysis_worker.py --demo`로 합성 공고 한 건을 재현할 수 있다. [비교 결과 계약](api/comparison-v1.md) · [수집 결과와 파일 저장 계약](api/ingestion-storage.md)
 
 DB·배포 작업은 [인프라 준비](infrastructure.md), 화면 팀의 연결은 [인계 계약](frontend-handoff.md)을 따른다. Node.js 26에서 `npm ci`, `npm run build`, `npm test`, `npm run test:db`로 새 기반을 검사한다. 기본 검사는 실제 클라우드 계정·인증값 없이 실행한다.
 
@@ -10,11 +10,11 @@ DB·배포 작업은 [인프라 준비](infrastructure.md), 화면 팀의 연결
 
 `npm run dev`는 `http://127.0.0.1:3001`에서 배포와 같은 요청 처리기를 실행한다. 인증 DB 조회에는 `.secrets/backend.env`의 연결값이 필요하다. Git 자동 배포는 아직 연결하지 않았으므로 클라우드 프로젝트 생성과 저장소 반영을 구분한다.
 
-기준 문서는 사용자 결정 36개를 반영한 [PRD v1.1](prd/01-product-prd.md)이다. 지역 정책은 동·읍·면 우선→전체 정상 0개이면 구 또는 구 없는 시·군 확대다. `validate_comparable_links.py`의 5km·전용면적 ±1㎡는 역사적 시험 조건이며 현행 구현으로 사용하지 않는다.
+기준 문서는 사용자 결정을 반영한 [현행 PRD](prd/01-product-prd.md)이다. 지역 정책은 동·읍·면 우선→전체 정상 0개이면 구 또는 구 없는 시·군 확대다. `validate_comparable_links.py`의 5km·전용면적 ±1㎡는 역사적 시험 조건이며 현행 구현으로 사용하지 않는다.
 
 ## 첫 실행을 완료한다
 
-기본 검사에는 외부 패키지가 필요 없다. 로컬 인계 검사는 Python 3.9.6에서 실행하며, GitHub Actions는 Python 3.11·3.13을 대상으로 한다. 지원 런타임의 제품 정책은 아직 미정이다.
+아래 Python 검사는 표준 라이브러리로 실행한다. 로컬 인계 검사는 Python 3.9.6에서 실행하며, GitHub Actions는 Python 3.11·3.13을 대상으로 한다. 지원 런타임의 제품 정책은 아직 미정이다.
 
 ```sh
 python3 -m venv .venv
@@ -25,16 +25,34 @@ python -m compileall -q scripts
 python scripts/collect_recent_trades.py --probe apt_trade --lawd-cd 11215 --start 202511 --end 202610 --dry-run
 ```
 
-예상 범위는 수집 경계 18개·주소 경계 8개, 합계 26개다. 모든 테스트 자료는 합성이고 실호출은 없다. `--dry-run`의 12개월은 과거 수집 범위를 재현하는 예시다. 현행 제품은 조회일까지 최근 1년과 당월 포함을 요구하므로 해당 월들을 수집한 뒤 정확한 계약일 범위로 걸러야 한다. 예시 명령을 제품 기본 기간으로 사용하지 않는다.
+Python 검사에서는 합성 자료로 수집·주소 판정과 조회·가져오기·월별 수집 경로의 인증값 처리를 확인한다. `--dry-run`의 12개월은 과거 수집 범위를 재현하는 예시다. 제품에서는 조회일까지 최근 1년에 걸치는 계약월을 당월까지 수집하고 실제 계약일로 필터링한다.
 
 실제 호출 설정은 [API 안내](api/README.md)를 따른다. `--check-config`는 설정 유무만 확인하며 인증 성공을 검증하지 않는다. 자동 검사에 실제 키를 등록할 필요가 없다.
+
+실제 Supabase Auth·PostgREST·Storage 통합 검사는 `npm run test:auth`로 실행한다. 기본 DB 검사(`npm run test:db`)는 PGlite 합성 Auth 검사이므로 실제 Auth 통합 검사와 구분한다. `SUPABASE_URL`·`SUPABASE_PUBLISHABLE_KEY`·`SUPABASE_WORKER_KEY`(서울 개발 프로젝트 대상이면 `APP_ENV=development` 포함)를 해당 프로세스에만 주입하며 외부 API는 호출하지 않는다.
+
+```sh
+npm run test:auth
+npm run test:auth -- --saved-reports
+npm run test:auth -- --data-deletion
+npm run test:auth -- --chat-home
+npm run test:auth -- --condition-changes
+npm run test:auth -- --upload-supplement
+npm run test:auth -- --agent-replies
+npm run test:auth -- --chat-agent
+npm run test:auth -- --auto-evidence
+```
+
+로컬에서 전체 Supabase 스택을 띄우려면 Docker가 필요하며, Docker가 없는 환경에서는 로컬 문법 검사(`node --check scripts/smoke_*.mjs`)와 오프라인 기본 검사를 먼저 확인하고 실제 Auth 실행은 GitHub Actions의 [Supabase 통합 워크플로](../.github/workflows/supabase-integration.yml) 또는 격리된 서울 개발 프로젝트에서 수행한다. 세부 확인 항목과 정리 절차는 [인프라 준비 §5](infrastructure.md#5-재현-가능한-로컬-검사를-실행한다)에 기록한다.
 
 ## 코드 역할을 구분한다
 
 | 파일을 찾는다 | 재사용할 역할을 확인한다 | 실행 조건을 확인한다 |
 | --- | --- | --- |
 | `scripts/probe_apis.py` | 공식 호스트 제한, 인증값 제거, JSON/XML 해석, 오류·정상 0건 구분 | 실호출에는 서비스 인증값 필요 |
+| [공고·실거래 재생](api/ingestion-v0.md) · `scripts/replay_ingestion.py` | 공고·주택형·문서 근거와 지역·계약월별 거래를 조회해 정규화한다 | 기본 실행은 합성 자료와 Python 표준 라이브러리 사용 |
 | `scripts/collect_recent_trades.py` | 월·페이지 완전성, 만원→원, 계약일·해제·권리 종류 정규화 | `--dry-run`은 무호출; 실제 수집은 공공 API 키 필요 |
+| [분석 실행기](api/analysis-runs.md) · `scripts/run_analysis_worker.py` | 대기 작업 인수·입력 준비·임대 확인 후 저장 | 개발 DB와 전용 작업자 프로세스 |
 | `scripts/store_api_key.py` | 숨김 입력, 키별 로컬 파일 저장 | 대화형 터미널에서만 사용 |
 | `scripts/import_api_response.py` | 직접 저장한 공식 응답을 출처·해시와 등록 | 보관 권한을 확인한 로컬 파일 필요 |
 | `scripts/extract_notice_pdf.py` | PDF 페이지·표·셀·현재 공고 식별 문장 추출 | 로컬 PDF와 선택 의존성 필요 |
@@ -46,7 +64,7 @@ python scripts/collect_recent_trades.py --probe apt_trade --lawd-cd 11215 --star
 
 전체 서비스용 재시도·동시성·캐시·쿼터·운영 로그는 아직 설계되지 않았다. 수집 완료는 조회 시점의 해당 요청 범위가 완료됐다는 뜻이며 지연 신고·정정 종료나 최종 비교 가능을 뜻하지 않는다.
 
-기존 리뷰에서는 인증값 정제의 조건부 응답 손상·이스케이프 제거 누락과 역사적 연결기의 누락 ID 정렬 실패를 합성 자료로 재현했다. 이 PRD 작업에서 코드를 수정하지 않았다. 추가 실호출 전 정제 결함을, 역사적 연결기 재사용 전 정렬 결함을 수정·회귀검사한다. 기존 26개 테스트 통과가 이 결함을 해소한 것은 아니다. [리뷰 보완 추적표](prd/03-review-resolution.md)
+BE-01에서는 원본 응답으로 거래 수와 상태를 해석하고, 보관할 사본에서 인증값 반향을 가린다. 저장한 응답을 다시 읽은 결과와 `parsed.json`이 일치하는지, 저장한 바이트가 정제 사본 해시와 일치하는지를 회귀 검사한다. 과거 5km 연결기의 누락 ID 정렬 결함은 그 도구를 재사용하기 전의 별도 과제다. [원 리뷰 기록](prd/03-review-resolution.md) · [응답 정제 회귀 검사](../scripts/test_credential_sanitization.py)
 
 ## 기능별 요구와 완료 조건을 확인한다
 

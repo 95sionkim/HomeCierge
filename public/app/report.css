@@ -1,0 +1,909 @@
+/* S-07 저장 보고서 목록·상세·분석 결과 저장 화면: 워크스페이스 토큰과 디자인 시스템 원칙을 따른다. */
+.report-page {
+  width: 100%;
+  max-width: 1060px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+.report-page > *,
+.report-document > *,
+.report-list-card > *,
+.report-save-card > * {
+  min-width: 0;
+}
+
+/* 목록 · 페이지 헤더 */
+.report-page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px 20px;
+  margin: 4px 0 2px;
+}
+.report-page-header h1 {
+  font-size: 28px;
+  line-height: 1.3;
+  letter-spacing: -0.025em;
+  word-break: keep-all;
+}
+.report-page-header p {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.55;
+  max-width: 62ch;
+  word-break: keep-all;
+}
+.report-header-actions,
+.report-detail-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 배지 · 메타 칩 */
+.report-version-pill,
+.report-perm {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.25;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.report-version-pill {
+  background: var(--secondary);
+  color: var(--foreground);
+}
+.report-perm .icon {
+  width: 13px;
+  height: 13px;
+}
+.report-perm.is-allowed {
+  background: var(--soft);
+  color: var(--foreground);
+  border: 1px solid var(--line);
+}
+.report-perm.is-excluded {
+  background: var(--partial-soft);
+  color: var(--partial);
+  border: 1px dashed color-mix(in srgb, var(--partial) 45%, var(--line));
+}
+
+/* 파괴적 동작 버튼 (일반 보조 버튼과 명확히 구분) */
+.report-danger-btn {
+  background: var(--surface);
+  color: var(--failed);
+  border: 1px solid color-mix(in srgb, var(--failed) 42%, var(--line));
+}
+.report-danger-btn:not(:disabled):hover {
+  background: var(--failed-soft);
+  border-color: var(--failed);
+}
+.report-danger-solid {
+  background: var(--failed);
+  color: var(--primary-foreground);
+  border: 1px solid var(--failed);
+}
+.report-danger-solid:not(:disabled):hover {
+  background: color-mix(in srgb, var(--failed) 86%, var(--foreground));
+}
+
+/* 상태 배너 · 오류 · 빈 상태 */
+.report-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px 16px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.5;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--foreground);
+}
+.report-banner > .icon {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  margin-top: 2px;
+}
+.report-banner.is-verified {
+  background: var(--verified-soft);
+  border-color: color-mix(in srgb, var(--verified) 28%, var(--line));
+}
+.report-banner.is-verified > .icon {
+  color: var(--verified);
+}
+.report-banner.is-partial {
+  background: var(--partial-soft);
+  border-color: color-mix(in srgb, var(--partial) 28%, var(--line));
+}
+.report-banner.is-partial > .icon {
+  color: var(--partial);
+}
+.report-inline-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--failed-soft);
+  border: 1px solid color-mix(in srgb, var(--failed) 30%, var(--line));
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--foreground);
+}
+.report-inline-error > .icon {
+  width: 17px;
+  height: 17px;
+  color: var(--failed);
+  flex: none;
+  margin-top: 2px;
+}
+.report-inline-error > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.report-error-actions,
+.report-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.report-empty {
+  padding: 36px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.report-empty h2 {
+  font-size: 19px;
+  color: var(--foreground);
+}
+.report-empty p {
+  max-width: 50ch;
+  word-break: keep-all;
+}
+.report-empty-actions {
+  justify-content: center;
+  margin-top: 10px;
+}
+.report-empty-actions .action {
+  margin: 0;
+}
+
+/* 저장 보고서 문서 (S-07) */
+.report-document {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 32px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+}
+.report-doc-head {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.report-doc-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px 20px;
+}
+.report-doc-copy {
+  flex: 1 1 360px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.report-doc-tags {
+  flex-wrap: wrap;
+}
+.report-sample-strip {
+  word-break: keep-all;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.report-doc-copy h1 {
+  font-size: 28px;
+  line-height: 1.3;
+  letter-spacing: -0.025em;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+}
+.report-timestamps {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 18px;
+  padding: 13px 16px;
+  border-radius: 12px;
+  background: var(--soft);
+  border: 1px solid var(--soft-line);
+}
+.report-timestamps dt {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.report-timestamps dd {
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.report-doc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 섹션 바로가기 목차 */
+.report-toc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.report-toc-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--soft);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--foreground);
+}
+.report-toc-btn:hover {
+  background: var(--card);
+  border-color: var(--input);
+}
+.report-toc-num {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.report-toc-state {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+.report-toc-state.is-verified {
+  color: var(--verified);
+  background: var(--verified-soft);
+}
+.report-toc-state.is-partial {
+  color: var(--partial);
+  background: var(--partial-soft);
+}
+.report-toc-state.is-unknown {
+  color: var(--unknown);
+  border: 1px dashed var(--unknown);
+}
+.report-toc-state.is-closed {
+  color: var(--zero);
+  background: var(--zero-soft);
+}
+.report-toc-screen {
+  font-size: 11px;
+  color: var(--partial);
+  font-weight: 600;
+}
+
+/* 보고서 섹션 본문 */
+.report-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+.report-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+  scroll-margin-top: 84px;
+}
+.report-section:first-child {
+  padding-top: 12px;
+}
+.report-section.is-held {
+  padding: 18px 20px;
+  border: 1px dashed var(--input);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--card) 55%, var(--surface));
+}
+.report-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 14px;
+}
+.report-section-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+.report-section-num {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 700;
+  flex: none;
+}
+.report-section-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--muted);
+  flex: none;
+}
+.report-section-title h2 {
+  font-size: 20px;
+  line-height: 1.35;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.report-section-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.report-perm-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--partial-soft);
+  color: var(--partial);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.report-perm-note .icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  margin-top: 2px;
+}
+
+/* 키-값 항목 (공고 요약, 자금표 메타 등) */
+.report-dl {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--soft-line);
+}
+.report-dl-row {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 6px 16px;
+  align-items: baseline;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--soft-line);
+  font-size: 15px;
+  line-height: 1.55;
+}
+.report-dl-row dt {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.report-dl-row dd {
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+}
+
+.report-ext-link {
+  color: var(--primary);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  overflow-wrap: anywhere;
+}
+.report-ext-link .icon {
+  width: 14px;
+  height: 14px;
+  margin-left: 3px;
+  vertical-align: text-bottom;
+}
+.report-section-foot {
+  display: flex;
+  justify-content: flex-start;
+  padding-top: 2px;
+}
+
+/* 보고서 표 */
+.report-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+.report-table th,
+.report-table td {
+  padding: 10px 11px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--soft-line);
+  overflow-wrap: anywhere;
+}
+.report-table thead th {
+  background: var(--soft);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.report-table tbody th {
+  font-weight: 600;
+  color: var(--foreground);
+}
+.report-table tbody tr:last-child > * {
+  border-bottom: 0;
+}
+.report-table-empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 16px;
+}
+
+/* 섹션 각주 · 보류 사유 */
+.report-notes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.report-notes li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+}
+.report-notes li .icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  margin-top: 3px;
+}
+.report-section-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--soft);
+  font-size: 13px;
+  color: var(--muted);
+}
+.report-section-empty .icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+/* 개별 보고서 삭제 확인 영역 */
+.report-delete-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 14px;
+  background: var(--failed-soft);
+  border: 1px solid color-mix(in srgb, var(--failed) 42%, var(--line));
+}
+.report-delete-copy {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.report-delete-copy > .icon {
+  width: 18px;
+  height: 18px;
+  color: var(--failed);
+  flex: none;
+  margin-top: 2px;
+}
+.report-delete-copy h3 {
+  font-size: 15px;
+  line-height: 1.4;
+  font-weight: 700;
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+.report-delete-copy p {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  word-break: keep-all;
+}
+.report-delete-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* 저장 보고서 목록 카드 */
+.report-list-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.report-list-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  border-radius: 18px;
+}
+.report-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.report-card-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+.report-list-card h2 {
+  font-size: 18px;
+  line-height: 1.38;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.report-card-link:hover {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+.report-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.report-card-meta > div {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.report-card-meta dt {
+  font-weight: 600;
+}
+.report-card-meta dd {
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+}
+.report-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--soft-line);
+}
+.report-card-actions .report-danger-btn {
+  margin-left: auto;
+}
+.report-list-more {
+  display: flex;
+  justify-content: center;
+  padding-top: 4px;
+}
+
+/* 실행 탭: 보고서 저장 패널 */
+.report-save-card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 24px;
+}
+.report-save-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px 24px;
+}
+.report-save-copy {
+  flex: 1 1 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.report-save-copy h1 {
+  font-size: 24px;
+  line-height: 1.3;
+  word-break: keep-all;
+}
+.report-save-copy p {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--muted);
+  word-break: keep-all;
+}
+.report-save-cta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+.report-save-subactions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.report-funding-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+}
+.report-funding-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.report-funding-head label {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--foreground);
+}
+.report-funding-opt {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.report-funding-choice select {
+  width: 100%;
+  max-width: 420px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--input);
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 14px;
+}
+.report-funding-choice select:disabled {
+  background: var(--soft);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+.report-funding-help {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  word-break: keep-all;
+}
+.report-save-facts {
+  list-style: none;
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--soft);
+  border: 1px solid var(--soft-line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.report-save-facts li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  word-break: keep-all;
+}
+.report-save-facts li .icon {
+  width: 15px;
+  height: 15px;
+  color: var(--primary);
+  flex: none;
+  margin-top: 2px;
+}
+.report-run-existing {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.report-section-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px 16px;
+}
+.report-section-bar h2 {
+  font-size: 18px;
+}
+.report-section-bar p {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.report-quiet-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 18px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.report-quiet-state .icon {
+  width: 17px;
+  height: 17px;
+  flex: none;
+}
+
+/* 반응형: 태블릿 및 모바일 (390px에서 가로 스크롤 없음) */
+@media (max-width: 760px) {
+  .report-page {
+    gap: 16px;
+  }
+  .report-document {
+    padding: 20px 16px;
+    gap: 20px;
+    border-radius: 16px;
+  }
+  .report-doc-copy h1,
+  .report-page-header h1 {
+    font-size: 22px;
+  }
+  .report-doc-actions,
+  .report-save-cta {
+    width: 100%;
+    align-items: stretch;
+  }
+  .report-save-subactions {
+    justify-content: flex-start;
+  }
+  .report-save-card {
+    padding: 18px 16px;
+  }
+  .report-list-card {
+    padding: 16px;
+  }
+  .report-card-actions .report-danger-btn {
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 900px) {
+  .report-timestamps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .report-dl-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3px;
+  }
+  .report-timestamps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 12px;
+  }
+  .report-delete-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+  .report-delete-actions .action {
+    width: 100%;
+  }
+  /* 모바일 표는 카드 행으로 재배치해 390px에서 가로 스크롤을 방지한다. */
+  .report-table-wrap {
+    overflow: visible;
+  }
+  .report-table,
+  .report-table tbody {
+    display: block;
+    width: 100%;
+  }
+  .report-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .report-table tbody tr {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 13px 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  .report-table tbody tr:last-child {
+    border-bottom: 0;
+  }
+  .report-table tbody th,
+  .report-table tbody td {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0;
+    border: 0;
+  }
+  .report-table tbody th::before,
+  .report-table tbody td::before {
+    content: attr(data-label);
+    font-size: 11px;
+    font-weight: 650;
+    color: var(--muted);
+  }
+}

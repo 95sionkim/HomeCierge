@@ -7,19 +7,33 @@
     "node": "26.x"
   },
   "scripts": {
+    "predev": "node scripts/prepare_web.mjs",
     "dev": "node --env-file-if-exists=.secrets/backend.env --import tsx dev/server.ts",
     "check": "tsc --noEmit",
     "test": "tsx --test tests/backend/*.test.ts",
+    "pretest:web": "node scripts/prepare_web.mjs",
+    "test:web": "node --import tsx --test tests/browser/*.test.mjs",
+    "test:ingestion": "node --test tests/ingestion/*.test.mjs",
     "test:db": "node --test tests/database/*.test.mjs",
-    "build": "npm run check",
+    "pretest:auth": "node scripts/prepare_web.mjs",
+    "test:auth": "node --import tsx scripts/smoke_be03_auth.mjs",
+    "build": "npm run check && node scripts/prepare_web.mjs",
     "db:cli": "supabase"
   },
   "dependencies": {
-    "@supabase/supabase-js": "2.119.0"
+    "@supabase/supabase-js": "2.119.0",
+    "pdfkit": "0.21.0",
+    "pretendard": "1.3.9"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.16",
     "@types/node": "26.6.6",
+    "@types/pdfkit": "0.17.7",
+    "@vercel/routing-utils": "6.6.1",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "esbuild": "0.28.2",
+    "playwright-core": "1.65.1",
     "supabase": "3.1.0",
     "tsx": "4.23.15",
     "typescript": "7.0.2"

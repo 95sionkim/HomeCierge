@@ -1,0 +1,112 @@
+#!/usr/bin/env python3
+"""BE-02가 정규화한 수집 결과와 조회 조건을 개발 DB의 한 분석에 저장한다."""
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+from uuid import UUID
+
+from ingestion_pages import loads_source_json
+from replay_ingestion import replay
+from worker_rpc import WorkerRpc, WorkerRpcError
+
+
+def snapshot_input(inputs):
+    # 재생 봉투(페이지 원문·문서 입력)와 호출자가 덧붙인 필드를 DB로 넘기지 않는다.
+    input_snapshot = {key: inputs[key] for key in (
+        'noticeSource', 'asOf', 'start', 'end', 'requestRegionCodes', 'tradeKinds', 'pageSize'
+    ) if key in inputs}
+    input_snapshot['target'] = {key: inputs['target'][key] for key in ('houseManageNo', 'noticeNo', 'edition')}
+    return input_snapshot
+
+
+def _payment_fields(source, **fields):
+    if not isinstance(source, dict) or any(
+            key not in source or not isinstance(source[key], kind) for key, kind in fields.items()):
+        raise ValueError('납부 일정 항목의 형식이 올바르지 않습니다.')
+    return {key: source[key] for key in fields}
+
+
+def _payment_page_refs(references):
+    evidence = []
+    for reference in references:
+        ref = _payment_fields(reference, document=str, version=str, page=int)
+        if type(ref['page']) is not int or ref['page'] < 1:
+            raise ValueError('납부 일정 근거는 1 이상의 PDF 쪽 번호가 필요합니다.')
+        evidence.append(ref)
+    return evidence
+
+
+def payment_schedule_snapshot(schedules):
+    if not isinstance(schedules, list):
+        raise ValueError('납부 일정 목록이 필요합니다.')
+    nullable_text = (str, type(None))
+    rows = []
+    for schedule in schedules:
+        row = _payment_fields(schedule, modelNo=str, houseType=str, room=str, item=str, status=str,
+                              totalWon=nullable_text, reasons=list, evidence=list, installments=list)
+        if any(not isinstance(reason, str) for reason in row['reasons']):
+            raise ValueError('납부 일정 사유는 문자열 목록이어야 합니다.')
+        row['reasons'] = list(row['reasons'])
+        row['evidence'] = _payment_page_refs(row['evidence'])
+        installments = []
+        for source in row['installments']:
+            installment = _payment_fields(source, stage=str, won=str, timing=dict)
+            timing = _payment_fields(installment['timing'], trigger=nullable_text, dateStatus=str,
+                                     date=nullable_text, evidence=list)
+            timing['evidence'] = _payment_page_refs(timing['evidence'])
+            installments.append(dict(installment, timing=timing))
+        row['installments'] = installments
+        rows.append(row)
+    return rows
+
+
+def save_snapshot(user_id, analysis_id, capture_key, inputs, result, *, env, opener=None,
+                  retry_uncertain=False, payment_schedules=None):
+    """수집본을 저장한다. 일정 목록을 받으면 빈 목록도 같은 트랜잭션에 저장한다."""
+    client = WorkerRpc(env, opener)
+    payload = {'p_user_id': str(UUID(str(user_id))), 'p_analysis_id': str(UUID(str(analysis_id))),
+               'p_capture_key': str(UUID(str(capture_key))), 'p_input': snapshot_input(inputs), 'p_result': result}
+    rpc = 'save_ingestion_snapshot'
+    if payment_schedules is not None:
+        # 비어 있는 검수 일정도 수집본과 같은 트랜잭션에 기록한다.
+        rpc = 'save_funding_schedule_snapshot'
+        payload['p_schedules'] = payment_schedule_snapshot(payment_schedules)
+    attempts = 2 if retry_uncertain else 1
+    # 실조회는 다시 하면 조회 시점이 달라진다. 같은 조건·결과·키를 메모리에서 그대로 재전송한다.
+    for attempt in range(1, attempts + 1):
+        try:
+            return str(UUID(client.post(rpc, payload, limit=128)))
+        except WorkerRpcError as exc:
+            if exc.status is not None and (exc.status not in (502, 503, 504) or attempt == attempts):
+                raise RuntimeError(f'저장 RPC 실패 (HTTP {exc.status})') from None
+        except (ValueError, TypeError, AttributeError):
+            pass
+    raise RuntimeError('저장 응답을 확인하지 못했습니다. 같은 수집 키로 재시도하세요.')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('bundle', type=Path, help='BE-02 합성 재생 JSON')
+    parser.add_argument('--owner-id', required=True, type=UUID)
+    parser.add_argument('--analysis-id', required=True, type=UUID)
+    parser.add_argument('--capture-key', required=True, type=UUID, help='재시도할 때 유지하는 수집 UUID')
+    args = parser.parse_args()
+    try:
+        bundle = loads_source_json(args.bundle.read_text(encoding='utf-8'))
+        result = replay(bundle)
+    except (OSError, ValueError, TypeError):
+        parser.exit(2, '합성 재생 입력을 읽거나 정규화할 수 없습니다.\n')
+    try:
+        snapshot_id = save_snapshot(args.owner_id, args.analysis_id, args.capture_key, bundle['request'],
+                                    result, env=os.environ)
+    except (ValueError, RuntimeError) as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    print(json.dumps({'snapshotId': snapshot_id}, ensure_ascii=False))
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

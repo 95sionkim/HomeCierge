@@ -1,0 +1,912 @@
+// 사용자 세션으로 공고 목록과 본인 실행을 읽는다. 공급자 응답의 원문은 화면에 노출하지 않는다.
+let clientPromise;
+let sdkPromise;
+const inFlight = new Map();
+const pendingKeys = new Map();
+const intentPrefix = 'homecierge.directory-request.';
+const uuid = /^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/i;
+const noticeConflicts = new Set([
+  'notice_index_not_ready',
+  'notice_not_found',
+  'notice_source_conflict',
+  'notice_kind_unsupported',
+  'notice_edition_mismatch',
+  'notice_edition_unverified',
+  'notice_model_not_found',
+  'notice_model_unverified',
+  'notice_region_unverified',
+  'analysis_notice_selection_conflict',
+]);
+const publicErrors = new Set([
+  ...noticeConflicts,
+  'authentication_required',
+  'configuration_unavailable',
+  'search_index_not_ready',
+  'search_source_restricted',
+  'directory_page_changed',
+  'invalid_directory_input',
+  'invalid_lookup_input',
+  'invalid_chat_input',
+  'chat_not_found',
+  'chat_conflict',
+  'invalid_search_input',
+  'invalid_funding_input',
+  'funding_not_found',
+  'invalid_legal_input',
+  'legal_evidence_not_found',
+  'invalid_commute_input',
+  'commute_snapshot_not_found',
+  'commute_rate_limited',
+  'invalid_news_input',
+  'news_snapshot_not_found',
+  'news_rate_limited',
+  'invalid_run_input',
+  'notice_source_restricted',
+  'run_rate_limited',
+  'run_not_found',
+  'run_conflict',
+  'comparison_not_available',
+  'comparison_source_restricted',
+  'not_found',
+  'invalid_conversation_input',
+  'invalid_report_input',
+  'report_not_found',
+  'report_conflict',
+  'deletion_not_found',
+  'deletion_conflict',
+  'deletion_upload_scope_unverified',
+  'invalid_deletion_input',
+  'conversation_period_unavailable',
+  'conversation_condition_unavailable',
+  'conversation_conflict',
+  'invalid_upload_supplement_input',
+  'upload_not_found',
+  'upload_not_available',
+  'upload_file_missing',
+  'upload_supplement_base_not_ready',
+  'upload_supplement_not_eligible',
+  'upload_supplement_conflict',
+  'backend_unavailable',
+]);
+
+function apiError(code, status = null) {
+  return Object.assign(new Error(code), { code, ...(status == null ? {} : { status }) });
+}
+
+function authError(error) {
+  const code = error?.code;
+  if (
+    [
+      'invalid_credentials',
+      'email_not_confirmed',
+      'weak_password',
+      'signup_disabled',
+      'user_already_exists',
+      'email_address_invalid',
+    ].includes(code)
+  )
+    return apiError(code);
+  if (error?.status === 429 || ['over_request_rate_limit', 'over_email_send_rate_limit'].includes(code))
+    return apiError('auth_rate_limited');
+  return apiError('backend_unavailable');
+}
+
+function loadSdk() {
+  if (globalThis.supabase?.createClient) return Promise.resolve(globalThis.supabase);
+  if (!sdkPromise)
+    sdkPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = '/vendor/supabase.js';
+      script.async = true;
+      const failed = () => {
+        script.remove();
+        reject(apiError('configuration_unavailable'));
+      };
+      script.onload = () => (globalThis.supabase?.createClient ? resolve(globalThis.supabase) : failed());
+      script.onerror = failed;
+      document.head.append(script);
+    }).catch((error) => {
+      sdkPromise = undefined;
+      throw error;
+    });
+  return sdkPromise;
+}
+
+async function connect() {
+  const response = await fetch('/api/v1/client-config', { cache: 'no-store', credentials: 'same-origin' });
+  if (!response.ok) throw apiError('configuration_unavailable');
+  const config = await response.json();
+  const url = new URL(config.supabaseUrl);
+  if (
+    !/^sb_publishable_[\w-]+$/.test(config.publishableKey) ||
+    url.origin !== config.supabaseUrl ||
+    (url.protocol !== 'https:' &&
+      !(url.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(url.hostname)))
+  ) {
+    throw apiError('configuration_unavailable');
+  }
+  const sdk = await loadSdk();
+  return sdk.createClient(url.origin, config.publishableKey);
+}
+
+function client() {
+  if (!clientPromise)
+    clientPromise = connect().catch(() => {
+      clientPromise = undefined;
+      throw apiError('configuration_unavailable');
+    });
+  return clientPromise;
+}
+
+function identity(session) {
+  const user = session?.user;
+  return user && !user.is_anonymous && uuid.test(user.id) ? { id: user.id, email: user.email ?? '' } : null;
+}
+
+async function currentSession() {
+  const { data, error } = await (await client()).auth.getSession();
+  if (error) throw authError(error);
+  return data.session;
+}
+
+export async function getSession() {
+  return identity(await currentSession());
+}
+
+export async function signIn(email, password) {
+  const { data, error } = await (await client()).auth.signInWithPassword({ email, password });
+  if (error) throw authError(error);
+  const user = identity(data.session);
+  if (!user) throw apiError('authentication_required');
+  return user;
+}
+
+export async function signUp(email, password) {
+  const { data, error } = await (
+    await client()
+  ).auth.signUp({ email, password, options: { emailRedirectTo: new URL('/', location.origin).href } });
+  if (error) throw authError(error);
+  return { signedIn: Boolean(identity(data.session)), email };
+}
+
+export async function signOut() {
+  const { error } = await (await client()).auth.signOut({ scope: 'local' });
+  pendingKeys.clear();
+  try {
+    for (const key of Object.keys(sessionStorage))
+      if (key.startsWith(intentPrefix)) sessionStorage.removeItem(key);
+  } catch {
+    /* 브라우저가 임시 저장소를 차단한 경우 메모리 키만 사용한다. */
+  }
+  if (error) throw authError(error);
+}
+
+export function onSessionChange(callback) {
+  let active = true;
+  let subscription;
+  void client()
+    .then((sdk) => {
+      if (!active) return;
+      subscription = sdk.auth.onAuthStateChange((_event, session) => {
+        // 세션 잠금이 해제된 뒤 화면이 목록 RPC를 요청할 수 있게 한다.
+        setTimeout(() => {
+          if (active) callback(identity(session));
+        }, 0);
+      }).data.subscription;
+    })
+    .catch(() => {});
+  return () => {
+    active = false;
+    subscription?.unsubscribe();
+  };
+}
+
+async function request(path, method = 'GET', body, signal, media = 'json', extraHeaders = null) {
+  const receiptOnly = path === '/api/v1/privacy/receipt';
+  const session = receiptOnly ? null : await currentSession();
+  if (!receiptOnly && !identity(session)) throw apiError('authentication_required');
+  let response, data;
+  try {
+    response = await fetch(path, {
+      method,
+      headers: {
+        ...(session ? { Authorization: 'Bearer ' + session.access_token } : {}),
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        ...(extraHeaders ?? {}),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      credentials: 'same-origin',
+      cache: 'no-store',
+      signal,
+    });
+    if (response.ok && response.status === 204) return;
+    if (response.ok && media === 'pdf') {
+      if (response.headers.get('content-type')?.split(';')[0] !== 'application/pdf') throw apiError('backend_unavailable');
+      return await response.blob();
+    }
+    data = await response.json();
+  } catch (error) {
+    if (signal?.aborted || error?.name === 'AbortError') throw error;
+    throw apiError('backend_unavailable');
+  }
+  if (!response.ok) throw apiError(publicErrors.has(data?.error) ? data.error : 'backend_unavailable', response.status);
+  return data;
+}
+
+export function listNotices({ limit, cursor, includeClosed } = {}) {
+  const query = new URLSearchParams();
+  if (limit != null) query.set('limit', String(limit));
+  if (cursor != null) query.set('cursor', cursor);
+  if (includeClosed != null) query.set('includeClosed', String(includeClosed));
+  return request('/api/v1/notices?' + query);
+}
+
+export function lookupNotices({ q, mode = 'auto' } = {}, signal) {
+  const query = new URLSearchParams();
+  if (typeof q === 'string') query.set('q', q);
+  if (mode) query.set('mode', mode);
+  return request('/api/v1/notices/lookup?' + query, 'GET', undefined, signal);
+}
+
+export async function listChats({ before = null, limit = 20 } = {}, signal) {
+  if (before !== null && !uuid.test(before)) throw apiError('invalid_chat_input');
+  const query = new URLSearchParams();
+  if (before) query.set('before', before);
+  if (limit != null) query.set('limit', String(limit));
+  const data = await request('/api/v1/chats' + (query.size ? '?' + query : ''), 'GET', undefined, signal);
+  if (data?.contractVersion !== 'chat-home/v1' || !Array.isArray(data.chats)) throw apiError('backend_unavailable');
+  return data;
+}
+
+export async function createChat({ requestId, title = null } = {}, signal) {
+  if (!uuid.test(requestId)) throw apiError('invalid_chat_input');
+  const body = title === null ? { requestId } : { requestId, title };
+  const data = await request('/api/v1/chats', 'POST', body, signal);
+  if (data?.contractVersion !== 'chat-home/v1' || !uuid.test(data.chat?.chatId)) throw apiError('backend_unavailable');
+  return data;
+}
+
+export async function getChat(chatId, signal) {
+  if (!uuid.test(chatId)) throw apiError('invalid_chat_input');
+  const data = await request('/api/v1/chats/' + chatId, 'GET', undefined, signal);
+  if (
+    data?.contractVersion !== 'chat-detail/v1' ||
+    !uuid.test(data.chat?.chatId) ||
+    !Array.isArray(data.messages) ||
+    !Array.isArray(data.analyses)
+  ) {
+    throw apiError('backend_unavailable');
+  }
+  return data;
+}
+
+export async function renameChat(chatId, title, signal) {
+  if (!uuid.test(chatId) || typeof title !== 'string') throw apiError('invalid_chat_input');
+  const data = await request('/api/v1/chats/' + chatId, 'PATCH', { title }, signal);
+  if (data?.contractVersion !== 'chat-home/v1' || !uuid.test(data.chat?.chatId)) throw apiError('backend_unavailable');
+  return data;
+}
+
+export async function sendChatMessage(chatId, { requestId, message, mode = 'auto' } = {}, signal) {
+  if (!uuid.test(chatId) || !uuid.test(requestId) || typeof message !== 'string') throw apiError('invalid_chat_input');
+  const data = await request('/api/v1/chats/' + chatId + '/messages', 'POST', { requestId, message, mode }, signal);
+  if (data?.contractVersion !== 'chat-message/v1' || data.chatId !== chatId) throw apiError('backend_unavailable');
+  return data;
+}
+
+export async function decideChatSearchProposal(chatId, replyId, { decision, conditions = undefined } = {}, signal) {
+  if (!uuid.test(chatId) || !uuid.test(replyId) || !['confirm', 'reject', 'cancel'].includes(decision)) {
+    throw apiError('invalid_chat_input');
+  }
+  const body = conditions !== undefined && conditions !== null ? { decision, conditions } : { decision };
+  const data = await request('/api/v1/chats/' + chatId + '/replies/' + replyId + '/decision', 'POST', body, signal);
+  if (data?.contractVersion !== 'chat-search-decision/v1' || data.chatId !== chatId) throw apiError('backend_unavailable');
+  return data;
+}
+
+export function listDeletionItems(kind, before = null, signal) {
+  const params = new URLSearchParams({ kind });
+  if (before) params.set('before', before);
+  return request('/api/v1/privacy/items?' + params, 'GET', undefined, signal);
+}
+export function readDeletionImpact(scope, targetId, signal) {
+  return request('/api/v1/privacy/impact', 'POST', { scope, targetId }, signal);
+}
+export async function requestDataDeletion(scope, targetId, receiptId, signal) {
+  try {
+    return await request('/api/v1/privacy/requests', 'POST', { scope, targetId, receiptId, confirmed:true }, signal);
+  } catch (error) {
+    if (signal?.aborted || !['backend_unavailable','authentication_required'].includes(error?.code)) throw error;
+    // 계정 접수가 반영된 직후 세션이나 응답이 사라져도 같은 번호의 공개 기록으로 확인한다.
+    let receipt;
+    try { receipt = await readDeletionReceipt(receiptId, signal); }
+    catch { throw error; }
+    if (receipt?.receiptId !== receiptId || receipt.scope !== scope) throw error;
+    return receipt;
+  }
+}
+export function readDeletionReceipt(receiptId, signal) {
+  return request('/api/v1/privacy/receipt', 'POST', { receiptId }, signal);
+}
+
+export function listSearchRegions() {
+  return request('/api/v1/notices/regions');
+}
+
+export function searchNotices(conditions) {
+  return request('/api/v1/notices/search', 'POST', conditions);
+}
+
+export function readFundingPlan(analysisId, snapshotId, modelNo, room) {
+  if (!uuid.test(analysisId) || !uuid.test(snapshotId)) throw apiError('invalid_funding_input');
+  return request('/api/v1/analyses/' + analysisId + '/funding-plan', 'POST', { snapshotId, modelNo, room });
+}
+
+export function readSnapshotReference(section, analysisId, snapshotId, signal) {
+  const law = section === 'law';
+  if ((!law && section !== 'news') || !uuid.test(analysisId) || !uuid.test(snapshotId))
+    throw apiError(law ? 'invalid_legal_input' : 'invalid_news_input');
+  const service = law ? 'legal-evidence' : 'regional-news';
+  return request(`/api/v1/analyses/${analysisId}/snapshots/${snapshotId}/${service}`,
+    law ? 'GET' : 'POST', undefined, signal);
+}
+
+export function readCommuteOrigin(analysisId, snapshotId, signal) {
+  if (!uuid.test(analysisId) || !uuid.test(snapshotId)) throw apiError('invalid_commute_input');
+  return request(`/api/v1/analyses/${analysisId}/snapshots/${snapshotId}/commute`, 'GET', undefined, signal);
+}
+
+export function queryCommute(analysisId, snapshotId, destination, signal, origin = null) {
+  if (!uuid.test(analysisId) || !uuid.test(snapshotId)) throw apiError('invalid_commute_input');
+  const body = origin ? { destination, origin } : { destination };
+  return request(`/api/v1/analyses/${analysisId}/snapshots/${snapshotId}/commute`, 'POST', body, signal);
+}
+
+const ODSAY_TRANSIT_URL = 'https://api.odsay.com/v1/api/searchPubTransPathT';
+const ODSAY_MAX_BYTES = 1024 * 1024;
+const ODSAY_TIMEOUT_MS = 5000;
+
+function isRecord(value) {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+function isNonnegativeInt(value) {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+async function readLimitedJsonBody(response, signal, maxBytes) {
+  const reader = response.body?.getReader?.();
+  if (!reader) {
+    const buffer = await response.arrayBuffer();
+    signal?.throwIfAborted?.();
+    if (buffer.byteLength > maxBytes) throw new Error('response_too_large');
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer));
+  }
+  const cancel = () => {
+    void reader.cancel().catch(() => {});
+  };
+  signal?.addEventListener('abort', cancel, { once: true });
+  const bytes = new Uint8Array(maxBytes);
+  let length = 0;
+  try {
+    signal?.throwIfAborted?.();
+    for (;;) {
+      const { value, done } = await reader.read();
+      signal?.throwIfAborted?.();
+      if (done) break;
+      if (length + value.byteLength > bytes.length) throw new Error('response_too_large');
+      bytes.set(value, length);
+      length += value.byteLength;
+    }
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, length)));
+  } finally {
+    signal?.removeEventListener('abort', cancel);
+    cancel();
+    reader.releaseLock();
+  }
+}
+
+// Q-47: ODsay URI(웹) 키는 요청 출처로 인증하므로 브라우저에서 직접 호출하며 결과·좌표를 저장하지 않는다.
+export async function queryOdsayTransit(transitQuery, signal) {
+  const queriedAt = new Date().toISOString();
+  const base = {
+    source: 'odsay_route',
+    status: 'provider_unavailable',
+    queriedAt,
+    durationSeconds: null,
+    distanceMeters: null,
+    walkMinutes: null,
+    walkMeters: null,
+    kind: null,
+  };
+  const url =
+    ODSAY_TRANSIT_URL +
+    `?SX=${encodeURIComponent(transitQuery.origin.x)}` +
+    `&SY=${encodeURIComponent(transitQuery.origin.y)}` +
+    `&EX=${encodeURIComponent(transitQuery.destination.x)}` +
+    `&EY=${encodeURIComponent(transitQuery.destination.y)}` +
+    `&OPT=0&apiKey=${encodeURIComponent(transitQuery.apiKey)}`;
+  const timeoutSignal = AbortSignal.timeout(ODSAY_TIMEOUT_MS);
+  const combined = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+  let data;
+  try {
+    combined.throwIfAborted();
+    const res = await fetch(url, {
+      method: 'GET',
+      credentials: 'omit',
+      cache: 'no-store',
+      redirect: 'error',
+      referrerPolicy: 'strict-origin-when-cross-origin',
+      signal: combined,
+    });
+    if (res.status === 429) {
+      void res.body?.cancel?.().catch(() => {});
+      return { ...base, status: 'rate_limited' };
+    }
+    if (res.status === 401 || res.status === 403) {
+      void res.body?.cancel?.().catch(() => {});
+      return { ...base, status: 'provider_denied' };
+    }
+    if (
+      res.status !== 200 ||
+      res.redirected ||
+      !/^application\/json\b/i.test(res.headers.get('content-type') ?? '') ||
+      Number(res.headers.get('content-length')) > ODSAY_MAX_BYTES
+    ) {
+      void res.body?.cancel?.().catch(() => {});
+      return { ...base, status: 'provider_unavailable' };
+    }
+    data = await readLimitedJsonBody(res, combined, ODSAY_MAX_BYTES);
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    return { ...base, status: 'provider_unavailable' };
+  }
+  if (isRecord(data) && data.error !== undefined) {
+    const item = Array.isArray(data.error) && data.error.length === 1 ? data.error[0] : data.error;
+    const code = isRecord(item) && item.code !== undefined && item.code !== null ? String(item.code) : '';
+    const text = isRecord(item)
+      ? [item.message, item.msg].filter(v => typeof v === 'string').join(' ')
+      : '';
+    if (
+      isRecord(item) &&
+      ((code === '500' && /auth|인증/i.test(text)) ||
+        /ApiKeyAuthFailed/i.test(text) ||
+        code === 'ApiKeyAuthFailed')
+    ) {
+      return { ...base, status: 'provider_denied' };
+    }
+    return {
+      ...base,
+      status: code === '-98' ? 'points_too_close' : code === '-99' ? 'no_route' : 'provider_unavailable',
+    };
+  }
+  const response = isRecord(data) && isRecord(data.result) ? data.result : null;
+  if (response?.searchType === 1 || response?.searchType === 2) {
+    return { ...base, status: 'connections_unverified' };
+  }
+  const first = response?.searchType === 0 && Array.isArray(response.path) ? response.path[0] : null;
+  const info = isRecord(first) && isRecord(first.info) ? first.info : null;
+  if (
+    !info ||
+    ![1, 2, 3].includes(first.pathType) ||
+    !isNonnegativeInt(info.totalTime) ||
+    info.totalTime < 1 ||
+    !Number.isSafeInteger(info.totalTime * 60)
+  ) {
+    return { ...base, status: 'provider_unavailable' };
+  }
+  return {
+    ...base,
+    status: 'available',
+    kind: first.pathType === 1 ? 'subway' : first.pathType === 2 ? 'bus' : 'mixed',
+    durationSeconds: info.totalTime * 60,
+    walkMeters: isNonnegativeInt(info.totalWalk) ? info.totalWalk : null,
+    walkMinutes:
+      isNonnegativeInt(info.totalWalkTime) && info.totalWalkTime <= info.totalTime ? info.totalWalkTime : null,
+  };
+}
+
+export async function commuteProfile(ownerId, signal) {
+  const { data, error } = await (await client()).from('user_profiles').select('revision,commute_destination')
+    .eq('user_id', ownerId).abortSignal(signal).maybeSingle();
+  if (error) throw databaseError(error);
+  if (data && (!Number.isSafeInteger(data.revision) || data.revision < 0 ||
+      (data.commute_destination !== null && typeof data.commute_destination !== 'string'))) throw apiError('backend_unavailable');
+  return data ?? { revision: 0, commute_destination: null };
+}
+
+export async function confirmDestination(ownerId, revision, destination) {
+  const { error } = await (await client()).rpc('confirm_commute_destination', {
+    p_user_id: ownerId, p_base_revision: revision, p_destination: destination,
+  });
+  if (error?.code === '40001') throw apiError('profile_changed');
+  if (error) throw databaseError(error);
+}
+
+const profileMonth = /^[0-9]{4}-(?:0[1-9]|1[0-2])$/;
+const profilePatterns = {
+  budget_max_won: /^(?:0|[1-9][0-9]*)$/,
+  supply_area_min_m2: /^[0-9]+(?:\.[0-9]+)?$/,
+  supply_area_max_m2: /^[0-9]+(?:\.[0-9]+)?$/,
+  move_in_start_month: profileMonth,
+  move_in_end_month: profileMonth,
+};
+function profileValues(fields, allowRemoval = false) {
+  if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return false;
+  return Object.entries(fields).every(([key, value]) => {
+    if (!Object.hasOwn(profilePatterns, key) && key !== 'region_codes') return false;
+    if (value === null) return allowRemoval;
+    if (key === 'region_codes') return Array.isArray(value) && value.every(code => typeof code === 'string' && /^[0-9]{5}$/.test(code));
+    return typeof value === 'string' && profilePatterns[key].test(value);
+  });
+}
+const profileStatuses = new Set(['pending', 'approved', 'rejected', 'cancelled']);
+const validRevision = n => Number.isSafeInteger(n) && n >= 0;
+const validTimestamp = s => typeof s === 'string' && Number.isFinite(Date.parse(s));
+function validProfileProposal(p) {
+  return p && uuid.test(p.id) && validRevision(p.baseRevision) && profileStatuses.has(p.status)
+    && typeof p.reason === 'string' && validTimestamp(p.createdAt)
+    && (p.status === 'pending' ? p.decidedAt === null : validTimestamp(p.decidedAt))
+    && ((p.analysisId === null && p.runId === null) || (uuid.test(p.analysisId) && uuid.test(p.runId)))
+    && profileValues(p.previous, true) && profileValues(p.patch, true)
+    && Object.keys(p.patch).length > 0 && Object.keys(p.previous).length === Object.keys(p.patch).length
+    && Object.keys(p.patch).every(key => Object.hasOwn(p.previous, key));
+}
+async function profileRpc(name, params, signal) {
+  const session = await currentSession();
+  if (!identity(session)) throw apiError('authentication_required');
+  const sdk = await client();
+  signal?.throwIfAborted();
+  // 계정 전환 직전의 요청도 해당 동작을 시작한 세션으로만 보낸다.
+  let query = sdk.rpc(name, params).setHeader('Authorization', 'Bearer ' + session.access_token);
+  if (signal) query = query.abortSignal(signal);
+  const { data, error } = await query;
+  signal?.throwIfAborted();
+  if (error) {
+    if (['40001', 'PT409', '23505'].includes(error.code)) throw apiError('profile_changed');
+    if (error.code === '22023') throw apiError('invalid_profile_input');
+    if (error.code === 'PT404') throw apiError('profile_proposal_not_found');
+    if (error.code === 'PT403') throw apiError('profile_regions_unavailable');
+    throw databaseError(error);
+  }
+  if (data?.contractVersion !== 'shared-profile/v1' || !validRevision(data.revision) ||
+      (data.updatedAt !== null && !validTimestamp(data.updatedAt)) ||
+      (data.destination !== null && typeof data.destination !== 'string') ||
+      !profileValues(data.conditions) || !Array.isArray(data.proposals) || data.proposals.length > 30 ||
+      !data.proposals.every(validProfileProposal) || (data.nextCursor !== null && !uuid.test(data.nextCursor))) {
+    throw apiError('backend_unavailable');
+  }
+  return data;
+}
+export function readSharedProfile(signal, before = null) {
+  return profileRpc('read_search_profile', { p_before: before }, signal);
+}
+export function proposeSearchProfile({ requestId, baseRevision, patch, reason, analysisId, runId }, signal) {
+  return profileRpc('propose_search_profile_change', {
+    p_request_id: requestId, p_base_revision: baseRevision, p_patch: patch, p_reason: reason,
+    p_analysis_id: analysisId ?? null, p_run_id: runId ?? null,
+  }, signal);
+}
+export function decideSearchProfile(changeId, decision, signal) {
+  return profileRpc('decide_search_profile_change', { p_change_id: changeId, p_decision: decision }, signal);
+}
+
+const fundFields = 'id,kind,amountWon:amount_won::text,availableOn:available_on,certainty,updatedAt:updated_at';
+
+async function fundTable(analysisId, ownerId) {
+  const owner = await getSession();
+  if (!owner || owner.id !== ownerId) throw apiError('authentication_required');
+  if (!uuid.test(analysisId)) throw apiError('invalid_funding_input');
+  return (await client()).from('funding_entries');
+}
+
+export async function listFunds(analysisId, ownerId) {
+  const table = await fundTable(analysisId, ownerId);
+  const all = [];
+  const pageSize = 200;
+  // 고정 순서와 식별자 커서로 Data API의 기본 반환 건수 너머에 있는 입력도 복원한다.
+  let after;
+  do {
+    let query = table.select(fundFields).eq('user_id', ownerId).eq('analysis_id', analysisId).order('id').limit(pageSize);
+    if (after) query = query.gt('id', after);
+    const { data, error } = await query;
+    if (error) throw databaseError(error);
+    if (!Array.isArray(data) || data.some(row => !uuid.test(row.id) || typeof row.amountWon !== 'string'))
+      throw apiError('backend_unavailable');
+    all.push(...data);
+    after = data.length === pageSize ? data.at(-1).id : null;
+  } while (after);
+  return all.sort((a, b) => a.availableOn.localeCompare(b.availableOn) || a.id.localeCompare(b.id));
+}
+
+export async function saveFund(analysisId, ownerId, draft) {
+  const table = await fundTable(analysisId, ownerId);
+  const values = { kind: draft.kind, certainty: draft.certainty, amount_won: draft.amountWon, available_on: draft.availableOn };
+  const own = query => query.eq('user_id', ownerId).eq('analysis_id', analysisId);
+  const matches = row => row && row.kind === draft.kind && row.certainty === draft.certainty
+    && row.amountWon === draft.amountWon && row.availableOn === draft.availableOn;
+  if (draft.id) {
+    const { data, error } = await own(table.update(values)).eq('id', draft.id)
+      .eq('updated_at', draft.updatedAt).select('id').maybeSingle();
+    if (error) throw databaseError(error);
+    if (data) return;
+    const current = await own(table.select(fundFields)).eq('id', draft.id).maybeSingle();
+    if (current.error) throw databaseError(current.error);
+    if (!matches(current.data)) throw apiError('fund_changed');
+    return;
+  }
+  const result = await table.insert({ ...values, user_id: ownerId, analysis_id: analysisId, request_key: draft.requestKey });
+  if (!result.error) return;
+  if (result.error.code !== '23505') throw databaseError(result.error);
+  const prior = await own(table.select(fundFields)).eq('request_key', draft.requestKey).maybeSingle();
+  if (prior.error) throw databaseError(prior.error);
+  if (!matches(prior.data)) throw apiError('fund_changed');
+}
+
+function databaseError(error) {
+  if (error?.code === 'PT403') return apiError('notice_source_restricted');
+  if (error?.code === 'PT409')
+    return apiError(noticeConflicts.has(error.message) ? error.message : 'run_conflict');
+  if (error?.code === 'PT429') return apiError('run_rate_limited');
+  if (error?.code === 'PT404') return apiError('run_not_found');
+  if (error?.code === '22023') return apiError('invalid_run_input');
+  if (['42501', 'PGRST301', 'PGRST303'].includes(error?.code)) return apiError('authentication_required');
+  return apiError('backend_unavailable');
+}
+
+export async function listAnalyses() {
+  const owner = await getSession();
+  if (!owner) throw apiError('authentication_required');
+  const { data, error } = await (
+    await client()
+  )
+    .from('analyses')
+    .select('id,latest_run_id,title,status,updated_at')
+    .eq('user_id', owner.id)
+    .not('latest_run_id', 'is', null)
+    .order('updated_at', { ascending: false })
+    .limit(30);
+  if (error) throw databaseError(error);
+  return data.map((row) => ({
+    analysisId: row.id,
+    runId: row.latest_run_id,
+    title: row.title,
+    status: row.status,
+    updatedAt: row.updated_at,
+  }));
+}
+
+function rememberRequest(name) {
+  let key = pendingKeys.get(name);
+  try {
+    key ??= sessionStorage.getItem(name);
+  } catch {
+    /* 메모리에서 재시도한다. */
+  }
+  if (!uuid.test(key)) key = crypto.randomUUID();
+  pendingKeys.set(name, key);
+  try {
+    sessionStorage.setItem(name, key);
+  } catch {
+    /* 현재 탭의 메모리 키를 유지한다. */
+  }
+  return key;
+}
+function forgetRequest(name) {
+  pendingKeys.delete(name);
+  try {
+    sessionStorage.removeItem(name);
+  } catch {
+    /* 메모리 키를 이미 지웠다. */
+  }
+}
+
+export async function startAnalysis(notice, model, { chatId = null } = {}) {
+  const proposed = model?.analysisInput;
+  if (
+    !proposed ||
+    proposed.kind !== 'notice' ||
+    proposed.houseManageNo !== notice?.houseManageNo ||
+    proposed.noticeNo !== notice?.noticeNo ||
+    proposed.edition !== notice?.edition ||
+    proposed.modelNo !== model.modelNo ||
+    !['applyhome_apt', 'applyhome_remainder'].includes(proposed.noticeSource) ||
+    (chatId !== null && !uuid.test(chatId))
+  )
+    throw apiError('invalid_run_input');
+  const { kind, noticeSource, houseManageNo, noticeNo, edition, modelNo } = proposed;
+  const input = { kind, noticeSource, houseManageNo, noticeNo, edition, modelNo };
+  const owner = await getSession();
+  if (!owner) throw apiError('authentication_required');
+  const scopeParts = chatId
+    ? [owner.id, 'chat', chatId, noticeSource, houseManageNo, noticeNo, edition, modelNo]
+    : [owner.id, noticeSource, houseManageNo, noticeNo, edition, modelNo];
+  const name = intentPrefix + scopeParts.join('/');
+  if (inFlight.has(name)) return inFlight.get(name);
+  const key = rememberRequest(name);
+  const task = (async () => {
+    let data;
+    if (chatId) {
+      try {
+        data = await request('/api/v1/chats/' + chatId + '/analyses', 'POST', { requestId: key, input });
+      } catch (error) {
+        if (error?.code !== 'backend_unavailable' && error?.code !== 'run_rate_limited') forgetRequest(name);
+        throw error;
+      }
+      if (data?.chatId !== chatId) throw apiError('backend_unavailable');
+    } else {
+      const response = await (await client()).rpc('start_notice_workspace', { p_request_key: key, p_input: input });
+      if (response.error) {
+        const mapped = databaseError(response.error);
+        if (mapped.code !== 'backend_unavailable' && mapped.code !== 'run_rate_limited') forgetRequest(name);
+        throw mapped;
+      }
+      data = response.data;
+    }
+    if (
+      !uuid.test(data?.analysisId) ||
+      !uuid.test(data?.runId) ||
+      !Object.keys(input).every((field) => data?.input?.[field] === input[field])
+    )
+      throw apiError('backend_unavailable');
+    forgetRequest(name);
+    return data;
+  })().finally(() => inFlight.delete(name));
+  inFlight.set(name, task);
+  return task;
+}
+
+function runPath(analysisId, runId) {
+  if (!uuid.test(analysisId) || !uuid.test(runId)) throw apiError('invalid_run_input');
+  return '/api/v1/analyses/' + analysisId + '/runs/' + runId;
+}
+export function getRun(analysisId, runId) {
+  return request(runPath(analysisId, runId));
+}
+export function cancelRun(analysisId, runId) {
+  return request(runPath(analysisId, runId) + '/cancel', 'POST');
+}
+export function getResult(analysisId, runId) {
+  return request(runPath(analysisId, runId) + '/result');
+}
+export function getComparisonEvidence(analysisId, runId, signal) {
+  return request(runPath(analysisId, runId) + '/evidence', 'GET', undefined, signal);
+}
+export function downloadAnalysisUpload(analysisId, uploadId, signal) {
+  if (!uuid.test(analysisId) || !uuid.test(uploadId)) throw apiError('invalid_run_input');
+  return request(
+    '/api/v1/analyses/' + analysisId + '/uploads/' + uploadId + '/content',
+    'GET',
+    undefined,
+    signal,
+    'pdf',
+  );
+}
+export function listSavedReports(signal, before = null) {
+  if (before !== null && !uuid.test(before)) throw apiError('invalid_report_input');
+  return request('/api/v1/reports' + (before ? '?before=' + before : ''), 'GET', undefined, signal);
+}
+export function saveAnalysisReport(analysisId, runId, requestId, signal, fundingRoom = null) {
+  if (!uuid.test(requestId)) throw apiError('invalid_report_input');
+  return request(runPath(analysisId, runId) + '/reports', 'POST',
+    fundingRoom === null ? { requestId } : { requestId, fundingRoom }, signal);
+}
+function reportPath(id) {
+  if (!uuid.test(id)) throw apiError('invalid_report_input');
+  return '/api/v1/reports/' + id;
+}
+export function readSavedReport(reportId, signal) {
+  return request(reportPath(reportId), 'GET', undefined, signal);
+}
+export function downloadSavedReport(reportId, signal) {
+  return request(reportPath(reportId) + '/pdf', 'GET', undefined, signal, 'pdf');
+}
+export function deleteSavedReport(reportId, signal) {
+  return request(reportPath(reportId), 'DELETE', undefined, signal);
+}
+export function getConversation(analysisId, runId, signal) {
+  return request(runPath(analysisId, runId) + '/conversation', 'GET', undefined, signal);
+}
+export function sendConversationMessage(analysisId, runId, requestId, message, signal) {
+  if (!uuid.test(requestId) || typeof message !== 'string') throw apiError('invalid_conversation_input');
+  const count = Array.from(message).length;
+  if (count < 1 || count > 800) throw apiError('invalid_conversation_input');
+  return request(runPath(analysisId, runId) + '/conversation', 'POST', { requestId, message }, signal);
+}
+export function sendConditionProposal(analysisId, runId, requestId, message, conditions, signal) {
+  if (!uuid.test(requestId) || typeof message !== 'string' || !conditions || typeof conditions !== 'object' || Array.isArray(conditions))
+    throw apiError('invalid_conversation_input');
+  const count = Array.from(message).length;
+  if (count < 1 || count > 800) throw apiError('invalid_conversation_input');
+  return request(runPath(analysisId, runId) + '/conversation', 'POST', { requestId, message, conditions }, signal);
+}
+export function decideConversationProposal(analysisId, runId, turnId, decision, signal) {
+  if (
+    typeof turnId !== 'string' ||
+    !turnId ||
+    turnId.includes('/') ||
+    !['approve', 'reject', 'cancel'].includes(decision)
+  )
+    throw apiError('invalid_conversation_input');
+  return request(
+    runPath(analysisId, runId) + '/conversation/' + encodeURIComponent(turnId) + '/decision',
+    'POST',
+    { decision },
+    signal,
+  );
+}
+
+export function getUploadSupplementContext(analysisId, runId, signal) {
+  if (!uuid.test(analysisId) || !uuid.test(runId)) throw apiError('invalid_upload_supplement_input');
+  return request(runPath(analysisId, runId) + '/upload-supplement', 'GET', undefined, signal);
+}
+
+export async function uploadAnalysisPdf(analysisId, uploadId, file, signal, onStage = null) {
+  if (!uuid.test(analysisId) || !uuid.test(uploadId)) throw apiError('invalid_upload_supplement_input');
+  if (!file || typeof file.size !== 'number' || file.size <= 0) throw apiError('upload_invalid_file');
+  if (file.size > 50 * 1024 * 1024) throw apiError('upload_too_large');
+  const session = await currentSession();
+  const owner = identity(session);
+  if (!owner) throw apiError('authentication_required');
+  const sdk = await client();
+  signal?.throwIfAborted();
+  onStage?.('registering');
+  let reg = sdk
+    .rpc('register_analysis_upload', { analysis_id: analysisId, upload_id: uploadId })
+    .setHeader('Authorization', 'Bearer ' + session.access_token);
+  if (signal) reg = reg.abortSignal(signal);
+  const { data: registered, error: regError } = await reg;
+  signal?.throwIfAborted();
+  if (regError) {
+    if (regError.code === '42501') throw apiError('authentication_required');
+    if (regError.code === 'PT404' || regError.code === '23503') throw apiError('run_not_found');
+    if (regError.code === 'PT409' || regError.code === '23505') throw apiError('upload_supplement_conflict');
+    throw databaseError(regError);
+  }
+  if (registered?.status && registered.status !== 'registered') {
+    throw apiError('upload_not_available');
+  }
+  const objectPath = registered?.object_path;
+  const expectedPath = `${owner.id.toLowerCase()}/${analysisId.toLowerCase()}/${uploadId.toLowerCase()}.pdf`;
+  if (typeof objectPath !== 'string' || objectPath.toLowerCase() !== expectedPath) {
+    throw apiError('backend_unavailable');
+  }
+  onStage?.('uploading');
+  const { error: uploadError } = await sdk.storage.from('analysis-uploads').upload(objectPath, file, {
+    contentType: 'application/pdf',
+    cacheControl: '0',
+    upsert: false,
+  });
+  signal?.throwIfAborted();
+  if (uploadError) {
+    const status = Number(uploadError.statusCode ?? uploadError.status ?? 0);
+    if (status === 401 || status === 403) throw apiError('authentication_required');
+    if (status === 413) throw apiError('upload_too_large');
+    if (status === 415) throw apiError('upload_invalid_file');
+    if (status === 409) throw apiError('upload_supplement_conflict');
+    throw apiError('upload_storage_failed');
+  }
+  return { uploadId: uploadId.toLowerCase(), objectPath };
+}
+
+export function enqueueUploadSupplement(analysisId, baseRunId, uploadId, idempotencyKey, signal) {
+  if (!uuid.test(analysisId) || !uuid.test(baseRunId) || !uuid.test(uploadId) || !uuid.test(idempotencyKey)) {
+    throw apiError('invalid_upload_supplement_input');
+  }
+  return request(
+    runPath(analysisId, baseRunId) + '/upload-supplement',
+    'POST',
+    { uploadId: uploadId.toLowerCase() },
+    signal,
+    'json',
+    { 'Idempotency-Key': idempotencyKey.toLowerCase() },
+  );
+}
+
+export function getUploadSupplementRun(analysisId, runId, signal) {
+  if (!uuid.test(analysisId) || !uuid.test(runId)) throw apiError('invalid_upload_supplement_input');
+  return request(
+    '/api/v1/analyses/' + analysisId.toLowerCase() + '/upload-supplements/' + runId.toLowerCase(),
+    'GET',
+    undefined,
+    signal,
+  );
+}

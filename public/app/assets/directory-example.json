@@ -1,0 +1,164 @@
+{
+  "contractVersion": "notice-directory/v1",
+  "dataOrigin": "synthetic",
+  "asOf": "2026-11-22",
+  "observedAt": "2026-11-22T00:00:00+09:00",
+  "observedKstDate": "2026-11-22",
+  "publicationWindow": {
+    "start": "2026-08-25",
+    "end": "2026-11-22"
+  },
+  "coverage": {
+    "status": "complete",
+    "sources": [
+      {
+        "source": "applyhome_apt",
+        "status": "complete"
+      },
+      {
+        "source": "applyhome_remainder",
+        "status": "complete"
+      }
+    ]
+  },
+  "officialPortal": {
+    "name": "청약홈",
+    "url": "https://www.applyhome.co.kr/"
+  },
+  "appliedQuery": {
+    "includeClosed": false,
+    "limit": 20
+  },
+  "scopeIssues": [],
+  "counts": {
+    "listed": 3,
+    "open": 1,
+    "upcoming": 1,
+    "closed": 0,
+    "unknown": 1,
+    "kindUnverified": 0,
+    "excludedClosed": 0,
+    "excludedUnsupported": 0
+  },
+  "zeroStatus": {
+    "open": "not_zero",
+    "upcoming": "not_zero"
+  },
+  "notices": [
+    {
+      "houseManageNo": "9900000101",
+      "noticeNo": "9900000101",
+      "edition": "2026-10-30",
+      "title": "합성 가람 아파트",
+      "kind": "new_sale",
+      "sourceIds": [
+        "applyhome_apt",
+        "applyhome_apt_model"
+      ],
+      "regionCode": "99999",
+      "regionName": "합성시 가람구",
+      "parentRegionCode": null,
+      "application": {
+        "start": "2026-11-19",
+        "end": "2026-11-22"
+      },
+      "applicationSegments": null,
+      "applicationStatus": "open",
+      "checks": {
+        "schedule": "verified",
+        "kind": "verified",
+        "region": "verified",
+        "models": "listed"
+      },
+      "reasonCodes": [],
+      "models": [
+        {
+          "modelNo": "01",
+          "houseType": "084.0000A",
+          "selectionBlockers": [],
+          "analysisInput": {
+            "kind": "notice",
+            "noticeSource": "applyhome_apt",
+            "houseManageNo": "9900000101",
+            "noticeNo": "9900000101",
+            "edition": "2026-10-30",
+            "modelNo": "01"
+          }
+        }
+      ]
+    },
+    {
+      "houseManageNo": "9900000102",
+      "noticeNo": "9900000102",
+      "edition": "2026-10-30",
+      "title": "합성 누리 잔여세대",
+      "kind": "remaining",
+      "sourceIds": [
+        "applyhome_remainder"
+      ],
+      "regionCode": "99999",
+      "regionName": "합성시 가람구",
+      "parentRegionCode": null,
+      "application": {
+        "start": "2026-11-24",
+        "end": "2026-11-25"
+      },
+      "applicationSegments": null,
+      "applicationStatus": "upcoming",
+      "checks": {
+        "schedule": "verified",
+        "kind": "verified",
+        "region": "verified",
+        "models": "unavailable"
+      },
+      "reasonCodes": [
+        "model_unverified"
+      ],
+      "models": []
+    },
+    {
+      "houseManageNo": "9900000103",
+      "noticeNo": "9900000103",
+      "edition": "2026-10-30",
+      "title": "합성 다온 아파트",
+      "kind": "new_sale",
+      "sourceIds": [
+        "applyhome_apt"
+      ],
+      "regionCode": "99999",
+      "regionName": "합성시 가람구",
+      "parentRegionCode": null,
+      "application": {
+        "start": "2026-11-20",
+        "end": "2026-11-24"
+      },
+      "applicationSegments": [
+        {
+          "start": "2026-11-20",
+          "end": "2026-11-20"
+        },
+        {
+          "start": "2026-11-24",
+          "end": "2026-11-24"
+        }
+      ],
+      "applicationStatus": "unknown",
+      "checks": {
+        "schedule": "unverified",
+        "kind": "verified",
+        "region": "verified",
+        "models": "unavailable"
+      },
+      "reasonCodes": [
+        "application_split",
+        "model_unverified"
+      ],
+      "models": []
+    }
+  ],
+  "page": {
+    "offset": 0,
+    "returned": 3,
+    "nextCursor": null
+  }
+}

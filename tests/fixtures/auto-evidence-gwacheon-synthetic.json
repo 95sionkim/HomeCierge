@@ -1,0 +1,341 @@
+{
+  "contractVersion": "auto-evidence-synthetic-fixture/v1",
+  "dataOrigin": "synthetic",
+  "note": "과천 갈현동 84D(전용 84.7450 -> 공급 110.3239, 여러 회차 공고 일치) 사례를 본뜬 합성 검수 자료. 실제 API·PDF 응답 원문이나 실거래 개인정보를 포함하지 않는다.",
+  "regionTsv": "법정동코드\t법정동명\t폐지여부\n9100000000\t경기도\t존재\n9129000000\t경기도 합성과천시\t존재\n9129010200\t경기도 합성과천시 별양동\t존재\n9129010500\t경기도 합성과천시 원문동\t존재\n9129010600\t경기도 합성과천시 갈현동\t존재\n9113000000\t경기도 합성성남시\t존재\n9113500000\t경기도 합성성남시 분당구\t존재\n9113510700\t경기도 합성성남시 분당구 갈현동\t존재\n9182000000\t경기도 합성가평군\t존재\n9182025000\t경기도 합성가평군 가평읍\t존재\n9182025021\t경기도 합성가평군 가평읍 대곡리\t존재\n9182031000\t경기도 합성가평군 설악면\t존재\n9182031021\t경기도 합성가평군 설악면 신천리\t존재\n",
+  "request": {
+    "noticeSource": "applyhome_remainder",
+    "target": {
+      "houseManageNo": "9129000001",
+      "noticeNo": "9129000001",
+      "edition": "2026-09-25"
+    },
+    "asOf": "2026-10-20",
+    "start": "2026-09-01",
+    "end": "2026-10-20",
+    "requestRegionCodes": [
+      "91290"
+    ],
+    "tradeKinds": [
+      "sale",
+      "presale_right",
+      "occupancy_right"
+    ],
+    "pageSize": 100
+  },
+  "targetNotice": {
+    "HOUSE_MANAGE_NO": "9129000001",
+    "PBLANC_NO": "9129000001",
+    "HOUSE_NM": "합성과천 갈현타운 대상단지",
+    "HOUSE_SECD": "04",
+    "HOUSE_SECD_NM": "무순위",
+    "HSSPLY_ADRES": "경기도 합성과천시 갈현로 10 (갈현동, 합성과천갈현타운)",
+    "RCRIT_PBLANC_DE": "2026-09-25",
+    "SUBSCRPT_RCEPT_BGNDE": "2026-10-01",
+    "SUBSCRPT_RCEPT_ENDDE": "2026-10-02",
+    "MVN_PREARNGE_YM": "202702",
+    "PBLANC_URL": "https://www.applyhome.co.kr/ai/aia/selectAPTLttotPblancDetail.do?houseManageNo=9129000001&pblancNo=9129000001"
+  },
+  "targetModels": [
+    {
+      "HOUSE_MANAGE_NO": "9129000001",
+      "PBLANC_NO": "9129000001",
+      "MODEL_NO": "01",
+      "HOUSE_TY": "084.7450D",
+      "SUPLY_AR": "110.3239",
+      "SUPLY_HSHLDCO": 2,
+      "LTTOT_TOP_AMOUNT": "125000"
+    }
+  ],
+  "pdfReviewEvidence": {
+    "modelNo": "01",
+    "houseType": "084.7450D",
+    "supplyAreaM2": "110.3239",
+    "room": "101동 101호",
+    "salePriceWon": "1230000000",
+    "requiredOptionsWon": "20000000"
+  },
+  "applyhomeDirectory": {
+    "applyhome_apt": [
+      {
+        "HOUSE_MANAGE_NO": "9129010001",
+        "PBLANC_NO": "9129010001",
+        "HOUSE_NM": "합성과천 벨라르테",
+        "HOUSE_SECD": "01",
+        "HOUSE_SECD_NM": "APT",
+        "HSSPLY_ADRES": "경기도 합성과천시 갈현동 827",
+        "RCRIT_PBLANC_DE": "2022-07-10"
+      },
+      {
+        "HOUSE_MANAGE_NO": "9129020001",
+        "PBLANC_NO": "9129020001",
+        "HOUSE_NM": "합성과천 제이드",
+        "HOUSE_SECD": "01",
+        "HOUSE_SECD_NM": "APT",
+        "HSSPLY_ADRES": "경기도 합성과천시 갈현로 25 (갈현동, 합성과천제이드)",
+        "RCRIT_PBLANC_DE": "2022-05-15"
+      },
+      {
+        "HOUSE_MANAGE_NO": "9113599001",
+        "PBLANC_NO": "9113599001",
+        "HOUSE_NM": "합성과천 벨라르테",
+        "HOUSE_SECD": "01",
+        "HOUSE_SECD_NM": "APT",
+        "HSSPLY_ADRES": "경기도 합성성남시 분당구 갈현동 827",
+        "RCRIT_PBLANC_DE": "2022-07-10"
+      }
+    ],
+    "applyhome_remainder": [
+      {
+        "HOUSE_MANAGE_NO": "9129010002",
+        "PBLANC_NO": "9129010002",
+        "HOUSE_NM": "합성과천 벨라르테 무순위 1차",
+        "HOUSE_SECD": "04",
+        "HOUSE_SECD_NM": "무순위",
+        "HSSPLY_ADRES": "경기도 합성과천시 갈현로 15 (갈현동, 합성과천벨라르테)",
+        "RCRIT_PBLANC_DE": "2024-03-11"
+      },
+      {
+        "HOUSE_MANAGE_NO": "9129010003",
+        "PBLANC_NO": "9129010003",
+        "HOUSE_NM": "합성과천 벨라르테 계약취소주택",
+        "HOUSE_SECD": "04",
+        "HOUSE_SECD_NM": "무순위",
+        "HSSPLY_ADRES": "경기도 합성과천시 갈현동 827",
+        "RCRIT_PBLANC_DE": "2025-06-18"
+      }
+    ],
+    "applyhome_apt_model": {
+      "9129010001/9129010001": [
+        {
+          "HOUSE_MANAGE_NO": "9129010001",
+          "PBLANC_NO": "9129010001",
+          "MODEL_NO": "04",
+          "HOUSE_TY": "084.7450D",
+          "SUPLY_AR": "110.3239"
+        },
+        {
+          "HOUSE_MANAGE_NO": "9129010001",
+          "PBLANC_NO": "9129010001",
+          "MODEL_NO": "01",
+          "HOUSE_TY": "059.9100A",
+          "SUPLY_AR": "79.8000"
+        }
+      ],
+      "9129020001/9129020001": [
+        {
+          "HOUSE_MANAGE_NO": "9129020001",
+          "PBLANC_NO": "9129020001",
+          "MODEL_NO": "04",
+          "HOUSE_TY": "084.7450D",
+          "SUPLY_AR": "110.3239"
+        }
+      ],
+      "9113599001/9113599001": [
+        {
+          "HOUSE_MANAGE_NO": "9113599001",
+          "PBLANC_NO": "9113599001",
+          "MODEL_NO": "04",
+          "HOUSE_TY": "084.7450D",
+          "SUPLY_AR": "118.9999"
+        }
+      ]
+    },
+    "applyhome_remainder_model": {
+      "9129010002/9129010002": [
+        {
+          "HOUSE_MANAGE_NO": "9129010002",
+          "PBLANC_NO": "9129010002",
+          "MODEL_NO": "01",
+          "HOUSE_TY": "084.7450D",
+          "SUPLY_AR": "110.3239"
+        }
+      ],
+      "9129010003/9129010003": [
+        {
+          "HOUSE_MANAGE_NO": "9129010003",
+          "PBLANC_NO": "9129010003",
+          "MODEL_NO": "01",
+          "HOUSE_TY": "084.7450D",
+          "SUPLY_AR": "110.3239"
+        }
+      ]
+    }
+  },
+  "tradeRows": {
+    "202609": [
+      {
+        "aptSeq": "91290-101",
+        "aptNm": "합성과천 벨라르테",
+        "sggCd": "91290",
+        "umdCd": "10600",
+        "umdNm": "갈현동",
+        "jibun": "827",
+        "landCd": "1",
+        "bonbun": "0827",
+        "bubun": "0000",
+        "roadNmSggCd": "91290",
+        "roadNm": "갈현로",
+        "roadNmBonbun": "00015",
+        "roadNmBubun": "00000",
+        "excluUseAr": "84.7450",
+        "dealAmount": "132,000",
+        "dealYear": "2026",
+        "dealMonth": "9",
+        "dealDay": "10",
+        "floor": "8",
+        "buildYear": "2023",
+        "cdealType": "",
+        "cdealDay": ""
+      },
+      {
+        "aptSeq": "91290-101",
+        "aptNm": "합성과천 벨라르테",
+        "sggCd": "91290",
+        "umdCd": "10600",
+        "umdNm": "갈현동",
+        "jibun": "827",
+        "landCd": "1",
+        "bonbun": "0827",
+        "bubun": "0000",
+        "roadNmSggCd": "91290",
+        "roadNm": "갈현로",
+        "roadNmBonbun": "00015",
+        "roadNmBubun": "00000",
+        "excluUseAr": "84.745",
+        "dealAmount": "135,000",
+        "dealYear": "2026",
+        "dealMonth": "9",
+        "dealDay": "22",
+        "floor": "14",
+        "buildYear": "2023",
+        "cdealType": "",
+        "cdealDay": ""
+      },
+      {
+        "aptSeq": "91290-101",
+        "aptNm": "합성과천 벨라르테",
+        "sggCd": "91290",
+        "umdCd": "10600",
+        "umdNm": "갈현동",
+        "jibun": "827",
+        "landCd": "1",
+        "bonbun": "0827",
+        "bubun": "0000",
+        "roadNmSggCd": "91290",
+        "roadNm": "갈현로",
+        "roadNmBonbun": "00015",
+        "roadNmBubun": "00000",
+        "excluUseAr": "84.7450",
+        "dealAmount": "141,000",
+        "dealYear": "2026",
+        "dealMonth": "9",
+        "dealDay": "25",
+        "floor": "19",
+        "buildYear": "2023",
+        "cdealType": "O",
+        "cdealDay": "26.09.28"
+      },
+      {
+        "aptSeq": "91290-102",
+        "aptNm": "합성과천 제이드",
+        "sggCd": "91290",
+        "umdCd": "10600",
+        "umdNm": "갈현동",
+        "jibun": "831",
+        "landCd": "1",
+        "bonbun": "0831",
+        "bubun": "0000",
+        "roadNmSggCd": "91290",
+        "roadNm": "갈현로",
+        "roadNmBonbun": "00025",
+        "roadNmBubun": "00000",
+        "excluUseAr": "84.7450",
+        "dealAmount": "129,000",
+        "dealYear": "2026",
+        "dealMonth": "9",
+        "dealDay": "18",
+        "floor": "7",
+        "buildYear": "2023",
+        "cdealType": "",
+        "cdealDay": ""
+      }
+    ],
+    "202610": [
+      {
+        "aptSeq": "91290-101",
+        "aptNm": "합성과천 벨라르테",
+        "sggCd": "91290",
+        "umdCd": "10600",
+        "umdNm": "갈현동",
+        "jibun": "827",
+        "landCd": "1",
+        "bonbun": "0827",
+        "bubun": "0000",
+        "roadNmSggCd": "91290",
+        "roadNm": "갈현로",
+        "roadNmBonbun": "00015",
+        "roadNmBubun": "00000",
+        "excluUseAr": "84.7450",
+        "dealAmount": "138,000",
+        "dealYear": "2026",
+        "dealMonth": "10",
+        "dealDay": "05",
+        "floor": "12",
+        "buildYear": "2023",
+        "cdealType": "",
+        "cdealDay": ""
+      },
+      {
+        "aptSeq": "91290-102",
+        "aptNm": "합성과천 제이드",
+        "sggCd": "91290",
+        "umdCd": "10600",
+        "umdNm": "갈현동",
+        "jibun": "831",
+        "landCd": "1",
+        "bonbun": "0831",
+        "bubun": "0000",
+        "roadNmSggCd": "91290",
+        "roadNm": "갈현로",
+        "roadNmBonbun": "00025",
+        "roadNmBubun": "00000",
+        "excluUseAr": "84.7450",
+        "dealAmount": "131,000",
+        "dealYear": "2026",
+        "dealMonth": "10",
+        "dealDay": "12",
+        "floor": "11",
+        "buildYear": "2023",
+        "cdealType": "",
+        "cdealDay": ""
+      }
+    ]
+  },
+  "kakaoResponses": {
+    "경기도 합성과천시 갈현로 10": {
+      "b_code": "9129010600",
+      "road_name": "갈현로",
+      "main_building_no": "10",
+      "sub_building_no": "",
+      "x": "126.980000",
+      "y": "37.410000"
+    },
+    "경기도 합성과천시 갈현로 15": {
+      "b_code": "9129010600",
+      "road_name": "갈현로",
+      "main_building_no": "15",
+      "sub_building_no": "",
+      "x": "126.985000",
+      "y": "37.415000"
+    },
+    "경기도 합성과천시 갈현로 25": {
+      "b_code": "9129010600",
+      "road_name": "갈현로",
+      "main_building_no": "25",
+      "sub_building_no": "",
+      "x": "126.980500",
+      "y": "37.411000"
+    }
+  }
+}

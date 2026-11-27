@@ -1,0 +1,232 @@
+import { reasonText } from './comparison-values.js';
+export { reasonText, won } from './comparison-values.js';
+
+export function esc(value) {
+  return String(value ?? '').replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      })[character],
+  );
+}
+
+export function icon(name, extraClass = '') {
+  return `<svg class="icon ${esc(extraClass)}" aria-hidden="true" focusable="false"><use href="/app/assets/icons.svg#${esc(name)}"></use></svg>`;
+}
+
+export function badge(style, symbol, label) {
+  return `<span class="badge ${esc(style)}">${icon(symbol)}${esc(label)}</span>`;
+}
+
+export const kinds = {
+  new_sale: '일반분양',
+  unranked: '무순위',
+  remaining: '잔여세대',
+  resupply: '재공급',
+  unknown: '유형 확인 필요',
+};
+
+export const runLabels = {
+  queued: '분석 대기',
+  running: '분석 중',
+  retry_wait: '다시 시도 대기',
+  finished: '분석 완료',
+  failed: '분석 실패',
+  cancelled: '분석 취소',
+};
+
+export const statusLabels = {
+  open: '접수 중',
+  upcoming: '접수 예정',
+  closed: '접수 종료',
+  unknown: '일정 확인 필요',
+};
+
+export function scheduleBadge(status) {
+  const style =
+    { open: 'verified', upcoming: 'upcoming', closed: 'closed', unknown: 'unknown' }[status] ?? 'unknown';
+  const symbol =
+    { open: 'circle-check', upcoming: 'clock-3', closed: 'calendar-check', unknown: 'circle-help' }[status] ??
+    'circle-help';
+  return badge(style, symbol, statusLabels[status] ?? statusLabels.unknown);
+}
+
+export function runBadge(status) {
+  const style =
+    {
+      finished: 'verified',
+      failed: 'failed',
+      cancelled: 'zero',
+      running: 'upcoming',
+      queued: 'upcoming',
+      retry_wait: 'partial',
+    }[status] ?? 'unknown';
+  const symbol =
+    {
+      finished: 'circle-check',
+      failed: 'triangle-alert',
+      cancelled: 'circle-minus',
+      running: 'loader-circle',
+      queued: 'clock-3',
+      retry_wait: 'clock-3',
+    }[status] ?? 'circle-help';
+  return badge(style, symbol, runLabels[status] ?? '진행 상태 미확인');
+}
+
+export function errorText(error) {
+  const code = error?.code ?? '';
+  const text = {
+    invalid_credentials: '이메일과 비밀번호를 확인하고 다시 입력하세요.',
+    report_not_found: '이 계정에서 열 수 있는 보고서를 찾지 못했습니다.',
+    report_conflict: '완료된 분석을 다시 열어 보고서를 저장해 주세요.',
+    invalid_deletion_input: '삭제할 항목이나 접수번호를 확인해 주세요.',
+    deletion_not_found: '항목 또는 삭제 접수번호를 찾을 수 없습니다.',
+    deletion_conflict: '자료 상태가 바뀌었습니다. 삭제할 항목을 다시 확인해 주세요.',
+    deletion_upload_scope_unverified: '이전 자료에는 이 PDF를 사용한 결과가 기록되지 않았습니다. 해당 분석을 선택해 함께 삭제할 범위를 확인하세요.',
+    invalid_report_input: '보고서 요청을 확인하고 다시 시도해 주세요.',
+    invalid_search_input: '지역, 예산, 면적과 입주월 범위를 확인해 주세요.',
+    invalid_funding_input: '분석과 호실 정보를 다시 확인해 주세요.',
+    funding_not_found: '이 분석의 자금표를 찾을 수 없습니다.',
+    fund_changed: '다른 변경이 먼저 저장됐습니다. 최신 자금을 확인하고 다시 수정해 주세요.',
+    search_selection_changed: '최신 공고에서 같은 회차와 주택형을 확인할 수 없습니다. 오늘의 청약에서 공고를 다시 확인해 주세요.',
+    user_already_exists: '이메일이 이미 등록되어 있습니다. 로그인으로 이동하세요.',
+    email_address_invalid: '이메일 주소의 형식을 확인하세요.',
+    email_not_confirmed: '가입 확인 메일의 링크를 연 뒤 다시 로그인하세요.',
+    weak_password: '더 긴 비밀번호를 입력하세요.',
+    signup_disabled: '현재 신규 가입을 이용할 수 없습니다.',
+    auth_rate_limited: '요청이 많습니다. 잠시 후 다시 시도하세요.',
+    authentication_required: '세션이 만료됐습니다. 다시 로그인하세요.',
+    configuration_unavailable: '현재 로그인 연결을 준비 중입니다. 잠시 후 다시 시도하세요.',
+    backend_unavailable: '서비스에 연결할 수 없습니다. 잠시 후 다시 시도하세요.',
+    search_index_not_ready: '최근 공고 목록을 준비 중입니다. 잠시 후 다시 확인하세요.',
+    search_source_restricted: '현재 출처의 공고 목록 표시 조건을 확인 중입니다.',
+    notice_search_source_use_not_allowed: '현재 출처의 공고 목록 표시 조건을 확인 중입니다.',
+    directory_page_changed: '목록을 읽는 중 기준일이나 자료가 바뀌었습니다. 다시 조회하세요.',
+    run_rate_limited: '최근 분석 요청이 많습니다. 1분 뒤 다시 시도하세요.',
+    run_conflict: '공고 정보 또는 실행 상태가 달라졌습니다. 최신 목록을 다시 확인하세요.',
+    comparison_not_available: '아직 저장된 비교 결과가 없습니다. 실행 상태를 확인하세요.',
+    comparison_source_restricted: '이 결과에 사용된 출처의 표시 권한을 확인 중입니다.',
+    not_found: '등록된 업로드 문서를 찾을 수 없습니다.',
+    invalid_conversation_input: '질문은 1~800자 이내로 입력하고, 현재 분석 화면에서 다시 시도하세요.',
+    conversation_period_unavailable: '요청한 기간은 현재 수집 자료로 비교할 수 없습니다. 기간을 조정해 다시 질문하세요.',
+    conversation_condition_unavailable: '요청한 비교 조건은 현재 수집 자료로 적용할 수 없습니다. 조건을 조정해 다시 시도하세요.',
+    conversation_conflict: '다른 대화나 결정이 먼저 처리됐습니다. 최신 대화 내역을 확인한 뒤 다시 진행하세요.',
+    run_not_found: '이 계정에서 조회할 수 있는 분석이 없습니다.',
+    legal_evidence_not_found: '이 계정의 분석에서 해당 공고 수집본을 찾을 수 없습니다.',
+    invalid_commute_input: '출발지와 목적지의 도로명과 건물번호 또는 지번을 입력하세요.',
+    commute_snapshot_not_found: '이 계정에서 출발지로 사용할 공고 수집본을 찾을 수 없습니다.',
+    commute_rate_limited: '최근 경로 조회가 많습니다. 1분 뒤 다시 조회하세요.',
+    profile_changed: '다른 화면에서 프로필이 변경됐습니다. 최신 값과 비교한 뒤 다시 확인하세요.',
+    invalid_profile_input: '변경할 값과 단위를 확인하세요. 현재 값과 같은 조건은 변경안으로 만들 수 없습니다.',
+    profile_proposal_not_found: '이 계정에서 변경안이나 연결된 분석을 찾을 수 없습니다.',
+    profile_regions_unavailable: '공식 희망 지역 목록을 확인할 수 없습니다. 지역 조건은 목록을 불러온 뒤 다시 확인하세요.',
+    news_snapshot_not_found: '이 계정의 분석에서 해당 공고 수집본을 찾을 수 없습니다.',
+    invalid_legal_input: '내 분석에서 법령을 확인할 공고를 다시 선택해 주세요.',
+    invalid_news_input: '내 분석에서 뉴스를 확인할 공고를 다시 선택해 주세요.',
+    news_rate_limited: '최근 뉴스 요청이 많습니다. 1분 뒤 다시 조회하세요.',
+    invalid_run_input: '이 공고의 분석 조건을 확인할 수 없습니다. 목록에서 다시 선택하세요.',
+    invalid_directory_input: '목록을 다시 열어 현재 공고를 확인하세요.',
+    invalid_lookup_input: '공고명 또는 최대 10자리 숫자 공고번호를 입력해 주세요.',
+    invalid_chat_input: '채팅 제목이나 메시지 형식을 확인하고 다시 시도해 주세요.',
+    chat_not_found: '이 계정에서 열 수 있는 채팅을 찾지 못했습니다.',
+    chat_conflict: '다른 요청이 먼저 처리됐습니다. 최신 채팅 내용을 확인한 뒤 다시 시도해 주세요.',
+    notice_index_not_ready: '최근 게시된 공고 목록을 준비 중입니다. 다시 조회하세요.',
+    notice_not_found: '최신 목록에서 이 공고를 찾을 수 없습니다.',
+    notice_source_conflict: '공고 출처가 달라졌습니다. 최신 목록에서 다시 선택하세요.',
+    notice_kind_unsupported: '이번 공고 유형은 현재 분석할 수 없습니다.',
+    notice_edition_mismatch: '공고 회차가 달라졌습니다. 최신 목록에서 다시 선택하세요.',
+    notice_edition_unverified: '공고 회차를 확인한 뒤 분석할 수 있습니다.',
+    notice_model_not_found: '최신 공고에서 선택한 주택형을 찾을 수 없습니다.',
+    notice_model_unverified: '선택한 주택형을 확인한 뒤 분석할 수 있습니다.',
+    notice_region_unverified: '공고의 공식 소재지를 확인한 뒤 분석할 수 있습니다.',
+    analysis_notice_selection_conflict: '분석에 저장된 공고 조건과 선택한 주택형이 다릅니다.',
+    invalid_upload_supplement_input: '업로드 보완 요청 형식을 확인한 뒤 다시 시도하세요.',
+    upload_not_found: '이 계정에서 등록된 업로드 파일을 찾지 못했습니다. PDF를 다시 선택해 주세요.',
+    upload_not_available: '삭제되었거나 사용할 수 없는 업로드 파일입니다. 새 PDF를 올려 주세요.',
+    upload_file_missing: '비공개 저장소에서 업로드한 PDF를 찾지 못했습니다. 파일을 다시 올려 주세요.',
+    upload_supplement_base_not_ready: '완료된 공고 분석 결과에서만 PDF 보완을 요청할 수 있습니다.',
+    upload_supplement_not_eligible: '이 분석에서는 공고 PDF 보완을 지원하지 않습니다.',
+    upload_supplement_conflict: '다른 업로드 보완 요청과 충돌했습니다. 상태를 새로고침한 뒤 다시 시도하세요.',
+    upload_invalid_file: 'PDF 파일(.pdf, application/pdf)만 올릴 수 있습니다.',
+    upload_too_large: '파일 크기는 50MiB 이하여야 합니다.',
+    upload_storage_failed: '비공개 저장소에 PDF를 올리지 못했습니다. 잠시 후 다시 시도하세요.',
+  };
+  return text[code] ?? reasonText(code) ?? '요청을 마치지 못했습니다. 연결을 확인하고 다시 시도하세요.';
+}
+
+export function isoDate(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const d = new Date(value + 'T00:00:00Z');
+  return Number.isFinite(d.valueOf()) && d.toISOString().slice(0, 10) === value ? value : null;
+}
+
+export function todayKst(value = new Date()) {
+  if (value === null || value === '') return null;
+  const date = new Date(value);
+  return Number.isFinite(date.valueOf())
+    ? new Date(date.valueOf() + 9 * 3600_000).toISOString().slice(0, 10)
+    : null;
+}
+
+export function dateText(value, short = false) {
+  const d = isoDate(value);
+  return d ? (short ? d.slice(5) : d).replaceAll('-', '.') : '—';
+}
+
+const koreanDate = new Intl.DateTimeFormat('ko-KR', {
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric',
+  weekday: 'long',
+  timeZone: 'UTC',
+});
+export function longDate(value) {
+  const d = isoDate(value);
+  return d ? koreanDate.format(new Date(d + 'T00:00:00Z')) : '기준일 확인 중';
+}
+
+const rangeCache = new WeakMap();
+export function rangesFor(notice) {
+  if (rangeCache.has(notice)) return rangeCache.get(notice);
+  const ranges = Array.isArray(notice.applicationSegments)
+    ? notice.applicationSegments
+    : notice.application && notice.checks?.schedule === 'verified'
+      ? [notice.application]
+      : [];
+  const verified = ranges.filter((r) => isoDate(r?.start) && isoDate(r?.end) && r.start <= r.end);
+  rangeCache.set(notice, verified);
+  return verified;
+}
+
+export function rangeLabel(range, short = true) {
+  if (!range || !isoDate(range.start) || !isoDate(range.end)) return '일정 미확인';
+  return range.start === range.end
+    ? dateText(range.start, short)
+    : `${dateText(range.start, short)} – ${dateText(range.end, short)}`;
+}
+
+export function supplyLabel(value) {
+  if (typeof value !== 'string' || value.length > 24 || !/^\d+(\.\d+)?$/.test(value)) return '면적 미확인';
+  const [whole, fraction = ''] = value.split('.');
+  const cents = BigInt(whole) * 100n + BigInt(fraction.slice(0, 2).padEnd(2, '0')) +
+    (Number(fraction[2] ?? 0) >= 5 ? 1n : 0n);
+  if (cents === 0n && /[1-9]/.test(value)) return '0.01㎡ 미만';
+  return (cents / 100n).toString() + '.' + (cents % 100n).toString().padStart(2, '0') + '㎡';
+}
+
+export function inRange(notice, date) {
+  return rangesFor(notice).some((r) => r.start <= date && date <= r.end);
+}
+
+export function publicationText(notice) {
+  return isoDate(notice.edition) &&
+    !notice.reasonCodes?.includes('publication_date_unverified') &&
+    !notice.reasonCodes?.includes('notice_metadata_conflict')
+    ? dateText(notice.edition)
+    : '미확인';
+}

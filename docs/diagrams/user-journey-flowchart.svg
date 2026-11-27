@@ -470,7 +470,7 @@
 <text x="1975" y="5025" text-anchor="middle" font-size="13" font-weight="600" fill="#6c7e90" letter-spacing="1">제안 · 미정</text>
 <text x="1975" y="5059" text-anchor="middle" font-size="23" font-weight="650" fill="#233b55" >LLM 설명 보조 [제안]</text>
 <text x="1975" y="5091" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >허용된 구조화 결과만 사용</text>
-<text x="1975" y="5117" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >gpt-6.1-sol 평가 제안 · 운영 모델 미정</text>
+<text x="1975" y="5117" text-anchor="middle" font-size="18.5" font-weight="400" fill="#50647a" >gpt-6.2-sol 평가 제안 · 운영 모델 미정</text>
 </g>
 <g id="display" data-kind="result">
 <title>화면·대화·PDF 일치</title>

@@ -43,16 +43,20 @@ NAVER 예제는 API HUB의 `X-NCP-APIGW-API-KEY-ID`·`X-NCP-APIGW-API-KEY` 방�
 
 ## 필요한 범위만 수동 호출한다
 
+[공고·실거래 수집 재생](ingestion-v0.md)은 한 공고·주택형과 지역·계약월별 거래를 합성 응답으로 읽는 개발 진입점이다. 로컬의 `python3 scripts/replay_ingestion.py tests/fixtures/ingestion-v0.json`으로 실행한다.
+
 아래 명령은 실제 API를 호출하고 `api-evidence/`에 응답을 저장한다. 보관·이용 조건과 인증값을 확인한 다음 실행한다. CI에는 넣지 않는다.
 
-2026-11-09 리뷰에서 인증값 정제의 조건부 응답 손상·이스케이프 제거 누락을 재현했으며 현재 PRD 작업에서는 수정하지 않았다. **추가 실호출 전에 해당 결함을 수정하고 회귀검사한다.** 실제 인증값을 사용하지 않는 기본 검사와 구분한다. [리뷰 보완 추적표](../prd/03-review-resolution.md)
+조회 도구는 받은 JSON·XML로 업무 상태와 거래 수를 판정하고 저장용 사본의 인증값을 가린다. 긴 인증값이 필드명으로 되돌아오거나 확인되지 않은 항목에 짧은 인증값이 독립된 값으로 나타나면 `redaction_failed`를 기록하고 본문과 파싱 결과의 저장을 보류한다. 짧은 인증값과 우연히 겹치는 정상 거래값·건수·상태 코드는 보존한다. UTF-8 또는 문서 형식을 해석할 수 없을 때도 본문 저장을 보류한다.
+
+`response_sha256`은 받은 바이트의 해시이고 `sanitized_response_sha256`은 실제로 저장한 응답 바이트의 해시다. 저장된 응답을 다시 파싱하면 `parsed.json`과 같아야 한다. [응답 정제 회귀 검사](../../scripts/test_credential_sanitization.py) · [출처별 이용 조건 확인 범위](be-01-evidence.md)
 
 ```sh
 python3 scripts/probe_apis.py --probe applyhome_remainder --param 'cond[HOUSE_MANAGE_NO::EQ]=2026930040' --param 'cond[PBLANC_NO::EQ]=2026930040'
 python3 scripts/probe_apis.py --probe apt_trade --param LAWD_CD=11215 --param DEAL_YMD=202610 --param numOfRows=5
 ```
 
-단일 조회는 진단용 한 페이지다. 전체 거래 수집 완료로 간주하지 않는다. 법령 본문을 MST로 조회할 때는 시행일 `efYd`가 함께 필요하며 과거 공고의 시점을 맞춰야 한다. ODsay·뉴스는 결과 보관 조건이 미확인인 상태이므로 현재 문서에서 바로 실행할 저장 명령을 제공하지 않는다. [데이터 관리](../data-handling.md) 참조.
+단일 조회는 진단용 한 페이지다. 전체 거래 수집 완료로 간주하지 않는다. 법령 본문을 MST로 조회할 때는 시행일 `efYd`가 함께 필요하며 과거 공고의 시점을 맞춰야 한다. 뉴스 진단은 결과를 저장하지 않고 상태와 건수만 출력한다. ODsay 결과의 보관 조건은 추가 확인이 필요하다. [데이터 관리](../data-handling.md) · [지역 뉴스 제품 API](regional-news.md)
 
 월별 수집은 먼저 계획을 확인한다.
 

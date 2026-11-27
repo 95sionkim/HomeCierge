@@ -2,17 +2,31 @@
 
 희망 지역·예산으로 청약 공고를 찾고, 한 번에 한 공고·한 주택형의 분양 조건을 아파트 실거래와 비교하는 의사결정 지원 서비스입니다. **같은 동·읍·면을 우선 비교하고 정상 0개일 때 같은 구, 구가 없으면 같은 시·군으로 확대**합니다.
 
-현재 요구 기준은 **PRD v1.1**입니다. 사용자 결정 36개를 바탕으로 확정 요구와 수락 기준을 연결하고 에이전트 평가 방법을 제안합니다. 2026-11-11에는 서울의 Supabase 개발 DB를 생성해 스키마·RLS·프로필 승인 함수를 적용하고, 화면과 독립적인 Vercel Preview API를 배포했습니다. 로컬 46개 검사와 실제 DB의 권한 검사·배포 응답을 확인했습니다. 제품 화면은 별도 팀이 담당하며 실제 로그인·화면 통합은 후속 검수입니다. 2026-11-09의 10서비스·14조회는 과거 데이터 접근 근거이고 공고 검색·공급면적 비교·보고서·보조 기능의 구현 완료를 뜻하지 않습니다.
+현재 요구 기준은 **PRD v1.3**입니다. 개발 화면의 **오늘의 청약**에서 접수 중·예정 공고를 카드와 달력으로 살펴보고, 로그인해 한 주택형의 분석을 시작할 수 있습니다. **내 분석**에서 저장된 실행과 결과를 다시 엽니다. 서울 Supabase 개발 DB와 Vercel Preview를 사용합니다. [화면과 실행 계약](docs/frontend-handoff.md)
+
+과천 갈현동에서 계약일의 공식 공급면적이 확인된 매매 1건의 가격 통계를 검산했습니다. 최근 1년으로 넓히면 근거가 더 필요한 갈현동 매매가 24건입니다. 구의동 사례에서도 확인할 수 없는 거래는 보류로 남깁니다. [과천 실거래 검산](docs/api/real-comparison-validation.md) · [구의동 보류 검산](docs/api/be-06-area-case.md)
 
 ## 먼저 읽기
 
 | 문서를 읽는다 | 확인할 내용을 정한다 |
 | --- | --- |
-| [PRD v1.1](docs/prd/01-product-prd.md) | 확정 요구 18개와 수락 기준 59개의 연결표, 설계 제안·미정 결정, 모델 선정과 평가 계획 |
+| [PRD v1.3](docs/prd/01-product-prd.md) | 확정 요구 18개와 수락 기준 59개의 연결표, 설계 제안·미정 결정, 모델 선정과 평가 계획 |
 | [PRD 결정 기록](docs/prd/02-decision-log.md) | 사용자 답변, 반영 위치, 아직 결정할 세부 동작 |
-| [리뷰 보완 추적표](docs/prd/03-review-resolution.md) | 원 리뷰 14건의 반영 상태와 미수정 도구 결함·남은 자료 검증 |
+| [리뷰 보완 추적표](docs/prd/03-review-resolution.md) | 원 리뷰 14건의 발견과 당시 처리 상태 |
 | [DB·배포 준비](docs/infrastructure.md) | Supabase 스키마·권한, Vercel 환경 분리, 로컬 검사와 실제 연결 상태 |
 | [화면 팀 연결 계약](docs/frontend-handoff.md) | 사용자 인증, 데이터 접근, 프로필 승인과 구현 전 기능 |
+| [오늘 접수하는 청약 공고 목록](docs/api/notice-directory.md) | 예산 입력 전 공고 일정과 주택형을 살펴보고 한 주택형의 분석을 시작하는 흐름 |
+| [채팅 홈과 공고 찾기](docs/api/chat-home.md) | 다중 채팅 목록·복원·제목 변경, 공고명·공고번호 회차 구분과 채팅 연결 분석 접수 |
+| [분석 결과 계약 v0](docs/api/analysis-result-v0.md) | 화면팀이 같은 요청의 정상 0개·부분 수집·출처 오류를 구별하는 스키마와 합성 응답 |
+| [공고·실거래 수집과 정규화](docs/api/ingestion-v0.md) | 한 공고의 주택형·호실 가격 근거와 지역·계약월별 거래를 합성 자료로 재생하는 방법 |
+| [분석별 저장·비공개 업로드](docs/api/ingestion-storage.md) | 같은 수집 키의 재시도, 저장한 근거 조회, 사용자 소유 PDF의 등록·삭제 순서 |
+| [내 데이터 관리](docs/api/data-deletion.md) | 개별 자료·계정 삭제 범위, 접수번호로 확인하는 파일·계정 처리와 백업 상태 |
+| [조건별 공고 탐색](docs/api/notice-search.md) | 로그인 후 지역·예산 검색, 주택형·호실별 조건 충족과 확인 필요 목록 |
+| [호실별 기초 자금표](docs/api/funding-plan.md) | 납부일별 분양대금·필수 옵션과 확정·예상 자금의 부족액을 계산하는 방법 |
+| [공고일에 시행된 법령 찾기](docs/api/legal-evidence.md) | 당시 시행본과 조문 제목을 열고 부칙·예외 확인을 이어가는 방법 |
+| [선택한 공고의 지역 뉴스](docs/api/regional-news.md) | 지역별 최신 검색결과, 원문 출처와 제공 시각, 화면 표시·보류 조건 |
+| [분석 접수·조회·취소](docs/api/analysis-runs.md) | 같은 요청 재전송, 수집 자료 준비, 실행 중단 이후 재개와 상태 표시 |
+| [실거래 비교 결과 v1](docs/api/comparison-v1.md) | 고정한 주택형과 주변 거래를 대조해 단지별 통계·보류 근거를 저장하고 다시 읽는 방법 |
 | [전체 개발 계획](docs/development-plan.md) | API·정규화·DB·작업 실행부터 시작하는 단계, 첫 작업 5개와 전체 수락 기준 배치 |
 | [개발 시작 안내](docs/development.md) | 실행 환경, 코드 구조, 첫 개발 과제와 완료 조건 |
 | [API 인계 상태](docs/api/prd-readiness.md) | 실제 확인한 범위와 개발 전 결정할 항목 |
@@ -21,25 +35,29 @@
 | [API 실행 안내](docs/api/README.md) | 인증값 설정, 조회·수집 명령, 역사적 검증 재현 조건 |
 | [PDF 결합 검증](docs/api/pdf-supplement-validation.md) | 같은 회차 식별, 페이지 근거, 가격 구성 검수 |
 
-에이전트·제출 설계는 [에이전트 구성도](docs/agent-architecture.md)와 [Colab 재현·제출 계획](docs/colab-reproducibility.md)을 참고합니다. LLM·API·RAG·멀티에이전트·MCP의 역할과 채택 상태를 구분하고, Vercel·Supabase를 유지하면서 공통 코어를 Colab에서 직접 실행하는 경로를 계획합니다. 현재 노트북·공통 코어·제출 데이터 패키지는 미구현입니다.
+에이전트·제출 설계는 [에이전트 구성도](docs/agent-architecture.md)와 [Colab 재현·제출 계획](docs/colab-reproducibility.md)을 참고합니다. LLM·API·RAG·멀티에이전트·MCP의 역할과 채택 상태를 구분하고, Colab 노트북·제출 패키지는 2026-11-26 사용자 결정으로 만들지 않기로 했고, 에이전트 코어는 서비스용 Python 코어로 구현했습니다. [에이전트 코어](docs/api/agent-core.md)
 
 ## 바로 실행하기
 
+Node 환경에서 `npm ci` 후 `npm run dev`를 실행하고 [로컬 화면](http://127.0.0.1:3001)을 엽니다. 로그인 전에는 합성 공고를 둘러볼 수 있습니다. 로그인 연결은 개발 프로젝트의 공개 주소·키를 `.secrets/backend.env`에 설정합니다. [환경 설정](docs/frontend-handoff.md)
+
 기본 테스트는 Python 표준 라이브러리만 사용합니다. API 키·네트워크·실제 응답 파일 없이 실행할 수 있습니다.
 
-새 DB·API 기반은 Node.js 26에서 `npm ci`, `npm run build`, `npm test`, `npm run test:db`로 검사합니다. 패키지 설치 후 검사는 실제 클라우드 계정·인증값 없이 실행합니다.
+DB·API 기반은 Node.js 26에서 `npm ci`, `npm run build`, `npm test`, `npm run test:db`로 검사합니다. Python 3도 설치된 환경에서 `npm run test:ingestion`을 실행하면 실제 재생 결과가 화면팀의 수집 기록 스키마를 따르는지 확인할 수 있습니다.
 
 화면 연동용 로컬 API는 `npm run dev`로 실행합니다. DB 연결값은 `.secrets/backend.env`에 저장하며 [화면 팀 연결 계약](docs/frontend-handoff.md)의 환경변수와 권한을 따릅니다.
 
 ```sh
-git clone https://github.com/95sionkim/HomeCierge.git
+git clone --branch codex/backend-foundation https://github.com/95sionkim/HomeCierge.git
 cd HomeCierge
 python3 -m unittest discover -s scripts -p 'test_*.py' -v
 python3 scripts/check_repository.py
+python3 scripts/replay_ingestion.py tests/fixtures/ingestion-v0.json
+python3 scripts/run_analysis_worker.py --demo
 python3 scripts/collect_recent_trades.py --probe apt_trade --lawd-cd 11215 --start 202511 --end 202610 --dry-run
 ```
 
-합성 자료의 **수집 경계 18개·주소 경계 8개 테스트**와 저장소 구성을 검사합니다. 이는 실제 API 재호출·현행 지역 검색·공급면적 비교의 검증을 뜻하지 않습니다. 기존 조회 도구의 정제 결함은 별도 수정·회귀검사가 필요하며, 추가 실호출 전에는 [API 안내](docs/api/README.md)의 조건을 확인합니다.
+Python 검사는 합성 자료로 수집·주소 판정과 인증값 정제를 확인합니다. 인증값이 정상 필드명이나 거래 금액의 일부와 겹치는 경우도 포함합니다. 실제 자료를 호출하고 보관할 때 적용할 출처별 조건은 [API 안내](docs/api/README.md)에서 확인합니다.
 
 ## 유지할 제품 규칙
 
@@ -67,7 +85,7 @@ docs/development.md     개발 순서와 실행 안내
 docs/development-plan.md 기초 개발 우선 전체 계획과 검수 이정표
 docs/infrastructure.md DB·환경·배포·검증 상태
 docs/frontend-handoff.md 화면 팀의 인증·데이터 연결 계약
-api/, src/server/       Vercel 진입점과 공통 인증 조회 API
+api/, src/server/       Vercel 진입점과 사용자 인증·분석 실행 API
 src/db/                 Supabase 생성 타입
 dev/                    같은 API의 로컬 실행기
 supabase/               DB 마이그레이션·로컬 설정·수동 원격 검사
@@ -80,4 +98,4 @@ tests/fixtures/         실제 응답을 포함하지 않는 합성 자료
 
 API 키, 개인 계정 기록, API 응답 원문, PDF/HWP 원본, 뉴스 본문·발췌와 교통 경로 데이터, 과거 발표 자료는 업로드하지 않습니다. 공개한 검증 수치와 원 프로젝트의 로컬 증거 위치는 [증거 색인](docs/api/evidence-index.json)으로 추적합니다. 데이터 배포 범위와 제3자 이용 조건은 [데이터 관리 안내](docs/data-handling.md)를 확인합니다.
 
-**개발 시작점:** [전체 개발 계획](docs/development-plan.md)에 따라 API 계약·응답 정제·공고/거래 정규화부터 시작하고 DB 저장·영속 작업·비교 결과 조회를 연결합니다. 공급면적·권리·지역·PDF의 실자료 검증을 병행하며, 화면 팀에는 동작 계약과 합성 응답을 먼저 제공합니다. 첫 종단 흐름의 검증과 전체 제품의 출시 수락은 구분합니다.
+개발 브랜치에서는 로그인한 사용자의 분석에 조회 조건과 수집본을 저장하고, 확인된 공급면적을 기준으로 주변 단지와 거래 종류별 가격을 비교합니다. 문서 작업자는 선택한 공고의 공식 첨부를 찾아 호실 분양가·필수 옵션·주택형 공급면적을 대조합니다. 화면팀은 값에 연결된 문서 판본과 페이지, 값을 보류한 이유를 함께 표시할 수 있습니다. [비교 결과 계약](docs/api/comparison-v1.md) · [공고 문서 작업자](docs/api/notice-documents.md) · [스냅샷과 비공개 업로드](docs/api/ingestion-storage.md)
