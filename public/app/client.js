@@ -362,6 +362,148 @@ export function queryCommute(analysisId, snapshotId, destination, signal, origin
   return request(`/api/v1/analyses/${analysisId}/snapshots/${snapshotId}/commute`, 'POST', body, signal);
 }
 
+const ODSAY_TRANSIT_URL = 'https://api.odsay.com/v1/api/searchPubTransPathT';
+const ODSAY_MAX_BYTES = 1024 * 1024;
+const ODSAY_TIMEOUT_MS = 5000;
+
+function isRecord(value) {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+function isNonnegativeInt(value) {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+async function readLimitedJsonBody(response, signal, maxBytes) {
+  const reader = response.body?.getReader?.();
+  if (!reader) {
+    const buffer = await response.arrayBuffer();
+    signal?.throwIfAborted?.();
+    if (buffer.byteLength > maxBytes) throw new Error('response_too_large');
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer));
+  }
+  const cancel = () => {
+    void reader.cancel().catch(() => {});
+  };
+  signal?.addEventListener('abort', cancel, { once: true });
+  const bytes = new Uint8Array(maxBytes);
+  let length = 0;
+  try {
+    signal?.throwIfAborted?.();
+    for (;;) {
+      const { value, done } = await reader.read();
+      signal?.throwIfAborted?.();
+      if (done) break;
+      if (length + value.byteLength > bytes.length) throw new Error('response_too_large');
+      bytes.set(value, length);
+      length += value.byteLength;
+    }
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, length)));
+  } finally {
+    signal?.removeEventListener('abort', cancel);
+    cancel();
+    reader.releaseLock();
+  }
+}
+
+// Q-47: ODsay URI(웹) 키는 요청 출처로 인증하므로 브라우저에서 직접 호출하며 결과·좌표를 저장하지 않는다.
+export async function queryOdsayTransit(transitQuery, signal) {
+  const queriedAt = new Date().toISOString();
+  const base = {
+    source: 'odsay_route',
+    status: 'provider_unavailable',
+    queriedAt,
+    durationSeconds: null,
+    distanceMeters: null,
+    walkMinutes: null,
+    walkMeters: null,
+    kind: null,
+  };
+  const url =
+    ODSAY_TRANSIT_URL +
+    `?SX=${encodeURIComponent(transitQuery.origin.x)}` +
+    `&SY=${encodeURIComponent(transitQuery.origin.y)}` +
+    `&EX=${encodeURIComponent(transitQuery.destination.x)}` +
+    `&EY=${encodeURIComponent(transitQuery.destination.y)}` +
+    `&OPT=0&apiKey=${encodeURIComponent(transitQuery.apiKey)}`;
+  const timeoutSignal = AbortSignal.timeout(ODSAY_TIMEOUT_MS);
+  const combined = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+  let data;
+  try {
+    combined.throwIfAborted();
+    const res = await fetch(url, {
+      method: 'GET',
+      credentials: 'omit',
+      cache: 'no-store',
+      redirect: 'error',
+      referrerPolicy: 'strict-origin-when-cross-origin',
+      signal: combined,
+    });
+    if (res.status === 429) {
+      void res.body?.cancel?.().catch(() => {});
+      return { ...base, status: 'rate_limited' };
+    }
+    if (res.status === 401 || res.status === 403) {
+      void res.body?.cancel?.().catch(() => {});
+      return { ...base, status: 'provider_denied' };
+    }
+    if (
+      res.status !== 200 ||
+      res.redirected ||
+      !/^application\/json\b/i.test(res.headers.get('content-type') ?? '') ||
+      Number(res.headers.get('content-length')) > ODSAY_MAX_BYTES
+    ) {
+      void res.body?.cancel?.().catch(() => {});
+      return { ...base, status: 'provider_unavailable' };
+    }
+    data = await readLimitedJsonBody(res, combined, ODSAY_MAX_BYTES);
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    return { ...base, status: 'provider_unavailable' };
+  }
+  if (isRecord(data) && data.error !== undefined) {
+    const item = Array.isArray(data.error) && data.error.length === 1 ? data.error[0] : data.error;
+    const code = isRecord(item) && item.code !== undefined && item.code !== null ? String(item.code) : '';
+    const text = isRecord(item)
+      ? [item.message, item.msg].filter(v => typeof v === 'string').join(' ')
+      : '';
+    if (
+      isRecord(item) &&
+      ((code === '500' && /auth|인증/i.test(text)) ||
+        /ApiKeyAuthFailed/i.test(text) ||
+        code === 'ApiKeyAuthFailed')
+    ) {
+      return { ...base, status: 'provider_denied' };
+    }
+    return {
+      ...base,
+      status: code === '-98' ? 'points_too_close' : code === '-99' ? 'no_route' : 'provider_unavailable',
+    };
+  }
+  const response = isRecord(data) && isRecord(data.result) ? data.result : null;
+  if (response?.searchType === 1 || response?.searchType === 2) {
+    return { ...base, status: 'connections_unverified' };
+  }
+  const first = response?.searchType === 0 && Array.isArray(response.path) ? response.path[0] : null;
+  const info = isRecord(first) && isRecord(first.info) ? first.info : null;
+  if (
+    !info ||
+    ![1, 2, 3].includes(first.pathType) ||
+    !isNonnegativeInt(info.totalTime) ||
+    info.totalTime < 1 ||
+    !Number.isSafeInteger(info.totalTime * 60)
+  ) {
+    return { ...base, status: 'provider_unavailable' };
+  }
+  return {
+    ...base,
+    status: 'available',
+    kind: first.pathType === 1 ? 'subway' : first.pathType === 2 ? 'bus' : 'mixed',
+    durationSeconds: info.totalTime * 60,
+    walkMeters: isNonnegativeInt(info.totalWalk) ? info.totalWalk : null,
+    walkMinutes:
+      isNonnegativeInt(info.totalWalkTime) && info.totalWalkTime <= info.totalTime ? info.totalWalkTime : null,
+  };
+}
+
 export async function commuteProfile(ownerId, signal) {
   const { data, error } = await (await client()).from('user_profiles').select('revision,commute_destination')
     .eq('user_id', ownerId).abortSignal(signal).maybeSingle();

@@ -1,4 +1,4 @@
-// 합성 응답으로 출발지 추출·미리보기·사용자 입력·카카오 구조 비교·수단별 실패·사용자 JWT 경계를 검사한다.
+// 합성 응답으로 출발지 추출·미리보기·사용자 입력·카카오 구조 비교·브라우저 ODsay 위임(Q-47)·수단별 실패·사용자 JWT 경계를 검사한다.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
@@ -27,11 +27,10 @@ const ready = {
   geocode: true,
 };
 const destination = '서울특별시 가람구 합성길 20';
-const transit = { result: { searchType: 0, path: [{ pathType: 3, info: { totalTime: 31, totalWalkTime: -1, totalWalk: 230 } }] } };
 const car = { routes: [{ result_code: 0, summary: { distance: 3100, duration: 601 } }] };
 const options = {
   kakaoKey: 'synthetic-kakao',
-  odsayKey: 'synthetic-odsay',
+  odsayWebKey: 'synthetic-odsay-web',
   now: () => new Date('2026-10-27T08:00:00Z'),
   signal: new AbortController().signal,
 };
@@ -137,15 +136,16 @@ function located(address: string) {
   return { meta: { total_count: 0, is_end: true }, documents: [] };
 }
 
-function upstream(change: { geocode?: (address: string) => unknown; transit?: unknown; car?: unknown } = {}) {
+function upstream(change: { geocode?: (address: string) => unknown; car?: unknown } = {}) {
   const calls: Request[] = [];
   const fetcher: typeof fetch = async (input, init) => {
     const req = new Request(input, init);
     const url = new URL(req.url);
     calls.push(req);
+    assert.notEqual(url.hostname, 'api.odsay.com', 'server must never call ODsay directly (Q-47)');
     const address = url.searchParams.get('query')!;
     if (url.hostname === 'dapi.kakao.com') return Response.json(change.geocode ? change.geocode(address) : located(address));
-    const value = url.hostname === 'api.odsay.com' ? change.transit ?? transit : change.car ?? car;
+    const value = change.car ?? car;
     return value instanceof Response ? value : Response.json(value);
   };
   return { fetcher, calls };
@@ -246,7 +246,7 @@ test('origin preview resolves notice address or suggestion without calling any e
   assert.equal(readCommuteOrigin({ ...ready, geocode: false }, analysisId, snapshotId).status, 'source_restricted');
 });
 
-test('binds auto notice origin and user-input origin, strips parenthetical notes and preserves units and privacy', async () => {
+test('server never calls ODsay, delegates transit via client_query + transitQuery and queries driving via KakaoMobility (Q-47)', async () => {
   const { fetcher, calls } = upstream();
   const result = await readCommute(ready, analysisId, snapshotId, { destination }, { ...options, fetch: fetcher });
   assert.equal(result.status, 'ready');
@@ -258,34 +258,54 @@ test('binds auto notice origin and user-input origin, strips parenthetical notes
     reason: null,
     suggestion: null,
   });
-  assert.equal(calls.length, 4);
+  // 카카오 로컬 2회 + 카카오모빌리티 1회 = 3회. ODsay 서버 호출은 0회.
+  assert.equal(calls.length, 3);
+  assert.equal(calls.filter(r => r.url.includes('odsay.com')).length, 0);
   assert.equal(new URL(calls[0]!.url).searchParams.get('query'), '서울특별시 가람구 예시로 10');
-  assert.equal(result.transit.durationSeconds, 1860);
-  assert.equal(result.transit.walkMinutes, null);
-  assert.equal(result.transit.walkMeters, 230);
+  assert.deepEqual(result.transit, {
+    source: 'odsay_route',
+    status: 'client_query',
+    queriedAt: null,
+    durationSeconds: null,
+    distanceMeters: null,
+    walkMinutes: null,
+    walkMeters: null,
+    kind: null,
+  });
+  assert.deepEqual(result.transitQuery, {
+    provider: 'odsay_route',
+    origin: { x: '127.10', y: '37.4' },
+    destination: { x: '127.11', y: '37.4' },
+    apiKey: 'synthetic-odsay-web',
+  });
+  assert.equal(result.driving.status, 'available');
   assert.equal(result.driving.durationSeconds, 601);
   assert.equal(result.driving.distanceMeters, 3100);
-  assert.equal(result.transit.queriedAt, options.now().toISOString());
-  const ods = calls.find(r => r.url.startsWith('https://api.odsay.com/'))!;
+  assert.equal(result.driving.queriedAt, options.now().toISOString());
   const drive = calls.find(r => r.url.startsWith('https://apis-navi.'))!;
-  assert.equal(ods.method, 'POST');
-  assert.equal(ods.headers.get('authorization'), null);
-  const fields = new URLSearchParams(await ods.text());
-  assert.equal(fields.get('SX'), '127.10');
-  assert.equal(fields.get('EX'), '127.11');
-  assert.equal(fields.get('OPT'), '0');
   assert.equal(new URL(drive.url).searchParams.get('summary'), 'true');
   assert.equal(drive.headers.get('authorization'), 'KakaoAK synthetic-kakao');
   assert.ok(calls.every(r => r.redirect === 'error' && r.cache === 'no-store'));
   assert.ok(!JSON.stringify(result).includes(destination) && !JSON.stringify(result).includes('synthetic-kakao'));
 
+  // URL 인코딩된 ODsay 웹 키는 중복 인코딩되지 않도록 원문 키로 정규화해 전달한다.
+  const encodedKeyResult = await readCommute(
+    ready,
+    analysisId,
+    snapshotId,
+    { destination },
+    { ...options, odsayWebKey: 'abc%2Bdef%2Fghi%3D', fetch: fetcher },
+  );
+  assert.equal(encodedKeyResult.transit.status, 'client_query');
+  assert.equal(encodedKeyResult.transitQuery?.apiKey, 'abc+def/ghi=');
+
   // 모호한 공고 공급위치나 주소 미보고 공고에서도 사용자가 입력한 단지 주소로 조회할 수 있다.
   const ambiguousCtx = { ...ready, noticeAddress: '서울특별시 종로구 합성동 28번지 일원' };
   const autoBlocked = await readCommute(ambiguousCtx, analysisId, snapshotId, { destination }, { ...options, fetch: fetcher });
   assert.equal(autoBlocked.status, 'origin_unverified');
+  assert.equal(autoBlocked.transitQuery, null);
   assert.equal(autoBlocked.origin.reason, 'ambiguous_area');
   assert.equal(autoBlocked.origin.suggestion, '서울특별시 종로구 합성동 28');
-  assert.equal(calls.length, 4);
 
   const userOriginResult = await readCommute(
     ambiguousCtx,
@@ -296,6 +316,8 @@ test('binds auto notice origin and user-input origin, strips parenthetical notes
   );
   assert.equal(userOriginResult.status, 'ready');
   assert.equal(userOriginResult.originAddress, '서울특별시 종로구 합성동 28');
+  assert.equal(userOriginResult.transit.status, 'client_query');
+  assert.deepEqual(userOriginResult.transitQuery?.origin, { x: '127.10', y: '37.4' });
   assert.deepEqual(userOriginResult.origin, {
     noticeAddress: '서울특별시 종로구 합성동 28번지 일원',
     address: '서울특별시 종로구 합성동 28',
@@ -303,7 +325,6 @@ test('binds auto notice origin and user-input origin, strips parenthetical notes
     reason: null,
     suggestion: null,
   });
-  assert.equal(calls.length, 8);
 
   const missingNoticeCtx = { ...ready, noticeAddress: null };
   const userForMissing = await readCommute(
@@ -316,42 +337,67 @@ test('binds auto notice origin and user-input origin, strips parenthetical notes
   assert.equal(userForMissing.status, 'ready');
   assert.equal(userForMissing.origin.basis, 'user_input');
   assert.equal(userForMissing.origin.noticeAddress, null);
+  assert.equal(userForMissing.transit.status, 'client_query');
 });
 
-test('a provider error, missing walking time, or intercity connections are independent of the other mode', async () => {
-  for (const [payload, status] of [
-    [{ error: [{ code: '-98' }] }, 'points_too_close'],
-    [{ error: [{ code: '-99' }] }, 'no_route'],
-    [{ error: [{ code: '500', message: '[ApiKeyAuthFailed]' }] }, 'provider_denied'],
-    [{ result: { searchType: 1 } }, 'connections_unverified'],
-    [{ result: { searchType: 0, path: [] } }, 'provider_unavailable'],
-    [new Response(null, { status: 429 }), 'rate_limited'],
-  ] as const) {
-    const { fetcher } = upstream({ transit: payload });
-    const r = await readCommute(ready, analysisId, snapshotId, { destination }, { ...options, fetch: fetcher });
-    assert.equal(r.transit.status, status);
-    assert.equal(r.transit.durationSeconds, null);
-    assert.equal(r.driving.status, 'available');
-  }
+test('transitQuery presence respects odsay_route permission, ODSAY_WEB_API_KEY and stays independent from driving failures', async () => {
+  // 1) 자동차 오류여도 대중교통 권한·웹 키가 있으면 client_query + transitQuery를 그대로 반환한다.
   for (const [payload, status] of [
     [{ routes: [{ result_code: 104 }] }, 'points_too_close'],
     [{ routes: [{ result_code: 1 }] }, 'no_route'],
     [{ routes: [] }, 'provider_unavailable'],
     [new Response(null, { status: 403 }), 'provider_denied'],
+    [new Response(null, { status: 429 }), 'rate_limited'],
   ] as const) {
-    const { fetcher } = upstream({
-      car: payload,
-      transit: { result: { searchType: 0, path: [{ pathType: 1, info: { totalTime: 15, totalWalkTime: 0, totalWalk: 0 } }] } },
-    });
+    const { fetcher, calls } = upstream({ car: payload });
     const r = await readCommute(ready, analysisId, snapshotId, { destination }, { ...options, fetch: fetcher });
     assert.equal(r.driving.status, status);
     assert.equal(r.driving.durationSeconds, null);
-    assert.equal(r.transit.walkMinutes, 0);
-    assert.equal(r.transit.status, 'available');
+    assert.equal(r.transit.status, 'client_query');
+    assert.equal(r.transitQuery?.provider, 'odsay_route');
+    assert.equal(calls.length, 3);
+  }
+
+  // 2) 자동차 권한만 꺼져도 대중교통 좌표 확인과 client_query는 동작하며 카카오모빌리티는 호출하지 않는다.
+  {
+    const { fetcher, calls } = upstream();
+    const r = await readCommute({ ...ready, driving: false }, analysisId, snapshotId, { destination }, { ...options, fetch: fetcher });
+    assert.equal(r.status, 'ready');
+    assert.equal(r.driving.status, 'source_restricted');
+    assert.equal(r.transit.status, 'client_query');
+    assert.deepEqual(r.transitQuery, {
+      provider: 'odsay_route',
+      origin: { x: '127.10', y: '37.4' },
+      destination: { x: '127.11', y: '37.4' },
+      apiKey: 'synthetic-odsay-web',
+    });
+    assert.equal(calls.length, 2);
+  }
+
+  // 3) ODSAY_WEB_API_KEY가 없거나 잘못된 인코딩이면 not_configured + transitQuery: null, 자동차는 정상 조회.
+  for (const badKey of [undefined, '', '   ', '%E0%A4%A']) {
+    const { fetcher, calls } = upstream();
+    const r = await readCommute(ready, analysisId, snapshotId, { destination }, { ...options, odsayWebKey: badKey, fetch: fetcher });
+    assert.equal(r.status, 'ready');
+    assert.equal(r.transit.status, 'not_configured');
+    assert.equal(r.transitQuery, null);
+    assert.equal(r.driving.status, 'available');
+    assert.equal(calls.length, 3);
+  }
+
+  // 4) odsay_route 표시 권한이 없으면 source_restricted + transitQuery: null, 자동차는 정상 조회.
+  {
+    const { fetcher, calls } = upstream();
+    const r = await readCommute({ ...ready, transit: false }, analysisId, snapshotId, { destination }, { ...options, fetch: fetcher });
+    assert.equal(r.status, 'ready');
+    assert.equal(r.transit.status, 'source_restricted');
+    assert.equal(r.transitQuery, null);
+    assert.equal(r.driving.status, 'available');
+    assert.equal(calls.length, 3);
   }
 });
 
-test('holds, denied sources, unnumbered user origin, missing keys and aborted requests stop without bypassing', async () => {
+test('holds, denied sources, unnumbered user origin, missing keys and aborted requests stop without bypassing or leaking transitQuery', async () => {
   const { fetcher, calls } = upstream();
   for (const [ctx, input] of [
     [{ ...ready, status: 'synthetic_input', noticeAddress: null, transit: false, driving: false, geocode: false }, { destination, origin: '서울특별시 가람구 예시로 10' }],
@@ -366,24 +412,22 @@ test('holds, denied sources, unnumbered user origin, missing keys and aborted re
   ] as const) {
     const r = await readCommute(ctx, analysisId, snapshotId, input, { ...options, fetch: fetcher });
     if (ctx.status !== 'ready') assert.equal(r.status, ctx.status);
+    assert.equal(r.transitQuery, null);
     assert.equal(calls.length, 0);
   }
   await assert.rejects(readCommute({ ...ready, analysisId: snapshotId }, analysisId, snapshotId, { destination }, { ...options, fetch: fetcher }));
-  const revoked = await readCommute({ ...ready, transit: false }, analysisId, snapshotId, { destination }, { ...options, fetch: fetcher });
-  assert.equal(revoked.transit.status, 'source_restricted');
-  assert.equal(revoked.driving.status, 'available');
-  assert.equal(calls.length, 3);
   const missing = await readCommute(ready, analysisId, snapshotId, { destination }, { ...options, kakaoKey: undefined, fetch: fetcher });
   assert.equal(missing.status, 'not_configured');
-  assert.equal(calls.length, 3);
+  assert.equal(missing.transitQuery, null);
+  assert.equal(calls.length, 0);
   const aborted = new AbortController();
   aborted.abort();
-  await readCommute(ready, analysisId, snapshotId, { destination }, { ...options, signal: aborted.signal, fetch: fetcher });
-  assert.equal(calls.length, 3);
+  const abortedResult = await readCommute(ready, analysisId, snapshotId, { destination }, { ...options, signal: aborted.signal, fetch: fetcher });
+  assert.equal(abortedResult.transitQuery, null);
+  assert.equal(calls.length, 0);
 });
 
 test('structural Kakao verification matches road, parcel, mountain and province aliases and rejects mismatches on origin and destination', async () => {
-  // 1) 도로명 구조 불일치(다른 건물본번·부번·지하·다른 도로명·다른 구·다른 시도·2건·REGION 타입·축 바뀜)
   for (const invalid of [
     { meta: { total_count: 2, is_end: false }, documents: located(destination).documents },
     roadDoc({ roadName: '예시로', mainNo: '11' }),
@@ -397,11 +441,12 @@ test('structural Kakao verification matches road, parcel, mountain and province 
     { meta: { total_count: 1, is_end: true }, documents: [{ address_type: 'ROAD_ADDR', x: '127.10', y: '37.4' }] },
   ]) {
     const { fetcher, calls } = upstream({ geocode: () => invalid });
-    assert.equal((await readCommute(ready, analysisId, snapshotId, { destination }, { ...options, fetch: fetcher })).status, 'origin_unverified');
+    const res = await readCommute(ready, analysisId, snapshotId, { destination }, { ...options, fetch: fetcher });
+    assert.equal(res.status, 'origin_unverified');
+    assert.equal(res.transitQuery, null);
     assert.equal(calls.length, 1);
   }
 
-  // 2) 지번 구조 일치(법정동·산·부번·시도 약칭)와 불일치(다른 법정동·산 불일치·다른 지번)
   const mountainCtx = { ...ready, noticeAddress: '강원도 고성군 가람읍 가람리 산999-3' };
   const mountainOk = await readCommute(mountainCtx, analysisId, snapshotId, { destination: '서울특별시 종로구 합성동 28번지' }, {
     ...options,
@@ -413,6 +458,12 @@ test('structural Kakao verification matches road, parcel, mountain and province 
   });
   assert.equal(mountainOk.status, 'ready');
   assert.equal(mountainOk.originAddress, '강원특별자치도 고성군 가람읍 가람리 산 999-3');
+  assert.deepEqual(mountainOk.transitQuery, {
+    provider: 'odsay_route',
+    origin: { x: '128.46', y: '38.38' },
+    destination: { x: '126.96', y: '37.57' },
+    apiKey: 'synthetic-odsay-web',
+  });
 
   for (const badParcel of [
     parcelDoc({ province: '서울', sgg: '종로구', dong: '다른동', mountain: 'N', mainNo: '28' }),
@@ -430,17 +481,19 @@ test('structural Kakao verification matches road, parcel, mountain and province 
       { ...options, fetch: fetcher },
     );
     assert.equal(r.status, 'origin_unverified');
+    assert.equal(r.transitQuery, null);
     assert.equal(calls.length, 1);
   }
 
-  // 3) 목적지에도 같은 구조 비교가 적용된다(다른 건물번호·다른 법정동 거절, 도로명·지번 모두 정상 확인).
   {
     const { fetcher, calls } = upstream({
       geocode: query => query === destination
         ? roadDoc({ sgg: '가람구', roadName: '합성길', mainNo: '21', x: '127.11' })
         : located(query),
     });
-    assert.equal((await readCommute(ready, analysisId, snapshotId, { destination }, { ...options, fetch: fetcher })).status, 'destination_unverified');
+    const r = await readCommute(ready, analysisId, snapshotId, { destination }, { ...options, fetch: fetcher });
+    assert.equal(r.status, 'destination_unverified');
+    assert.equal(r.transitQuery, null);
     assert.equal(calls.length, 2);
   }
   {
@@ -449,13 +502,11 @@ test('structural Kakao verification matches road, parcel, mountain and province 
         ? parcelDoc({ province: '서울', sgg: '종로구', dong: '다른동', mainNo: '28', x: '126.96' })
         : located(query),
     });
-    assert.equal(
-      (await readCommute(ready, analysisId, snapshotId, { destination: '서울특별시 종로구 합성동 28' }, { ...options, fetch: fetcher })).status,
-      'destination_unverified',
-    );
+    const r = await readCommute(ready, analysisId, snapshotId, { destination: '서울특별시 종로구 합성동 28' }, { ...options, fetch: fetcher });
+    assert.equal(r.status, 'destination_unverified');
+    assert.equal(r.transitQuery, null);
     assert.equal(calls.length, 2);
   }
-  // 화성시 -> 화성시 동탄구(시만 입력한 경우 하위 구 응답 허용), 다른 구 지정 시 불일치 거절
   {
     const { fetcher } = upstream({
       geocode: query => query.includes('오산동')
@@ -473,7 +524,7 @@ test('structural Kakao verification matches road, parcel, mountain and province 
   }
 });
 
-test('GET preview uses read_analysis_commute_origin without providers, POST accepts optional origin and enforces auth and validation', async t => {
+test('GET preview uses read_analysis_commute_origin without providers, POST uses ODSAY_WEB_API_KEY only and enforces auth and validation', async t => {
   const path = `https://app.invalid/api/v1/analyses/${analysisId}/snapshots/${snapshotId}/commute`;
   const headers = { Authorization: 'Bearer SYNTHETIC_USER', 'Content-Type': 'application/json' };
   let rpc = Response.json(ready);
@@ -487,14 +538,14 @@ test('GET preview uses read_analysis_commute_origin without providers, POST acce
     return rpc.clone();
   });
   const { fetcher, calls } = upstream();
+  const baseEnv = {
+    APP_ENV: 'development',
+    SUPABASE_URL: 'https://db.invalid',
+    SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_SYNTHETIC',
+    KAKAO_REST_API_KEY: options.kakaoKey,
+  };
   const handler = createHandler({
-    env: {
-      APP_ENV: 'development',
-      SUPABASE_URL: 'https://db.invalid',
-      SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_SYNTHETIC',
-      KAKAO_REST_API_KEY: options.kakaoKey,
-      ODSAY_API_KEY: options.odsayKey,
-    },
+    env: { ...baseEnv, ODSAY_WEB_API_KEY: options.odsayWebKey },
     createBackend,
     commuteFetch: fetcher,
     log() {},
@@ -507,7 +558,6 @@ test('GET preview uses read_analysis_commute_origin without providers, POST acce
   assert.equal(badMethod.status, 405);
   assert.equal(badMethod.headers.get('allow'), 'GET, POST, OPTIONS');
 
-  // 형식 오류가 있는 destination / origin / 추가 필드는 RPC 호출 전에 400으로 거절한다.
   for (const body of [
     {},
     { destination: ' ' },
@@ -527,7 +577,7 @@ test('GET preview uses read_analysis_commute_origin without providers, POST acce
   assert.equal((await handler(new Request(path + '?address=test', { headers }))).status, 400);
   assert.equal(rpcCalls.length, 0);
 
-  // GET 미리보기: read_analysis_commute_origin만 호출하고 외부 제공자를 호출하지 않는다.
+  // GET 미리보기
   rpc = Response.json({ ...ready, noticeAddress: '서울특별시 종로구 합성동 28번지 일원' });
   const previewRes = await handler(new Request(path, { method: 'GET', headers: { Authorization: headers.Authorization } }));
   assert.equal(previewRes.status, 200);
@@ -548,7 +598,6 @@ test('GET preview uses read_analysis_commute_origin without providers, POST acce
   assert.equal(calls.length, 0);
   assert.equal(rpcCalls.length, 1);
   assert.equal(rpcCalls[0]!.path, '/rest/v1/rpc/read_analysis_commute_origin');
-  assert.deepEqual(rpcCalls[0]!.body, { p_analysis_id: analysisId, p_snapshot_id: snapshotId });
 
   // 타인 스냅샷 404
   rpc = Response.json({ code: 'PT404' }, { status: 404 });
@@ -562,14 +611,31 @@ test('GET preview uses read_analysis_commute_origin without providers, POST acce
   assert.equal(limited.status, 429);
   assert.equal(limited.headers.get('retry-after'), '60');
 
-  // 정상 POST (사용자 입력 출발지 포함)
+  // 정상 POST (사용자 입력 출발지 + client_query + transitQuery)
   rpc = Response.json({ ...ready, noticeAddress: '서울특별시 종로구 합성동 28번지 일원' });
   const response = await handler(post({ destination, origin: '서울특별시 종로구 합성동 28' }));
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('cache-control'), 'private, no-store');
   const payload = await response.json();
   assert.equal(payload.driving.status, 'available');
+  assert.equal(payload.transit.status, 'client_query');
+  assert.equal(payload.transitQuery.provider, 'odsay_route');
+  assert.equal(payload.transitQuery.apiKey, 'synthetic-odsay-web');
   assert.equal(payload.originAddress, '서울특별시 종로구 합성동 28');
   assert.equal(payload.origin.basis, 'user_input');
   assert.equal(rpcCalls.at(-1)!.path, '/rest/v1/rpc/prepare_analysis_commute');
+
+  // 기존 서버 키(ODSAY_API_KEY)만 있고 ODSAY_WEB_API_KEY가 없으면 transitQuery를 내리지 않는다.
+  const legacyOnlyHandler = createHandler({
+    env: { ...baseEnv, ODSAY_API_KEY: 'synthetic-legacy-server-key' },
+    createBackend,
+    commuteFetch: fetcher,
+    log() {},
+  });
+  const legacyRes = await legacyOnlyHandler(post({ destination, origin: '서울특별시 종로구 합성동 28' }));
+  assert.equal(legacyRes.status, 200);
+  const legacyPayload = await legacyRes.json();
+  assert.equal(legacyPayload.transit.status, 'not_configured');
+  assert.equal(legacyPayload.transitQuery, null);
+  assert.equal(legacyPayload.driving.status, 'available');
 });

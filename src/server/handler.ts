@@ -196,7 +196,7 @@ export function createHandler(deps: {
           if (!input) throw new ApiError('invalid_commute_input');
           const context = await backend.prepareCommute(analysisId, snapshotId, request.signal);
           return respond(await readCommute(context, analysisId, snapshotId, input, {
-            kakaoKey: deps.env.KAKAO_REST_API_KEY, odsayKey: deps.env.ODSAY_API_KEY,
+            kakaoKey: deps.env.KAKAO_REST_API_KEY, odsayWebKey: deps.env.ODSAY_WEB_API_KEY,
             signal: request.signal, fetch: deps.commuteFetch, now: deps.now,
           }), 200);
         }

@@ -1,4 +1,4 @@
-import { commuteProfile, confirmDestination, queryCommute, readCommuteOrigin } from './client.js';
+import { commuteProfile, confirmDestination, queryCommute, queryOdsayTransit, readCommuteOrigin } from './client.js';
 import { esc, icon, errorText } from './display.js';
 
 const messages = {
@@ -78,6 +78,7 @@ function demoResult() {
       walkMeters: 480,
       distanceMeters: null,
     },
+    transitQuery: null,
     driving: {
       source: 'kakao_directions',
       status: 'available',
@@ -89,6 +90,21 @@ function demoResult() {
       walkMeters: null,
     },
   };
+}
+function validPoint(p) {
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return false;
+  const { x, y } = p;
+  return typeof x === 'string' && typeof y === 'string' &&
+    /^\d{2,3}(?:\.\d{1,16})?$/.test(x) && /^\d{2}(?:\.\d{1,16})?$/.test(y) &&
+    +x >= 124 && +x <= 132 && +y >= 33 && +y <= 39.5;
+}
+function validTransitQuery(q) {
+  if (!q || typeof q !== 'object' || Array.isArray(q)) return false;
+  return q.provider === 'odsay_route' &&
+    validPoint(q.origin) &&
+    validPoint(q.destination) &&
+    typeof q.apiKey === 'string' && q.apiKey.trim().length > 0 && q.apiKey.length <= 512 &&
+    !/[\p{Cc}\p{Cs}]/u.test(q.apiKey);
 }
 function validOrigin(o) {
   if (!o || typeof o !== 'object' || Array.isArray(o)) return false;
@@ -102,6 +118,10 @@ function validOrigin(o) {
 function validRoute(r, mode) {
   if (!r || r.source !== (mode === 'transit' ? 'odsay_route' : 'kakao_directions') ||
       (r.queriedAt !== null && (!r.queriedAt || !Number.isFinite(Date.parse(r.queriedAt))))) return false;
+  if (mode === 'transit' && r.status === 'client_query') {
+    return r.queriedAt === null &&
+      [r.durationSeconds, r.walkMinutes, r.walkMeters, r.distanceMeters, r.kind].every(value => value === null);
+  }
   if (r.status !== 'available') {
     return Object.hasOwn(messages, r.status) &&
       [r.durationSeconds, r.walkMinutes, r.walkMeters, r.distanceMeters, r.kind].every(value => value === null);
@@ -123,26 +143,28 @@ function resultHoldMessage(data) {
 function routeCard(mode, r, demo) {
   const [name, source, url] = providers[mode];
   const value = r.status === 'available';
+  const loading = mode === 'transit' && r.status === 'client_query';
   const duration = r.durationSeconds < 60 ? r.durationSeconds : Math.ceil(r.durationSeconds / 60);
   const detail = mode === 'transit'
     ? `<div><dt>이용 수단</dt><dd>${kinds[r.kind]}</dd></div><div><dt>연결 도보</dt><dd>${r.walkMinutes === null ? '시간 미제공' : r.walkMinutes + '분'}${r.walkMeters === null ? '' : ' · ' + r.walkMeters.toLocaleString('ko-KR') + ' m'}</dd></div>`
     : `<div><dt>경로 조건</dt><dd>현재 출발 · 추천 경로</dd></div><div><dt>도로 거리</dt><dd>${value ? r.distanceMeters.toLocaleString('ko-KR') : ''} m</dd></div>`;
   return `<article class="panel commute-mode"><header><h3>${name}</h3><span class="ref-meta">${demo ? '합성 예시' : `<a class="ref-link" href="${url}" target="_blank" rel="noopener noreferrer">${source} ${icon('external-link')}</a>`}</span></header>
     ${value ? `<p class="commute-time"><b>${duration}</b> ${r.durationSeconds < 60 ? '초' : '분'}</p>
-      <dl class="commute-facts">${detail}</dl>` : `<p class="commute-hold">${icon('circle-pause')}${esc(messages[r.status])}</p>`}
+      <dl class="commute-facts">${detail}</dl>` : loading ? `<p class="commute-hold" role="status">${icon('loader-circle')}대중교통 경로를 조회 중입니다.</p>` : `<p class="commute-hold">${icon('circle-pause')}${esc(messages[r.status])}</p>`}
     <footer>${mode === 'transit' ? '도시내 추천 경로 · 출발 시각 미지정' : '승용차 · 조회 시점 교통 기준'}
     ${r.queriedAt ? `<br>조회 <time datetime="${esc(r.queriedAt)}">${esc(stamp.format(new Date(r.queriedAt)))} KST</time>` : ''}</footer></article>`;
 }
 
 export function createCommutePage({ root, render }) {
   let ctx, previewRequest, preview, previewError, originEditing, originDraft, originEdited;
-  let profileRequest, routeRequest, profile, profileError, saving, change, draft, result, error, message, edited;
+  let profileRequest, routeRequest, transitRequest, profile, profileError, saving, change, draft, result, error, message, edited;
 
   function reset() {
     previewRequest?.abort();
     profileRequest?.abort();
     routeRequest?.abort();
-    ctx = previewRequest = preview = previewError = profileRequest = routeRequest = profile = profileError = change = result = error = null;
+    transitRequest?.abort();
+    ctx = previewRequest = preview = previewError = profileRequest = routeRequest = transitRequest = profile = profileError = change = result = error = null;
     originEditing = originEdited = saving = edited = false;
     originDraft = draft = message = '';
   }
@@ -212,36 +234,83 @@ export function createCommutePage({ root, render }) {
     return Boolean(ctx && !ctx.guest && preview?.status === 'ready' && (preview.origin.address === null || originEditing));
   }
 
+  async function fetchClientTransit(transitQuery) {
+    const here = ctx;
+    const tc = new AbortController();
+    transitRequest = tc;
+    try {
+      const transitResult = await queryOdsayTransit(transitQuery, tc.signal);
+      if (ctx !== here || transitRequest !== tc || !result) return;
+      result = { ...result, transit: transitResult };
+    } catch {
+      if (ctx !== here || transitRequest !== tc || !result) return;
+      result = {
+        ...result,
+        transit: {
+          source: 'odsay_route',
+          status: 'provider_unavailable',
+          queriedAt: new Date().toISOString(),
+          durationSeconds: null,
+          distanceMeters: null,
+          walkMinutes: null,
+          walkMeters: null,
+          kind: null,
+        },
+      };
+    } finally {
+      if (ctx === here && transitRequest === tc) {
+        transitRequest = null;
+        render();
+      }
+    }
+  }
+
   async function query() {
-    if (!ctx || !preview || preview.status !== 'ready' || routeRequest || saving || change || document.hidden) return;
+    if (!ctx || !preview || preview.status !== 'ready' || routeRequest || transitRequest || saving || change || document.hidden) return;
     const destination = draft.trim();
     const manual = isManualOrigin();
     const originInput = manual ? originDraft.trim() : null;
     if (!destination || (manual ? !originInput : !preview.origin.address)) return;
     const here = ctx;
     const c = new AbortController();
+    transitRequest?.abort();
+    transitRequest = null;
     routeRequest = c;
     result = error = null;
     message = '';
     render();
+    let pendingTransitQuery = null;
     try {
       const data = here.guest
         ? demoResult()
         : await queryCommute(here.analysisId, here.snapshotId, destination, c.signal, originInput);
       if (routeRequest !== c) return;
+      const validTransitBinding = !here.guest
+        ? (data.transit?.status === 'client_query'
+          ? data.status === 'ready' && validTransitQuery(data.transitQuery)
+          : (data.transitQuery === null || data.transitQuery === undefined))
+        : true;
       if (!here.guest && (data.contractVersion !== 'commute/v1' || data.analysisId !== here.analysisId ||
           data.snapshotId !== here.snapshotId || (data.status !== 'ready' && !Object.hasOwn(messages, data.status)) ||
           (data.originAddress !== null && typeof data.originAddress !== 'string') ||
           !validOrigin(data.origin) ||
-          !validRoute(data.transit, 'transit') || !validRoute(data.driving, 'driving'))) {
+          !validRoute(data.transit, 'transit') || !validRoute(data.driving, 'driving') ||
+          !validTransitBinding)) {
         throw new Error('invalid commute response');
       }
-      result = data;
+      if (!here.guest && data.status === 'ready' && data.transit.status === 'client_query' && data.transitQuery) {
+        pendingTransitQuery = data.transitQuery;
+      }
+      // 좌표와 웹 키는 브라우저 대중교통 요청에만 쓰고 응답 상태 객체에 남기지 않는다.
+      result = { ...data, transitQuery: null };
     } catch (e) {
       if (routeRequest === c) error = e;
     } finally {
       if (routeRequest === c) {
         routeRequest = null;
+        if (pendingTransitQuery) {
+          void fetchClientTransit(pendingTransitQuery);
+        }
         render();
       }
     }
@@ -323,9 +392,10 @@ export function createCommutePage({ root, render }) {
     }
     const saved = profile?.commute_destination;
     const manual = isManualOrigin();
+    const busy = Boolean(routeRequest || transitRequest);
     const hasOrigin = Boolean(preview?.status === 'ready' && (manual ? originDraft.trim() : preview.origin.address));
     const hasDestination = Boolean(draft.trim());
-    const canSubmit = hasOrigin && hasDestination && !routeRequest && !saving && !change;
+    const canSubmit = hasOrigin && hasDestination && !busy && !saving && !change;
     const summary = result && result.status !== 'ready'
       ? `<p class="ref-state" role="status">${icon('circle-pause')}${esc(resultHoldMessage(result))}</p>`
       : '';
@@ -339,8 +409,8 @@ export function createCommutePage({ root, render }) {
       ${renderOriginPoint(demo)}
       <div class="commute-point"><span aria-hidden="true" class="route-dot end"></span><div><label for="commute-destination">목적지 주소</label>
       <input id="commute-destination" name="destination" autocomplete="off" maxlength="200" placeholder="도로명과 건물번호 또는 지번" required value="${esc(draft)}" ${demo || saving || change ? 'readonly' : ''}>
-      <small>${demo ? '예시 주소와 경로로 살펴봅니다.' : '상세 동·호수는 생략하세요. 조회할 때 카카오 로컬에 주소를 보내고, ODsay와 카카오모빌리티에는 두 지점의 좌표를 보냅니다.'}</small></div></div>
-      <div class="commute-actions"><button class="action primary" type="submit" ${canSubmit ? '' : 'disabled'}>${icon(routeRequest ? 'loader-circle' : 'search')}${routeRequest ? '경로 조회 중' : demo ? '예시 경로 보기' : '경로 조회'}</button>
+      <small>${demo ? '예시 주소와 경로로 살펴봅니다.' : '상세 동·호수는 생략하세요. 서버가 카카오 로컬로 두 주소의 좌표를 확인하고 카카오모빌리티에 자동차 경로를 조회하며, 대중교통은 브라우저가 확인된 좌표를 ODsay에 직접 보내 조회합니다.'}</small></div></div>
+      <div class="commute-actions"><button class="action primary" type="submit" ${canSubmit ? '' : 'disabled'}>${icon(busy ? 'loader-circle' : 'search')}${busy ? '경로 조회 중' : demo ? '예시 경로 보기' : '경로 조회'}</button>
       ${!demo && profile && !change ? '<button class="text-action" type="button" data-commute="review">공유 목적지로 저장</button>' : ''}
       ${!demo && saved && !change ? '<button class="text-action" type="button" data-commute="clear">공유 목적지 해제</button>' : ''}
       ${profileError && !profileRequest ? '<button class="text-action" type="button" data-commute="reload">공유 목적지 다시 읽기</button>' : ''}</div>
@@ -362,9 +432,10 @@ export function createCommutePage({ root, render }) {
       draft = e.target.value;
       edited = true;
       const hasValue = Boolean(draft.trim());
-      const update = Boolean(result || routeRequest || error || message || hadValue !== hasValue);
+      const update = Boolean(result || routeRequest || transitRequest || error || message || hadValue !== hasValue);
       routeRequest?.abort();
-      routeRequest = result = error = null;
+      transitRequest?.abort();
+      routeRequest = transitRequest = result = error = null;
       message = '';
       if (update) render();
       return;
@@ -374,9 +445,10 @@ export function createCommutePage({ root, render }) {
       originDraft = e.target.value;
       originEdited = true;
       const hasValue = Boolean(originDraft.trim());
-      const update = Boolean(result || routeRequest || error || message || hadValue !== hasValue);
+      const update = Boolean(result || routeRequest || transitRequest || error || message || hadValue !== hasValue);
       routeRequest?.abort();
-      routeRequest = result = error = null;
+      transitRequest?.abort();
+      routeRequest = transitRequest = result = error = null;
       message = '';
       if (update) render();
     }
@@ -406,7 +478,8 @@ export function createCommutePage({ root, render }) {
       originEditing = true;
       if (!originEdited) originDraft = preview.origin.address ?? '';
       routeRequest?.abort();
-      routeRequest = result = error = null;
+      transitRequest?.abort();
+      routeRequest = transitRequest = result = error = null;
       message = '';
       render();
       document.querySelector('#commute-origin')?.focus();
@@ -415,7 +488,8 @@ export function createCommutePage({ root, render }) {
     if (action === 'use-auto-origin' && preview?.status === 'ready' && preview.origin.address !== null) {
       originEditing = false;
       routeRequest?.abort();
-      routeRequest = result = error = null;
+      transitRequest?.abort();
+      routeRequest = transitRequest = result = error = null;
       message = '';
       render();
       return;

@@ -176,7 +176,8 @@ BE-11에서 서울 개발 DB에 [오늘 공고 목록](../supabase/migrations/20
 | `ALLOWED_ORIGINS` | 해당 환경 | 화면 origin의 정확한 목록을 쉼표로 구분. 전체 와일드카드 금지 |
 | `SUPABASE_WORKER_KEY` | 수집 작업자 또는 격리된 통합 검사 프로세스 | 서버 전용 저장 및 시험 계정 관리에 사용 |
 | `NAVER_API_CLIENT_ID`, `NAVER_API_CLIENT_SECRET` | 지역 뉴스를 활성화하는 서버 환경 | 등록한 NAVER API HUB Application으로 뉴스 검색. 화면에서 사용하지 않음 |
-| `KAKAO_REST_API_KEY`, `ODSAY_API_KEY` | `codex/backend-foundation` 브랜치의 Vercel Preview 서버 환경 | 공고·목적지 주소 확인, 자동차 및 대중교통 조회. ODsay는 서버 플랫폼의 인증을 사용한다. [실제 연결 검수](api/commute.md) |
+| `KAKAO_REST_API_KEY` | Vercel Preview·Production 서버 환경 | 공고·목적지 주소 확인(카카오 로컬)과 자동차 길찾기(카카오모빌리티). [출퇴근 연결](api/commute.md) |
+| `ODSAY_WEB_API_KEY` | Vercel Preview·Production 서버 환경 | ODsay LAB URI(웹) 플랫폼 키(등록된 서비스 출처 최대 5개). 출퇴근 POST의 `transitQuery`로 브라우저에 전달해 화면에서 대중교통 경로를 직접 조회한다(Q-47). 기존 서버 플랫폼 키 `ODSAY_API_KEY`는 출퇴근 API에서 제거 예정(미사용). [출퇴근 연결](api/commute.md) |
 
 Preview/Development에 사용자 API용 네 변수를 등록했고 publishable key는 Vercel에서 암호화해 저장했다. Production에는 등록하지 않았다. 현재 허용 origin은 `localhost`·`127.0.0.1`의 3000·5173 포트다. 화면 팀은 프레임워크에 맞는 공개 환경변수 이름을 별도로 사용하며 관리 키를 넣지 않는다. 실제 화면 도메인이 정해진 뒤 Supabase Auth의 Site URL·리다이렉트 허용 목록과 API origin 목록을 함께 맞춘다.
 

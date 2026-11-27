@@ -12,7 +12,7 @@
 
 개인 자료의 삭제는 소유 계정이 범위를 확인한 뒤 요청한다. 서비스 삭제와 백업 사본의 확인 상태는 따로 기록한다. [내 데이터 관리와 복원 절차](api/data-deletion.md)
 
-ODsay 이용약관 4.5.10에는 사전 동의 없는 결과 데이터의 복제·저장·가공·배포·전송 제한이 있다. 운영 캐시·장기 보관·모델 입력·공유 허용 범위는 D-07에서 확인한다. 키를 등록했다는 사실만으로 결과 재사용 허용을 가정하지 않는다. [ODsay 정책 및 약관](https://lab.odsay.com/doc/totalPolicy), 확인 2026-11-09.
+ODsay 이용약관 4.5.10에는 사전 동의 없는 결과 데이터의 복제·저장·가공·배포·전송 제한이 있다. 출퇴근 대중교통 경로는 ODsay URI(웹) 키로 브라우저가 직접 조회해 화면에 표시하며, 결과와 좌표를 DB나 브라우저 저장소(`localStorage` 등)에 저장하지 않는다(Q-47). 운영 캐시·장기 보관·모델 입력·공유 허용 범위는 D-07에서 확인한다. 키를 등록했다는 사실만으로 결과 재사용 허용을 가정하지 않는다. [ODsay 정책 및 약관](https://lab.odsay.com/doc/totalPolicy), 확인 2026-11-09.
 
 카카오 로컬 주소 검색(`kakao_address`)은 약관 제11조제3항과 운영정책 제5조의 데이터 복제·캐시 제한을 고려해 `public.source_registry`의 저장·재사용·표시 허용을 매 실행마다 확인한다. `storage_permission`과 `reuse_permission`이 모두 `allowed`가 아니면 단지 대표 좌표(위·경도)를 공유 캐시(`private.complex_evidence_cache`)나 `private.comparison_evidence`에 저장하지 않고 실행 메모리 안에서만 직선거리를 계산해 거리(출처·조회 시각 포함)만 비교 결과에 남긴다. 청약홈 구조화 자료와 행정안전부 법정동코드의 공유 캐시에는 사용자·분석 식별자를 두지 않고 관측 시각(`observed_at`)과 재사용 기한(`expires_at`, 최대 90일)을 기록하며 조회·저장 시마다 출처 허용을 다시 검사한다. [자동 비교 근거 계약](api/auto-comparison-evidence.md) · [출처별 약관 검토](api/be-01-evidence.md#5-v4--출처별-이용-조건)
 
@@ -20,7 +20,7 @@ NAVER API HUB의 검색 특약에 따라 뉴스는 등록 앱의 독립된 검�
 
 비교 대화 LLM 에이전트 문맥 구성(`read_agent_reply_context` 및 `agent_tools.filter_comparison_for_llm`)은 `public.source_registry.llm_permission = 'allowed'`인 출처의 값만 포함한다. 허용되지 않은 출처(`unknown`·`denied`)의 값은 문맥에서 제외하고 제외 사실을 `llmSourcePolicy.restrictedSources`에 표시한다. `naver_news`와 사용자 업로드(`user_upload`)는 어떤 경우에도 LLM 입력에서 제외하며, OpenAI Responses API 호출에는 `store: false`를 적용하고 프롬프트 원문과 결과 전체는 DB에 따로 저장하지 않는다. [LLM 에이전트 코어 계약](api/agent-core.md)
 
-카카오 로컬로 얻은 좌표는 저장·캐시하지 않고 해당 실행 안에서만 쓴다(Q-44). 카카오 개발자 운영정책 제5조 제20호는 사용자 환경 개선 목적의 캐시만 허용하고 최신 상태 유지를 요구하며, 제30호는 사전 승낙 없는 복사·복제·기타 사용을 금지한다. [카카오 운영정책](https://developers.kakao.com/terms/ko/site-policies)
+카카오 로컬로 얻은 좌표는 저장·캐시하지 않고 해당 실행 안에서만 쓴다(Q-44). 출퇴근 경로 조회에서는 서버가 확인한 두 지점 좌표를 그 요청의 `private, no-store` 응답(`transitQuery`) 안에서만 브라우저의 ODsay 대중교통 조회에 일시 전달하고, 서버·DB·브라우저 저장소에 남기지 않는다(Q-47). 카카오 개발자 운영정책 제5조 제20호는 사용자 환경 개선 목적의 캐시만 허용하고 최신 상태 유지를 요구하며, 제30호는 사전 승낙 없는 복사·복제·기타 사용을 금지한다. [카카오 운영정책](https://developers.kakao.com/terms/ko/site-policies)
 
 2026-11-26 사용자 결정(Q-42)으로 서울 개발 DB의 레지스트리에서 네이버 뉴스를 뺀 11개 출처의 `llm_permission`을 `allowed`로 바꿨다. 네이버 뉴스는 검색 특약 1.3에 따라 `denied`를 유지한다. 같은 날 에이전트 기능 설정을 켰다(당시 `gpt-6.1-sol`, 이어서 Q-43으로 `gpt-6.2-sol`). 이 값은 개발 환경 기록이며, 운영 DB에는 출처별 약관의 허용 근거를 확인한 뒤 따로 설정한다. [결정 기록](prd/02-decision-log.md)
 

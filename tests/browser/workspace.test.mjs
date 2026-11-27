@@ -715,3 +715,162 @@ test('commute ambiguous area shows raw address, reason, suggestion input and sub
     assert.equal(await p.getByRole('button',{name:'경로 조회',exact:true}).isDisabled(), true);
   } finally {await ctx.close();}
 });
+
+test('browser queries ODsay directly with URI key, strict fetch options, handles all states and stores no coordinates (Q-47)', async () => {
+  const analysis='c3000000-0000-4000-8000-000000000001', run='c3000000-0000-4000-8000-000000000002';
+  const snapshot='c3000000-0000-4000-8000-000000000003', owner='c3000000-0000-4000-8000-000000000004';
+  const ctx=await browser.newContext();
+  await ctx.addInitScript(owner=>{
+    window.odsayFetches=[];
+    const realFetch=window.fetch.bind(window);
+    window.fetch=(input, init)=>{
+      const url=typeof input==='string' ? input : input?.url ?? '';
+      if (url.startsWith('https://api.odsay.com/')) {
+        window.odsayFetches.push({
+          url,
+          method: init?.method,
+          credentials: init?.credentials,
+          cache: init?.cache,
+          redirect: init?.redirect,
+          referrerPolicy: init?.referrerPolicy,
+          hasSignal: Boolean(init?.signal),
+          headers: init?.headers ?? null,
+        });
+      }
+      return realFetch(input, init);
+    };
+    const auth={getSession:async()=>({data:{session:{user:{id:owner,email:'reader@example.invalid'},access_token:'SYNTHETIC_USER'}}}),
+      onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}})};
+    const query={select(){return this;},eq(){return this;},not(){return this;},order(){return this;},abortSignal(){return this;},
+      limit:async()=>({data:[]}), maybeSingle:async()=>({data:{revision:0,commute_destination:'서울특별시 중구 합성대로 110'}})};
+    globalThis.supabase={createClient:()=>({auth,from:()=>query,rpc:async()=>({error:null})})};
+  },owner);
+
+  let serverMode='valid';
+  let odsayScenario='available';
+  let releasePendingOdsay=null;
+  const originObj={
+    noticeAddress:'서울특별시 광진구 가람로 999',
+    address:'서울특별시 광진구 가람로 999',
+    basis:'notice_address',
+    reason:null,
+    suggestion:null,
+  };
+  await ctx.route('**/api/v1/analyses/**', async route=>{
+    const req=route.request();
+    const path=new URL(req.url()).pathname;
+    if (path.endsWith('/commute') && req.method()==='GET') {
+      await route.fulfill({json:{contractVersion:'commute/v1',analysisId:analysis,snapshotId:snapshot,status:'ready',origin:originObj}});
+    } else if (path.endsWith('/commute') && req.method()==='POST') {
+      const empty={queriedAt:null,durationSeconds:null,distanceMeters:null,walkMinutes:null,walkMeters:null,kind:null};
+      const transitQuery=serverMode==='bad_coords'
+        ? {provider:'odsay_route',origin:{x:'37.5',y:'127.2'},destination:{x:'127.11',y:'37.4'},apiKey:'synthetic+web/key='}
+        : {provider:'odsay_route',origin:{x:'127.10',y:'37.4'},destination:{x:'127.11',y:'37.5'},apiKey:'synthetic+web/key='};
+      await route.fulfill({json:{
+        contractVersion:'commute/v1',analysisId:analysis,snapshotId:snapshot,status:'ready',
+        originAddress:originObj.address,origin:originObj,
+        transit:{...empty,source:'odsay_route',status:'client_query'},
+        transitQuery,
+        driving:{...empty,source:'kakao_directions',status:'available',queriedAt:'2026-10-27T08:00:00Z',durationSeconds:600,distanceMeters:3000,kind:'car'},
+      }});
+    } else if (path.endsWith(run)) {
+      await route.fulfill({json:{analysisId:analysis,runId:run,snapshotId:snapshot,status:'finished',input:{kind:'notice',noticeNo:'2026000505'}}});
+    } else await route.fulfill({status:403,json:{error:'comparison_source_restricted'}});
+  });
+
+  await ctx.route('https://api.odsay.com/v1/api/searchPubTransPathT**', async route=>{
+    if (odsayScenario==='pending_then_available') {
+      await new Promise(resolve=>{ releasePendingOdsay=resolve; });
+      await route.fulfill({
+        status:200,
+        headers:{'content-type':'application/json; charset=utf-8','access-control-allow-origin':'*'},
+        body:JSON.stringify({result:{searchType:0,path:[{pathType:3,info:{totalTime:31,totalWalkTime:-1,totalWalk:230}}]}}),
+      });
+      return;
+    }
+    if (odsayScenario==='timeout') {
+      await new Promise(resolve=>setTimeout(resolve, 5600));
+      try { await route.abort('timedout'); } catch {}
+      return;
+    }
+    if (odsayScenario==='rate_limited') {
+      await route.fulfill({status:429,headers:{'access-control-allow-origin':'*'},body:''});
+      return;
+    }
+    if (odsayScenario==='non_json') {
+      await route.fulfill({status:200,headers:{'content-type':'text/plain','access-control-allow-origin':'*'},body:'not json'});
+      return;
+    }
+    const bodies={
+      available:{result:{searchType:0,path:[{pathType:1,info:{totalTime:22,totalWalkTime:4,totalWalk:280}}]}},
+      no_route:{error:[{code:'-99',msg:'no route'}]},
+      points_too_close:{error:[{code:'-98',msg:'too close'}]},
+      provider_denied:{error:[{code:'500',message:'[ApiKeyAuthFailed] invalid domain'}]},
+      connections_unverified:{result:{searchType:1}},
+      malformed:{result:{searchType:0,path:[]}},
+    };
+    await route.fulfill({
+      status:200,
+      headers:{'content-type':'application/json','access-control-allow-origin':'*'},
+      body:JSON.stringify(bodies[odsayScenario]),
+    });
+  });
+
+  try {
+    const p=await ctx.newPage(); p.setDefaultTimeout(8000);
+    await p.goto(`${origin}/#run/${analysis}/${run}/commute`);
+    await p.locator('.commute-point').first().getByText('서울특별시 광진구 가람로 999', { exact: true }).waitFor();
+    assert.match(await p.locator('.commute-form').innerText(), /브라우저가 확인된 좌표를 ODsay에 직접 보내 조회합니다/);
+    await p.waitForFunction(()=>document.querySelector('#commute-destination')?.value==='서울특별시 중구 합성대로 110');
+
+    // 1) 조회 중 상태 표시 후 정상 결과 표시 + fetch 옵션·인코딩·출처 표기 확인
+    odsayScenario='pending_then_available';
+    const submit=p.getByRole('button',{name:'경로 조회',exact:true});
+    await submit.click();
+    await p.locator('.commute-mode').first().getByText('대중교통 경로를 조회 중입니다.').waitFor();
+    assert.equal(await p.locator('.commute-mode').nth(1).locator('.commute-time b').innerText(), '10');
+    assert.match(await p.locator('.commute-mode').first().innerText(), /powered by www\.ODsay\.com/);
+    releasePendingOdsay();
+    await p.locator('.commute-mode').first().locator('.commute-time b').waitFor();
+    assert.equal(await p.locator('.commute-mode').first().locator('.commute-time b').innerText(), '31');
+    assert.match(await p.locator('.commute-mode').first().innerText(), /시간 미제공 · 230 m/);
+
+    const firstFetch=(await p.evaluate(()=>window.odsayFetches))[0];
+    assert.equal(firstFetch.method, 'GET');
+    assert.equal(firstFetch.credentials, 'omit');
+    assert.equal(firstFetch.cache, 'no-store');
+    assert.equal(firstFetch.redirect, 'error');
+    assert.equal(firstFetch.referrerPolicy, 'strict-origin-when-cross-origin');
+    assert.equal(firstFetch.hasSignal, true);
+    assert.equal(firstFetch.headers, null);
+    assert.ok(firstFetch.url.includes('SX=127.10&SY=37.4&EX=127.11&EY=37.5&OPT=0&apiKey=synthetic%2Bweb%2Fkey%3D'));
+
+    // 2) ODsay 오류·형식 이상·제한 상태별 메시지 확인
+    for (const [scenario, expectedText] of [
+      ['no_route', '제공자가 이 조건에서 찾은 경로가 없습니다.'],
+      ['points_too_close', '출발지와 목적지가 너무 가까워 이 수단의 경로를 조회할 수 없습니다.'],
+      ['provider_denied', '제공자가 이 환경의 요청을 승인하지 않았습니다.'],
+      ['connections_unverified', '도시간 경로의 터미널 연결 구간이 확인되지 않아 전체 소요시간을 표시할 수 없습니다.'],
+      ['rate_limited', '제공자의 조회 한도에 도달했습니다.'],
+      ['malformed', '제공자의 경로 응답을 확인하지 못했습니다. 잠시 후 다시 조회하세요.'],
+      ['non_json', '제공자의 경로 응답을 확인하지 못했습니다. 잠시 후 다시 조회하세요.'],
+      ['timeout', '제공자의 경로 응답을 확인하지 못했습니다. 잠시 후 다시 조회하세요.'],
+    ]) {
+      odsayScenario=scenario;
+      await submit.click();
+      await p.locator('.commute-mode').first().getByText(expectedText).waitFor();
+      assert.equal(await p.locator('.commute-mode').nth(1).locator('.commute-time b').innerText(), '10');
+    }
+
+    // 3) 좌표·결과를 브라우저 저장소(localStorage·sessionStorage)에 저장하지 않는다.
+    const stored=await p.evaluate(()=>({local:localStorage.length,session:sessionStorage.length}));
+    assert.deepEqual(stored, {local:0,session:0});
+
+    // 4) 서버 응답의 transitQuery 좌표 형식이 한국 범위를 벗어나면 클라이언트 검증에서 차단하고 ODsay를 호출하지 않는다.
+    const countBeforeBad=await p.evaluate(()=>window.odsayFetches.length);
+    serverMode='bad_coords';
+    await submit.click();
+    await p.locator('.commute-feedback').getByText('요청을 마치지 못했습니다. 연결을 확인하고 다시 시도하세요.').waitFor();
+    assert.equal(await p.evaluate(()=>window.odsayFetches.length), countBeforeBad);
+  } finally {await ctx.close();}
+});

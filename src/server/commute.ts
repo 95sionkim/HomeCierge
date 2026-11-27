@@ -2,11 +2,17 @@
 import { isPublicLabel } from './public-fields.js';
 import { readLimitedJson } from './provider-json.js';
 
-type Options = { kakaoKey?: string; odsayKey?: string; signal: AbortSignal; fetch?: typeof fetch; now?: () => Date };
+type Options = { kakaoKey?: string; odsayWebKey?: string; signal: AbortSignal; fetch?: typeof fetch; now?: () => Date };
 type Point = { x: string; y: string };
 type ContextState = 'ready' | 'synthetic_input' | 'selection_unverified' | 'source_restricted';
-type RouteStatus = 'available' | 'not_queried' | 'source_restricted' | 'not_configured' | 'provider_unavailable'
+type RouteStatus = 'available' | 'client_query' | 'not_queried' | 'source_restricted' | 'not_configured' | 'provider_unavailable'
   | 'provider_denied' | 'rate_limited' | 'no_route' | 'points_too_close' | 'connections_unverified';
+export type TransitQuery = {
+  provider: 'odsay_route';
+  origin: Point;
+  destination: Point;
+  apiKey: string;
+};
 type Route = {
   source: 'odsay_route' | 'kakao_directions';
   status: RouteStatus;
@@ -57,7 +63,6 @@ type CommuteContext = {
 
 const holds: ContextState[] = ['synthetic_input', 'selection_unverified', 'source_restricted'];
 const local = 'https://dapi.kakao.com/v2/local/search/address.json';
-const odsay = 'https://api.odsay.com/v1/api/searchPubTransPathT';
 const mobility = 'https://apis-navi.kakaomobility.com/v1/directions';
 
 // scripts/complex_coordinates.py(Q-39)와 동일한 시·도 약칭·모호 표기·도로명/지번 패턴을 유지한다.
@@ -449,36 +454,15 @@ function emptyRoute(source: Route['source'], status: RouteStatus): Route {
   return { source, status, queriedAt: null, durationSeconds: null, distanceMeters: null, walkMinutes: null, walkMeters: null, kind: null };
 }
 
-async function transitRoute(route: Route, from: Point, to: Point, options: Options): Promise<Route> {
-  let key: string;
-  try { key = decodeURIComponent(options.odsayKey!); } catch { return { ...route, status: 'not_configured' }; }
-  const body = new URLSearchParams({ SX: from.x, SY: from.y, EX: to.x, EY: to.y, OPT: '0', output: 'json', apiKey: key });
-  const queriedAt = (options.now?.() ?? new Date()).toISOString();
-  const base = { ...route, queriedAt };
-  const result = await provider(new URL(odsay), options, 1024 * 1024, { method: 'POST', body });
-  if (result.error) return { ...base, status: result.error };
-  const data = result.payload;
-  if (record(data) && data.error !== undefined) {
-    const item = Array.isArray(data.error) && data.error.length === 1 ? data.error[0] : data.error;
-    const code = record(item) ? String(item.code) : '';
-    if (record(item) && code === '500' && typeof item.message === 'string' && /auth|인증/i.test(item.message))
-      return { ...base, status: 'provider_denied' };
-    return { ...base, status: code === '-98' ? 'points_too_close' : code === '-99' ? 'no_route' : 'provider_unavailable' };
+function normalizeOdsayWebKey(raw: string | undefined): string | null {
+  const trimmed = raw?.trim();
+  if (!trimmed || /[\p{Cc}\p{Cs}]/u.test(trimmed)) return null;
+  try {
+    const decoded = decodeURIComponent(trimmed).trim();
+    return decoded && !/[\p{Cc}\p{Cs}]/u.test(decoded) ? decoded : null;
+  } catch {
+    return null;
   }
-  const response = record(data) && record(data.result) ? data.result : null;
-  if (response?.searchType === 1 || response?.searchType === 2) return { ...base, status: 'connections_unverified' };
-  const first = response?.searchType === 0 && Array.isArray(response.path) ? response.path[0] : null;
-  const info = record(first) && record(first.info) ? first.info : null;
-  if (!info || ![1, 2, 3].includes(first.pathType) || !nonnegative(info.totalTime) || info.totalTime < 1
-    || !Number.isSafeInteger(info.totalTime * 60)) return { ...base, status: 'provider_unavailable' };
-  return {
-    ...base,
-    status: 'available',
-    kind: first.pathType === 1 ? 'subway' : first.pathType === 2 ? 'bus' : 'mixed',
-    durationSeconds: info.totalTime * 60,
-    walkMeters: nonnegative(info.totalWalk) ? info.totalWalk : null,
-    walkMinutes: nonnegative(info.totalWalkTime) && info.totalWalkTime <= info.totalTime ? info.totalWalkTime : null,
-  };
 }
 
 async function drivingRoute(route: Route, from: Point, to: Point, options: Options): Promise<Route> {
@@ -570,6 +554,7 @@ export async function readCommute(
     origin: noticeOrigin,
     status: parsed.status as ResponseStatus,
     transit: emptyRoute('odsay_route', 'not_queried'),
+    transitQuery: null as TransitQuery | null,
     driving: emptyRoute('kakao_directions', 'not_queried'),
   };
   // 합성 입력·선택 미확인·출처 제한은 사용자 출발지로 우회하지 않는다.
@@ -612,8 +597,9 @@ export async function readCommute(
   };
   const transit = shape.transit;
   const driving = shape.driving;
+  const odsayWebKey = normalizeOdsayWebKey(options.odsayWebKey);
   if (!parsed.transit) transit.status = 'source_restricted';
-  else if (!options.odsayKey?.trim()) transit.status = 'not_configured';
+  else if (!odsayWebKey) transit.status = 'not_configured';
   if (!parsed.driving) driving.status = 'source_restricted';
   else if (!options.kakaoKey?.trim()) driving.status = 'not_configured';
   if (!parsed.geocode) return { ...shape, status: 'source_restricted' as ResponseStatus };
@@ -633,9 +619,18 @@ export async function readCommute(
   if (destPoint.error) return { ...shape, status: geocoderError(destPoint.error) };
   if (!destPoint.point) return { ...shape, status: 'destination_unverified' as ResponseStatus };
 
-  [shape.transit, shape.driving] = await Promise.all([
-    transit.status === 'not_queried' ? transitRoute(transit, originPoint.point, destPoint.point, options) : transit,
-    driving.status === 'not_queried' ? drivingRoute(driving, originPoint.point, destPoint.point, options) : driving,
-  ]);
+  // Q-47: 대중교통은 URI(웹) 키로 브라우저가 직접 조회한다. 검증된 좌표는 이 응답 안에서만 전달하고 저장하지 않는다(Q-44).
+  if (transit.status === 'not_queried' && odsayWebKey) {
+    shape.transit = emptyRoute('odsay_route', 'client_query');
+    shape.transitQuery = {
+      provider: 'odsay_route',
+      origin: originPoint.point,
+      destination: destPoint.point,
+      apiKey: odsayWebKey,
+    };
+  }
+  if (driving.status === 'not_queried') {
+    shape.driving = await drivingRoute(driving, originPoint.point, destPoint.point, options);
+  }
   return shape;
 }
