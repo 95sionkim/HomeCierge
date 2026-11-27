@@ -1052,6 +1052,10 @@ export type Database = {
         }
         Returns: Json
       }
+      read_analysis_commute_origin: {
+        Args: { p_analysis_id: string; p_snapshot_id: string }
+        Returns: Json
+      }
       read_analysis_conversation: {
         Args: { p_analysis_id: string; p_run_id: string }
         Returns: Json

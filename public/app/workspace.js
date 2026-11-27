@@ -643,7 +643,7 @@ function render() {
   const focus = document.activeElement;
   const previousControl = focusedControl(focus);
   const searchFocus =
-    ['notice-search', 'commute-destination', 'conversation-input', 'chat-home-input', 'chat-message-input', 'lookup-query', 'chat-title-input'].includes(focus?.id)
+    ['notice-search', 'commute-origin', 'commute-destination', 'conversation-input', 'chat-home-input', 'chat-message-input', 'lookup-query', 'chat-title-input'].includes(focus?.id)
       ? { id: focus.id, start: focus.selectionStart, end: focus.selectionEnd }
       : null;
   let body;

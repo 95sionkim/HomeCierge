@@ -338,37 +338,125 @@ test('bounds ready attempts per user and window, preserves holds and cascades on
   await assert.rejects(prepare(owner.analysisId, snapshot), authRequired);
 });
 
-test('commute binds the same frozen notice address and independently checks route sources and owner quota', async () => {
+test('commute binds the frozen notice address, previews without quota, allows missing address for user input and checks owner quota', async () => {
+  const { rows: grants } = await db.query(`select n.nspname as schema, p.proname as name,
+    p.prosecdef as definer, p.provolatile as volatile,
+    has_function_privilege('anon',p.oid,'execute') as anon,
+    has_function_privilege('authenticated',p.oid,'execute') as authenticated,
+    has_function_privilege('service_role',p.oid,'execute') as service_role
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname in ('private','public')
+      and p.proname in ('load_analysis_commute','prepare_analysis_commute','read_analysis_commute_origin')
+    order by n.nspname, p.proname`);
+  assert.deepEqual(grants, [
+    { schema: 'private', name: 'load_analysis_commute', definer: true, volatile: 'v', anon: false, authenticated: false, service_role: false },
+    { schema: 'private', name: 'prepare_analysis_commute', definer: true, volatile: 'v', anon: false, authenticated: true, service_role: false },
+    { schema: 'private', name: 'read_analysis_commute_origin', definer: true, volatile: 'v', anon: false, authenticated: true, service_role: false },
+    { schema: 'public', name: 'prepare_analysis_commute', definer: false, volatile: 'v', anon: false, authenticated: true, service_role: false },
+    { schema: 'public', name: 'read_analysis_commute_origin', definer: false, volatile: 'v', anon: false, authenticated: true, service_role: false },
+  ]);
+
   await permitCollection();
   const owner = await makeAnalysis(), stranger = await makeAnalysis(), unbound = await makeAnalysis({conditions:{}});
   const id = await capture(owner), other = await capture(unbound), synthetic = await capture(owner, {origin:'synthetic'});
   const noAddress = await capture(owner,{ adjust: replay => { replay.catalog.notice.fields.HSSPLY_ADRES.status = 'blank'; } });
-  const read = async (analysis = owner.analysisId, snapshot = id) =>
+  const conflictAddress = await capture(owner,{ adjust: replay => {
+    replay.catalog.issues.push({ code: 'notice_field_conflict', field: 'HSSPLY_ADRES' });
+  } });
+  const prepareCommute = async (analysis = owner.analysisId, snapshot = id) =>
     (await one('select public.prepare_analysis_commute($1,$2) as value',[analysis,snapshot])).value;
+  const previewCommute = async (analysis = owner.analysisId, snapshot = id) =>
+    (await one('select public.read_analysis_commute_origin($1,$2) as value',[analysis,snapshot])).value;
+  const commuteCounter = async (userId = owner.userId) => {
+    await db.exec('reset role');
+    return one('select attempts from private.commute_attempts where user_id = $1', [userId]);
+  };
+
+  for (const role of ['anon', 'service_role']) {
+    await setCaller(role, owner.userId);
+    await assert.rejects(previewCommute(), { code: '42501' });
+    await assert.rejects(prepareCommute(), { code: '42501' });
+  }
+  for (const [userId, anonymous] of [['', false], [randomUUID(), false], [owner.userId, true]]) {
+    await setCaller('authenticated', userId, anonymous);
+    await assert.rejects(previewCommute(), { code: '42501', message: 'commute_authentication_required' });
+    await assert.rejects(prepareCommute(), { code: '42501', message: 'commute_authentication_required' });
+  }
   await setCaller('authenticated',stranger.userId);
-  await assert.rejects(read(), notFound);
+  await assert.rejects(previewCommute(), notFound);
+  await assert.rejects(prepareCommute(), notFound);
+
   await setCaller('authenticated',unbound.userId);
-  assert.equal((await read(unbound.analysisId,other)).status, 'selection_unverified');
+  assert.deepEqual(await previewCommute(unbound.analysisId,other), {
+    analysisId:unbound.analysisId, snapshotId:other, status:'selection_unverified',
+    noticeAddress:null, geocode:false, transit:false, driving:false,
+  });
+  assert.equal((await prepareCommute(unbound.analysisId,other)).status, 'selection_unverified');
+
   await setCaller('authenticated',owner.userId);
-  assert.equal((await read(owner.analysisId,noAddress)).status,'origin_unverified');
-  assert.equal((await read(owner.analysisId,synthetic)).status,'synthetic_input');
-  assert.deepEqual(await read(), {analysisId:owner.analysisId,snapshotId:id,status:'ready',originAddress:roadAddress,
+  assert.deepEqual(await previewCommute(owner.analysisId,synthetic), {
+    analysisId:owner.analysisId, snapshotId:synthetic, status:'synthetic_input',
+    noticeAddress:null, geocode:false, transit:false, driving:false,
+  });
+  assert.equal((await prepareCommute(owner.analysisId,synthetic)).status,'synthetic_input');
+  assert.deepEqual(await previewCommute(), {analysisId:owner.analysisId,snapshotId:id,status:'ready',noticeAddress:roadAddress,
     geocode:false,transit:false,driving:false});
+  assert.deepEqual(await prepareCommute(), {analysisId:owner.analysisId,snapshotId:id,status:'ready',noticeAddress:roadAddress,
+    geocode:false,transit:false,driving:false});
+
+  // 주소 미보고·충돌 공고는 status=ready, noticeAddress=null로 반환해 사용자가 단지 주소를 직접 입력할 수 있게 한다.
+  assert.deepEqual(await previewCommute(owner.analysisId,noAddress), {
+    analysisId:owner.analysisId,snapshotId:noAddress,status:'ready',noticeAddress:null,
+    geocode:false,transit:false,driving:false,
+  });
+  assert.deepEqual(await previewCommute(owner.analysisId,conflictAddress), {
+    analysisId:owner.analysisId,snapshotId:conflictAddress,status:'ready',noticeAddress:null,
+    geocode:false,transit:false,driving:false,
+  });
+
   await db.exec('reset role');
   await db.exec(`insert into public.source_registry(id,display_name,display_permission,reuse_permission)
     values ('kakao_address','합성 주소','allowed','allowed'),('odsay_route','합성 대중교통','allowed','denied')`);
+
+  // 미리보기 RPC는 여러 번 호출해도 호출 횟수를 늘리지 않는다.
   await setCaller('authenticated',owner.userId);
-  for (let i=0;i<6;i++) {
-    const context = await read();
+  for (let i=0;i<8;i++) {
+    const preview = await previewCommute();
+    assert.equal(preview.status, 'ready');
+    assert.equal(preview.noticeAddress, roadAddress);
+    assert.equal(preview.geocode, true);
+    assert.equal(preview.transit, true);
+    assert.equal(preview.driving, false);
+  }
+  assert.equal(await commuteCounter(), undefined);
+
+  // 주소 미보고 공고도 POST 준비에서는 출처 권한을 계산하고 횟수를 늘린다.
+  await setCaller('authenticated',owner.userId);
+  const missingReady = await prepareCommute(owner.analysisId, noAddress);
+  assert.deepEqual(missingReady, {
+    analysisId:owner.analysisId,snapshotId:noAddress,status:'ready',noticeAddress:null,
+    geocode:true,transit:true,driving:false,
+  });
+  assert.deepEqual(await commuteCounter(), { attempts: 1 });
+
+  await setCaller('authenticated',owner.userId);
+  for (let i=0;i<5;i++) {
+    const context = await prepareCommute();
     assert.equal(context.geocode,true); assert.equal(context.transit,true); assert.equal(context.driving,false);
   }
-  await assert.rejects(read(),{code:'PT429'});
+  await assert.rejects(prepareCommute(),{code:'PT429'});
+  // 한도에 도달해도 미리보기 RPC는 막히지 않는다.
+  assert.equal((await previewCommute()).status, 'ready');
+
   await db.exec('reset role');
   await db.query("update public.source_registry set display_permission='denied' where id=$1",[apt]);
   await setCaller('authenticated',owner.userId);
-  assert.equal((await read()).originAddress,null);
-  await setCaller('authenticated',owner.userId,true);
-  await assert.rejects(read(),{code:'42501'});
+  assert.deepEqual(await previewCommute(), {
+    analysisId:owner.analysisId,snapshotId:id,status:'source_restricted',noticeAddress:null,
+    geocode:false,transit:false,driving:false,
+  });
+  assert.equal((await prepareCommute()).noticeAddress,null);
+  assert.equal((await prepareCommute()).status,'source_restricted');
 });
 
 test('confirming a shared commute destination is atomic, scoped to the caller and revision checked', async () => {

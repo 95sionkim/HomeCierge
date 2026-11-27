@@ -351,9 +351,15 @@ export function readSnapshotReference(section, analysisId, snapshotId, signal) {
     law ? 'GET' : 'POST', undefined, signal);
 }
 
-export function queryCommute(analysisId, snapshotId, destination, signal) {
+export function readCommuteOrigin(analysisId, snapshotId, signal) {
   if (!uuid.test(analysisId) || !uuid.test(snapshotId)) throw apiError('invalid_commute_input');
-  return request(`/api/v1/analyses/${analysisId}/snapshots/${snapshotId}/commute`, 'POST', { destination }, signal);
+  return request(`/api/v1/analyses/${analysisId}/snapshots/${snapshotId}/commute`, 'GET', undefined, signal);
+}
+
+export function queryCommute(analysisId, snapshotId, destination, signal, origin = null) {
+  if (!uuid.test(analysisId) || !uuid.test(snapshotId)) throw apiError('invalid_commute_input');
+  const body = origin ? { destination, origin } : { destination };
+  return request(`/api/v1/analyses/${analysisId}/snapshots/${snapshotId}/commute`, 'POST', body, signal);
 }
 
 export async function commuteProfile(ownerId, signal) {

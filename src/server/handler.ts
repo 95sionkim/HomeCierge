@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { ApiError, isUuid, readBody, readJsonRequest, uuidPattern } from './http-input.js';
 import { koreaDate } from './public-fields.js';
-import { commuteDestination, readCommute } from './commute.js';
+import { commuteRequest, readCommute, readCommuteOrigin } from './commute.js';
 import { readLegalEvidence } from './legal-evidence.js';
 import { readRegionalNews } from './regional-news-request.js';
 import { parseNoticeSearchConditions, evaluateNoticeSearch } from './notice-search.js';
@@ -39,6 +39,7 @@ export type Backend = {
   getNoticeSearchIndex: (signal: AbortSignal, purpose: 'directory' | 'search') => Promise<unknown>;
   getFundingInputs: (selection: FundingSelection, signal: AbortSignal) => Promise<unknown>;
   getLegalEvidence: (analysisId: string, snapshotId: string, signal: AbortSignal) => Promise<unknown>;
+  readCommuteOrigin?: (analysisId: string, snapshotId: string, signal: AbortSignal) => Promise<unknown>;
   prepareCommute: (analysisId: string, snapshotId: string, signal: AbortSignal) => Promise<unknown>;
   prepareRegionalNews: (analysisId: string, snapshotId: string, signal: AbortSignal) => Promise<unknown>;
   getComparison: (analysisId: string, runId: string, signal: AbortSignal) => Promise<ComparisonSnapshot>;
@@ -116,7 +117,8 @@ export function createHandler(deps: {
       : supplementBase ? ['GET', 'POST']
       : chatHome ? (!chatHome[1] ? ['GET', 'POST'] : (!chatHome[2] && !chatHome[3]) ? ['GET', 'PATCH'] : ['POST'])
       : conversation && !conversation[3] ? ['GET', 'POST']
-      : search || funding || news || commute || (run !== null && !run[2]) || run?.[3] === 'cancel' || conversation?.[3] ? ['POST'] : ['GET'];
+      : commute ? ['GET', 'POST']
+      : search || funding || news || (run !== null && !run[2]) || run?.[3] === 'cancel' || conversation?.[3] ? ['POST'] : ['GET'];
     const allowedMethods = [...methods, 'OPTIONS'].join(', ');
     const headers = new Headers({
       'Cache-Control': 'no-store',
@@ -185,10 +187,15 @@ export function createHandler(deps: {
         const analysisId = analysis.toLowerCase();
         const snapshotId = snapshot.toLowerCase();
         if (commute) {
-          const destination = commuteDestination(await readJsonRequest(request, 'invalid_commute_input'));
-          if (!destination) throw new ApiError('invalid_commute_input');
+          if (request.method === 'GET') {
+            if (!backend.readCommuteOrigin) throw new Error('backend_unavailable');
+            const context = await backend.readCommuteOrigin(analysisId, snapshotId, request.signal);
+            return respond(readCommuteOrigin(context, analysisId, snapshotId), 200);
+          }
+          const input = commuteRequest(await readJsonRequest(request, 'invalid_commute_input'));
+          if (!input) throw new ApiError('invalid_commute_input');
           const context = await backend.prepareCommute(analysisId, snapshotId, request.signal);
-          return respond(await readCommute(context, analysisId, snapshotId, destination, {
+          return respond(await readCommute(context, analysisId, snapshotId, input, {
             kakaoKey: deps.env.KAKAO_REST_API_KEY, odsayKey: deps.env.ODSAY_API_KEY,
             signal: request.signal, fetch: deps.commuteFetch, now: deps.now,
           }), 200);

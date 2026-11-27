@@ -10,4 +10,6 @@
 
 [비교 근거](comparison-evidence-v1.json)는 이 합성 공고와 정해진 거래 행에 연결한 지역 소속·단지·공급면적 자료다. 두 파일의 버전을 확인한 개발 실행기로 [비교 예시](../../docs/api/comparison-v1.md)를 재현한다.
 
+[출퇴근 출발지 사례표](commute-origin-cases.json)는 공고 공급위치에서 단일 지점 주소를 추출하고 모호 표기·제안값을 구분하는 규칙이 Python(`scripts/complex_coordinates.py`)과 TypeScript(`src/server/commute.ts`)에서 일치하는지 확인하는 합성 주소 표다.
+
 실제 API 응답이나 뉴스·교통 결과를 이 폴더에 추가하지 않는다. 공개 테스트와 과거 실응답 검증 수치를 구분한다.

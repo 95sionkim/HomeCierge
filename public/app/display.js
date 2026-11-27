@@ -118,7 +118,7 @@ export function errorText(error) {
     conversation_conflict: '다른 대화나 결정이 먼저 처리됐습니다. 최신 대화 내역을 확인한 뒤 다시 진행하세요.',
     run_not_found: '이 계정에서 조회할 수 있는 분석이 없습니다.',
     legal_evidence_not_found: '이 계정의 분석에서 해당 공고 수집본을 찾을 수 없습니다.',
-    invalid_commute_input: '목적지의 도로명과 건물번호 또는 지번을 입력하세요.',
+    invalid_commute_input: '출발지와 목적지의 도로명과 건물번호 또는 지번을 입력하세요.',
     commute_snapshot_not_found: '이 계정에서 출발지로 사용할 공고 수집본을 찾을 수 없습니다.',
     commute_rate_limited: '최근 경로 조회가 많습니다. 1분 뒤 다시 조회하세요.',
     profile_changed: '다른 화면에서 프로필이 변경됐습니다. 최신 값과 비교한 뒤 다시 확인하세요.',
