@@ -638,7 +638,32 @@ function focusedControl(node) {
     ? `${section} [${attribute}="${CSS.escape(node.getAttribute(attribute))}"]`
     : null;
 }
+// 한글 등 입력기 조합 중에 화면을 다시 그리면 입력칸이 새로 만들어져 조합이 끊긴다('월' → 'ㅇㅝㄹ').
+// 조합 중인 입력칸이 있으면 다시 그리기를 미루고 조합이 끝난 뒤 한 번 그린다.
+let composingEntry = null;
+let renderDeferred = false;
+function isTextEntry(target) {
+  return target instanceof HTMLTextAreaElement
+    || (target instanceof HTMLInputElement && !['checkbox', 'radio', 'button', 'submit', 'file'].includes(target.type));
+}
+root.addEventListener('compositionstart', event => {
+  if (isTextEntry(event.target)) composingEntry = event.target;
+});
+root.addEventListener('compositionend', event => {
+  if (event.target !== composingEntry) return;
+  composingEntry = null;
+  if (!renderDeferred) return;
+  renderDeferred = false;
+  // 조합 완료 직후의 input 처리기가 먼저 상태를 갱신하도록 다음 차례에 그린다.
+  setTimeout(() => { if (!composingEntry) render(); }, 0);
+});
+
 function render() {
+  if (composingEntry && composingEntry.isConnected && document.activeElement === composingEntry) {
+    renderDeferred = true;
+    return;
+  }
+  composingEntry = null;
   const route = readRoute();
   const focus = document.activeElement;
   const previousControl = focusedControl(focus);
