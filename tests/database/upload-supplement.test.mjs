@@ -906,3 +906,125 @@ test('approved condition changes on upload-supplement snapshots accept matching 
   );
   assert.equal(uDone2.status, 'finished');
 });
+
+test('notice format unit metadata validation and multi-hash officialRevisions exposure for A-59 (synthetic)', async () => {
+  const owner = await createUser();
+  const { analysisId } = await createNoticeWorkspace(owner, { room: null });
+  const officialId = 'applyhome:9900000001:9900000042:51:1';
+  const hash1 = createHash('sha256').update('synthetic-official-revision-1').digest('hex');
+  const hash2 = createHash('sha256').update('synthetic-official-revision-2').digest('hex');
+
+  const now = new Date();
+  const todayKst = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(now);
+  await as('service_role');
+  await rpc('publish_notice_directory', json({
+    contractVersion: 'notice-search-index/v1', dataOrigin: 'collected', observedAt: now.toISOString(),
+    publicationWindow: { start: identity.edition, end: todayKst }, regionCodes: [regionCode],
+    coverage: { status: 'complete', sources: [{ source: 'applyhome_apt', status: 'complete' }, { source: 'applyhome_remainder', status: 'empty' }] },
+    notices: [{
+      ...identity, title: '합성 가람 아파트', kind: 'new_sale', regionCode, moveIn: null,
+      application: { start: identity.edition, end: identity.edition }, inventoryComplete: false,
+      models: [{ modelNo, houseType, supplyAreaM2: null, areaEvidence: [], rooms: [] }],
+      sourceIds: ['applyhome_apt', 'applyhome_apt_model'], reasonCodes: [],
+    }],
+  }), json({ [regionCode]: '합성 가람구' }));
+
+  // 1) 밴드 단위(unit) 메타데이터와 선택 옵션 0원 일정을 포함한 수집본 저장이 통과한다.
+  const bandName = '101동·102동 3호 라인 11~15층';
+  const bandUnit = { kind: 'band', buildings: ['101동', '102동'], lines: ['3호'], floors: { from: 11, to: 15 }, households: 3 };
+  await as('authenticated', owner);
+  const bandQueued = await rpc('enqueue_analysis_run', analysisId, randomUUID(), json({
+    kind: 'notice', noticeSource: 'applyhome_apt', ...identity, modelNo,
+  }));
+  await db.exec('reset role');
+  await db.query(
+    `update private.analysis_runs set basis_date = $2::date, notice_request = jsonb_set(notice_request, '{asOf}', to_jsonb($2::text)) where id = $1`,
+    [bandQueued.runId, basisDate],
+  );
+  await as('service_role');
+  const bandJob = await rpc('claim_analysis_run', 300, bandQueued.runId);
+  const workBeforeRevisions = await rpc('read_comparison_work', bandJob.runId, bandJob.generation, bandJob.leaseToken);
+  // 이전 공식 해시 이력이 없으면 officialRevisions 키를 생략해 기존 계약과 호환된다.
+  assert.equal('officialRevisions' in workBeforeRevisions, false);
+
+  const capBand = buildCollectedCapture({ docMode: 'official', uploadHash: hash1, withEvidence: false, room: null });
+  capBand.result.catalog.rooms = [capBand.result.catalog.rooms[0]];
+  capBand.result.catalog.rooms[0].room = bandName;
+  capBand.result.catalog.rooms[0].unit = bandUnit;
+  capBand.result.catalog.rooms[0].requiredOptions = {
+    status: 'confirmed', won: '0', reasons: [],
+    evidence: [{ document: officialId, version: `sha256:${hash1}`, page: 8, evidenceIndex: 1 }],
+  };
+  capBand.result.catalog.rooms[0].subtotal.won = '700000000';
+  capBand.result.catalog.housingTypes[0].subtotalRange = {
+    scope: 'confirmed_rooms', min: '700000000', max: '700000000', confirmedRooms: 1, heldRooms: 0,
+  };
+  capBand.result.catalog.documents[0].id = officialId;
+  capBand.result.catalog.rooms[0].salePrice.evidence[0].document = officialId;
+  capBand.result.catalog.rooms[0].subtotal.documents[0].id = officialId;
+  capBand.result.catalog.housingTypes[0].checkedSupplyArea.evidence[0].document = officialId;
+  capBand.schedules = capBand.schedules.map(s => ({
+    ...s, room: bandName,
+    evidence: s.evidence.map(e => ({ ...e, document: officialId })),
+    ...(s.item === 'required_options' ? { totalWon: '0', installments: [] } : {
+      installments: s.installments.map(i => ({ ...i, timing: { ...i.timing, evidence: i.timing.evidence.map(e => ({ ...e, document: officialId })) } })),
+    }),
+  }));
+  capBand.comparison.noticePrice.confirmedRooms[0].room = bandName;
+  capBand.comparison.noticePrice.confirmedRooms[0].unit = bandUnit;
+  capBand.comparison.noticePrice.confirmedRooms[0].requiredOptionsWon = '0';
+  capBand.comparison.noticePrice.confirmedRooms[0].subtotalWon = '700000000';
+  capBand.comparison.noticePrice.heldRooms = [];
+  capBand.comparison.noticePrice.minWon = '700000000';
+  capBand.comparison.noticePrice.maxWon = '700000000';
+
+  // 잘못된 unit 구조(층 역전, room의 세대수 2, 미정의 kind, 알 수 없는 키)는 DB 검증이 22023으로 거부한다.
+  for (const badUnit of [
+    { ...bandUnit, floors: { from: 15, to: 11 } },
+    { kind: 'room', buildings: ['101동'], lines: [], floors: { from: null, to: null }, households: 2 },
+    { ...bandUnit, kind: 'floor' },
+    { ...bandUnit, extra: true },
+  ]) {
+    const broken = structuredClone(capBand);
+    broken.result.catalog.rooms[0].unit = badUnit;
+    await assert.rejects(
+      rpc('finish_notice_with_funding', bandJob.runId, bandJob.generation, bandJob.leaseToken,
+        json(broken.request), json(broken.result), json(broken.comparison), json(broken.schedules)),
+      { code: '22023' },
+    );
+  }
+
+  const bandDone = await rpc(
+    'finish_notice_with_funding',
+    bandJob.runId, bandJob.generation, bandJob.leaseToken,
+    json(capBand.request), json(capBand.result), json(capBand.comparison), json(capBand.schedules),
+  );
+  assert.equal(bandDone.status, 'finished');
+
+  // 2) 같은 공고·회차·첨부 자리에 두 번째 공식 해시(hash2)가 기록되면 두 판본이 모두 보존된다(A-59b).
+  await seedOfficialIndex(officialId, hash2);
+  const upload = await registerUpload(owner, analysisId);
+  await as('authenticated', owner);
+  const supQueued = await rpc('enqueue_upload_supplement_run', analysisId, bandDone.runId, upload.id, randomUUID());
+  const nextNotice = await rpc('enqueue_analysis_run', analysisId, randomUUID(), json({
+    kind: 'notice', noticeSource: 'applyhome_apt', ...identity, modelNo,
+  }));
+
+  await as('service_role');
+  const supJob = await rpc('claim_analysis_run', 300, supQueued.runId);
+  const supWork = await rpc('read_upload_supplement_work', supJob.runId, supJob.generation, supJob.leaseToken);
+  // 모호 슬롯이므로 단건 대조용 officialIndex는 빈 배열 유지, 복수 판본 대조용 officialRevisions에는 두 해시 모두 반환.
+  assert.deepEqual(supWork.officialIndex, []);
+  assert.deepEqual(new Set(supWork.officialRevisions.map(r => r.sha256)), new Set([hash1, hash2]));
+
+  const noticeJob = await rpc('claim_analysis_run', 300, nextNotice.runId);
+  const noticeWork = await rpc('read_comparison_work', noticeJob.runId, noticeJob.generation, noticeJob.leaseToken);
+  assert.deepEqual(new Set(noticeWork.officialRevisions.map(r => r.sha256)), new Set([hash1, hash2]));
+
+  // 일반 사용자·익명 역할은 private 보조 함수를 호출할 수 없다.
+  await as('authenticated', owner);
+  await assert.rejects(
+    db.query('select private.official_notice_revisions($1, $2, $3)', [identity.houseManageNo, identity.noticeNo, identity.edition]),
+    { code: '42501' },
+  );
+});

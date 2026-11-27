@@ -5,8 +5,8 @@
 ## 화면에서 자금을 입력하고 조회한다
 
 1. 사용자 세션으로 자기 분석의 `funding_entries`에 자금을 저장한다. `current`는 `available_on`을 기준으로 사용자가 보유한 잔액 한 건이다. 이후 마련할 자금은 `additional`로 금액·유입일을 입력한다. `certainty`는 사용자가 지정한 `confirmed` 또는 `expected`다. 각 입력은 해당 분석을 다시 열 때 복원된다.
-2. `POST /api/v1/analyses/{analysisId}/funding-plan`에 사용자 Bearer 토큰, `Content-Type: application/json`과 아래 본문을 보낸다. `snapshotId`는 자기 분석에 저장된 공고 수집본의 UUID다. 주택형 번호는 앞의 0을 유지하고 호실은 수집본의 표기를 사용한다.
-3. 응답 `funding-plan/v1`에서 날짜별 납부액, 이미 반영한 자금, 부족액과 미확인 항목을 읽는다. 예상 자금이 들어오는 경우는 별도 가정으로 표시한다. 자금만 바꿀 때는 같은 요청으로 다시 계산한다.
+2. `POST /api/v1/analyses/{analysisId}/funding-plan`에 사용자 Bearer 토큰, `Content-Type: application/json`과 아래 본문을 보낸다. `snapshotId`는 자기 분석에 저장된 공고 수집본의 UUID다. 주택형 번호는 앞의 0을 유지하고 `room`에는 수집본의 표기를 그대로 사용한다. 호실별 공고에서는 호실명(예: `"101동 101호"`), 신규분양·무순위처럼 동·호 라인 × 층 구간으로 가격이 정해지는 공고에서는 가격 구간 표시 이름(예: `"101동·102동 3호 라인 11~15층"`, UTF-16 120자 이하, 앞뒤 공백·제어문자 금지)을 그대로 전달한다.
+3. 응답 `funding-plan/v1`에서 날짜별 납부액, 이미 반영한 자금, 부족액과 미확인 항목을 읽는다. 공고가 발코니 확장 등을 계약자 선택 품목으로 명시한 경우 필수 옵션 성분은 `status: "confirmed"`, `totalWon: "0"`, `installments: []`로 확정되며, 선택 명시가 없으면 기존대로 보류한다. 예상 자금이 들어오는 경우는 별도 가정으로 표시한다. 자금만 바꿀 때는 같은 요청으로 다시 계산한다.
 
 ```json
 {

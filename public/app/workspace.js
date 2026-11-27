@@ -751,9 +751,12 @@ async function readRun(route, version = routeVersion) {
         if (error.code !== 'comparison_source_restricted') throw error;
       }
       const price = state.comparison?.noticePrice;
-      const rooms = [...new Set([...(price?.confirmedRooms ?? []), ...(price?.heldRooms ?? [])]
+      const roomEntries = [...(price?.confirmedRooms ?? []), ...(price?.heldRooms ?? [])];
+      const rooms = [...new Set(roomEntries
         .map(r => r.room).filter(r => typeof r === 'string' && r.trim()))];
-      void reportPage.enter({kind:'run',analysisId:r.analysisId,runId:r.runId,guest:false,rooms,
+      const unitKind = price?.unit?.kind === 'band' || (roomEntries.length > 0 && roomEntries.every(r => r?.unit?.kind === 'band'))
+        ? 'band' : 'room';
+      void reportPage.enter({kind:'run',analysisId:r.analysisId,runId:r.runId,guest:false,rooms,unitKind,
         selectedRoom:price?.scope === 'selected_room' ? price.room : null, fundingRoom:reportFundingChoice});
     } else if (r.status === 'finished' && isReference(route)) {
       if (!uuid.test(r.snapshotId)) throw new Error('unbound snapshot');

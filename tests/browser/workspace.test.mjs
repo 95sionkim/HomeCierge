@@ -874,3 +874,35 @@ test('browser queries ODsay directly with URI key, strict fetch options, handles
     assert.equal(await p.evaluate(()=>window.odsayFetches.length), countBeforeBad);
   } finally {await ctx.close();}
 });
+
+test('band-format notice switches copy to 가격 구간 in comparison, funding, and report views (synthetic)', async () => {
+  const bandName = '101동·102동 3호 라인 11~15층';
+  const bandUnit = { kind: 'band', buildings: ['101동', '102동'], lines: ['3호'], floors: { from: 11, to: 15 }, households: 3 };
+  const comparison = JSON.parse(await readFile(new URL('../../public/app/assets/comparison-example.json', import.meta.url), 'utf8'));
+  comparison.noticePrice.confirmedRooms[0].room = bandName;
+  comparison.noticePrice.confirmedRooms[0].unit = bandUnit;
+  comparison.noticePrice.confirmedRooms[0].requiredOptionsWon = '0';
+  comparison.noticePrice.confirmedRooms[0].subtotalWon = '700000000';
+  comparison.noticePrice.heldRooms = [];
+
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await context.route('**/*', (route) => {
+    const url = new URL(route.request().url());
+    if (url.origin !== origin) return route.abort();
+    if (url.pathname === '/app/assets/comparison-example.json') return route.fulfill({ json: comparison });
+    return route.continue();
+  });
+  try {
+    const page = await context.newPage();
+    page.setDefaultTimeout(6500);
+    await page.goto(origin + '/#sample/saved');
+    await page.getByRole('heading', { name: '가격 구간별 공고 가격' }).waitFor();
+    await page.getByRole('heading', { name: bandName }).waitFor();
+    await page.getByRole('link', { name: '호실 자금표' }).click();
+    await page.getByRole('heading', { name: '가격 구간별 자금표' }).waitFor();
+    await page.getByLabel('납부 일정을 볼 가격 구간').waitFor();
+    assert.equal(await page.locator('#fund-room').inputValue(), bandName);
+  } finally {
+    await context.close();
+  }
+});

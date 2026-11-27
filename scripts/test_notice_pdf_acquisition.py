@@ -724,5 +724,49 @@ class LiveFetchTest(unittest.TestCase):
         self.assertIsNone(acq._NoRedirect().redirect_request(None, None, 302, 'Found', {}, 'https://y.example/'))
 
 
+class PriorRevisionTests(unittest.TestCase):
+    """같은 공고·회차의 공식 색인에 다른 해시가 있으면 최신 선택 없이 두 판본을 보류·대조한다(A-59b, 합성)."""
+
+    LINKS = [(attachment(11), NOTICE_LABEL)]
+
+    def test_hash_change_without_prior_bytes_demotes_live_document_and_holds_relation(self):
+        routes = {DETAIL: html_ok(page(self.LINKS)), attachment(11): pdf_ok(PDF_B)}
+        prior = [record(11, PDF)]
+        result = acquire_notice_pdf(dict(TARGET), DETAIL, fetch=FakeFetch(routes), prior_revisions=prior)
+        self.assertEqual(result['status'], 'partial')
+        self.assertEqual(result['relation']['kind'], 'unresolved')
+        self.assertFalse(result['relation']['allDocumentsAvailable'])
+        self.assertIn('official_document_hash_changed', result['reasons'])
+        self.assertIn('correction_relation_unverified', result['relation']['reasons'])
+        self.assertEqual(result['documents'][0]['adoption'], 'with_set')
+        self.assertIn('official_document_hash_changed', result['documents'][0]['reasons'])
+        self.assertEqual(result['relation']['missing'][0]['reason'], 'prior_official_revision_unavailable')
+        self.assertEqual(result['next'][-1]['action'], 'upload')
+
+    def test_hash_change_with_prior_upload_bytes_promotes_both_revisions_for_comparison(self):
+        routes = {DETAIL: html_ok(page(self.LINKS)), attachment(11): pdf_ok(PDF_B)}
+        prior = [record(11, PDF)]
+        result = acquire_notice_pdf(
+            dict(TARGET), DETAIL, fetch=FakeFetch(routes), prior_revisions=prior,
+            upload={'id': 'synthetic-prior-1', 'content': PDF},
+        )
+        self.assertEqual(result['status'], 'partial')
+        self.assertEqual(result['relation']['kind'], 'unresolved')
+        self.assertTrue(result['relation']['allDocumentsAvailable'])
+        self.assertEqual(result['relation']['missing'], [])
+        docs = by_id(result)
+        self.assertEqual(docs[doc_id(11)]['adoption'], 'with_set')
+        self.assertEqual(docs['upload:synthetic-prior-1']['adoption'], 'with_set')
+        self.assertEqual(docs['upload:synthetic-prior-1']['originCheck'], 'confirmed')
+        self.assertEqual(docs['upload:synthetic-prior-1']['acquisition']['indexRecord'], doc_id(11))
+
+    def test_matching_prior_hash_keeps_normal_acquired_state(self):
+        routes = {DETAIL: html_ok(page(self.LINKS)), attachment(11): pdf_ok(PDF)}
+        prior = [record(11, PDF)]
+        result = acquire_notice_pdf(dict(TARGET), DETAIL, fetch=FakeFetch(routes), prior_revisions=prior)
+        self.assertEqual(result['status'], 'acquired')
+        self.assertEqual(result['documents'][0]['adoption'], 'standalone')
+
+
 if __name__ == '__main__':
     unittest.main()

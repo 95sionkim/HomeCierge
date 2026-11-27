@@ -234,11 +234,14 @@ def notice_plan(selection, work):
             or not isinstance(comparison, dict) or comparison.get('modelNo') != selection['modelNo']
             or any(model_no != selection['modelNo'] for model_no in declared_models)):
         raise NoticeRunFailure('notice_selection_unverified')
+    official_revisions = work.get('officialRevisions', [])
+    if not isinstance(official_revisions, list):
+        raise NoticeRunFailure('notice_selection_unverified')
     request = {'noticeSource': source, 'target': target,
                'asOf': capture['asOf'], 'requestRegionCodes': list(regions), 'tradeKinds': list(TRADE_KINDS),
                'pageSize': PAGE_SIZE}
     return {'request': request, 'modelNo': selection['modelNo'], 'allowOfficialPdf': capture['allowOfficialPdf'],
-            'comparison': comparison, 'evidence': evidence}
+            'comparison': comparison, 'evidence': evidence, 'officialRevisions': list(official_revisions)}
 
 
 def _matches_catalog(catalog, edition, model_no):
@@ -318,6 +321,9 @@ def upload_supplement_plan(selection, work):
             or not isinstance(comparison, dict) or comparison.get('modelNo') != selection['modelNo']
             or any(model_no != selection['modelNo'] for model_no in declared_models)):
         raise NoticeRunFailure('notice_selection_unverified')
+    official_revisions = work.get('officialRevisions', [])
+    if not isinstance(official_revisions, list):
+        raise NoticeRunFailure('notice_selection_unverified')
     request = {'noticeSource': source, 'target': target,
                'asOf': capture['asOf'], 'requestRegionCodes': list(regions), 'tradeKinds': list(TRADE_KINDS),
                'pageSize': PAGE_SIZE}
@@ -326,6 +332,7 @@ def upload_supplement_plan(selection, work):
         'comparison': comparison, 'evidence': evidence, 'baseRunId': base_run_id,
         'upload': {'uploadId': upload_id, 'objectPath': upload['objectPath']},
         'officialIndex': list(official_index),
+        'officialRevisions': list(official_revisions),
     }
 
 
@@ -367,12 +374,13 @@ def capture_notice(plan, transports, guard, generation, *, official_index=(), re
         pdf_source = transports.pdf if plan['allowOfficialPdf'] else _detail_only_pdf_transport(transports.pdf)
         pdf = guard.pdf(pdf_source)
         options = {} if transports.inspect is None else {'inspect': transports.inspect}
+        prior_revisions = plan.get('officialRevisions') or ()
 
         def review(target, current):
             nonlocal schedules
             checked = review_catalog_documents(
-                target, current, official_index=official_index, read_upload=read_upload,
-                fetch=pdf, monotonic=transports.clock, **options,
+                target, current, official_index=official_index, prior_revisions=prior_revisions,
+                read_upload=read_upload, fetch=pdf, monotonic=transports.clock, **options,
             )
             schedules = payment_schedule_snapshot(checked['review']['paymentSchedules'])
             return checked

@@ -194,3 +194,115 @@ class DocumentFlowTests(unittest.TestCase):
         complex_evidence = loads_source_json(FIXTURE.with_name('comparison-evidence-v1.json').read_text(encoding='utf-8'))
         selected = compare_snapshot(snapshot, {'modelNo': '01', 'room': '101동 101호'}, complex_evidence)
         self.assertEqual(selected['noticePrice']['won'], '710000000')
+
+    @unittest.skipUnless(importlib.util.find_spec('fitz'), 'PyMuPDF를 설치한 문서 작업자에서 실행')
+    def test_band_price_unit_propagates_to_catalog_and_comparison_result(self):
+        from compare_trades import compare_snapshot
+        from notice_document_review import review_catalog_documents
+        from test_notice_pdf_fields import _synthetic_band_spec, build_synthetic_notice_pdf
+        content = build_synthetic_notice_pdf(_synthetic_band_spec(include_optional_statement=True))
+        numbers = 'houseManageNo=9900000001&pblancNo=9900000042'
+        detail = 'https://www.applyhome.co.kr/ai/aia/selectAPTLttotPblancDetail.do?' + numbers
+        attachment = ('https://static.applyhome.co.kr/ai/aia/getAtchmnfl.do?' + numbers
+                      + '&atchmnflSeqNo=5556&atchmnflSn=1')
+        self.bundle['pages'][0]['body']['data'][0]['PBLANC_URL'] = detail
+        html = f'<a href="{attachment.replace("&", "&amp;")}">모집공고문 보기</a>'
+
+        def fetch(url, *, max_bytes, timeout):
+            if url == detail:
+                return {'status': 200, 'headers': {'content-type': 'text/html; charset=utf-8'}, 'body': html.encode()}
+            return {'status': 200, 'headers': {'content-type': 'application/pdf'}, 'body': content}
+
+        snapshot = ingest(self.inputs, ReplayTransport(self.bundle), data_origin='synthetic',
+                          review_documents=partial(review_catalog_documents, fetch=fetch))
+        band_name = '101동·102동 3호 라인 11~15층'
+        room_entry = next(r for r in snapshot['catalog']['rooms'] if r['room'] == band_name)
+        self.assertEqual(room_entry['unit'], {
+            'kind': 'band', 'buildings': ['101동', '102동'], 'lines': ['3호'],
+            'floors': {'from': 11, 'to': 15}, 'households': 3,
+        })
+        complex_evidence = loads_source_json(FIXTURE.with_name('comparison-evidence-v1.json').read_text(encoding='utf-8'))
+        selected = compare_snapshot(snapshot, {'modelNo': '01', 'room': band_name}, complex_evidence)
+        self.assertEqual((selected['noticePrice']['room'], selected['noticePrice']['won']), (band_name, '700000000'))
+        self.assertEqual(selected['noticePrice']['unit']['kind'], 'band')
+        self.assertEqual(selected['noticePrice']['confirmedRooms'][0]['unit']['kind'], 'band')
+        summary = compare_snapshot(snapshot, {'modelNo': '01'}, complex_evidence)
+        self.assertEqual(len(summary['noticePrice']['confirmedRooms']), 2)
+        self.assertTrue(all(r['unit']['kind'] == 'band' for r in summary['noticePrice']['confirmedRooms']))
+
+    @unittest.skipUnless(importlib.util.find_spec('fitz'), 'PyMuPDF를 설치한 문서 작업자에서 실행')
+    def test_a59_in_pdf_correction_and_two_revision_hash_conflict_hold_prices_but_keep_area(self):
+        from notice_document_review import review_catalog_documents
+        from test_notice_pdf_fields import _synthetic_band_spec, _table, build_synthetic_notice_pdf
+        spec_v1 = _synthetic_band_spec(include_optional_statement=True)
+        pdf_v1 = build_synthetic_notice_pdf(spec_v1)
+        spec_v2 = copy.deepcopy(spec_v1)
+        # v2는 정정 표지를 달고 11~15층 분양가만 7억 → 7.1억으로 변경(전량 대체 미명시, 공급면적은 동일).
+        spec_v2['pages'][0]['texts'][0] = (40, 40, '[합성 시험 자료] 정정 입주자모집공고')
+        spec_v2['tables']['corr'] = _table(40, 140, [100, 180, 180], [14, 16], [
+            ['항목', '변경 전', '변경 후'], ['공급금액(84A)', '700,000,000원', '710,000,000원'],
+        ], [])
+        spec_v2['pages'][0]['tables'] = ['corr']
+        spec_v2['tables']['band']['cells'][2][7] = '410,000,000'
+        spec_v2['tables']['band']['cells'][2][8] = '710,000,000'
+        spec_v2['tables']['band']['cells'][2][9] = '71,000,000'
+        spec_v2['tables']['band']['cells'][2][10] = '426,000,000'
+        spec_v2['tables']['band']['cells'][2][11] = '213,000,000'
+        pdf_v2 = build_synthetic_notice_pdf(spec_v2)
+
+        numbers = 'houseManageNo=9900000001&pblancNo=9900000042'
+        detail = 'https://www.applyhome.co.kr/ai/aia/selectAPTLttotPblancDetail.do?' + numbers
+        attachment = ('https://static.applyhome.co.kr/ai/aia/getAtchmnfl.do?' + numbers
+                      + '&atchmnflSeqNo=5557&atchmnflSn=1')
+        self.bundle['pages'][0]['body']['data'][0]['PBLANC_URL'] = detail
+        html = f'<a href="{attachment.replace("&", "&amp;")}">모집공고문 보기</a>'
+
+        def fetch(url, *, max_bytes, timeout):
+            if url == detail:
+                return {'status': 200, 'headers': {'content-type': 'text/html; charset=utf-8'}, 'body': html.encode()}
+            return {'status': 200, 'headers': {'content-type': 'application/pdf'}, 'body': pdf_v2}
+
+        # 1) 단독 본문 정정 PDF → relation.kind = 'correction_included', check_correction_relation
+        cat_single, _, receipt_single = collect_notice_catalog(
+            self.inputs['noticeSource'], self.inputs['target'], ReplayTransport(self.bundle), page_size=2,
+            review_documents=partial(review_catalog_documents, fetch=fetch),
+        )
+        self.assertEqual(receipt_single['relation']['kind'], 'correction_included')
+        self.assertIn('check_correction_relation', receipt_single['nextActions'])
+        self.assertEqual(cat_single['housingTypes'][0]['checkedSupplyArea']['status'], 'confirmed')
+        self.assertTrue(all(r['subtotal']['won'] is None for r in cat_single['rooms']))
+
+        # 2) 색인에 이전 판본(v1) 해시가 있고 업로드로 v1 바이트가 제공되면 두 판본 대조(A-59b)
+        prior_index = [{
+            'id': 'applyhome:9900000001:9900000042:5557:1',
+            'sha256': hashlib.sha256(pdf_v1).hexdigest(),
+            'houseManageNo': '9900000001', 'noticeNo': '9900000042',
+            'edition': 'synthetic-edition-1', 'source': 'official', 'originCheck': 'confirmed', 'role': 'notice',
+        }]
+        # 정정 표지 없는 두 번째 판(금액만 다름)으로 순수 두-판본 충돌을 검증한다.
+        spec_v2_plain = copy.deepcopy(spec_v2)
+        spec_v2_plain['pages'][0]['texts'][0] = (40, 40, '[합성 시험 자료] 합성 가람 아파트 신규분양 입주자모집공고')
+        spec_v2_plain['pages'][0]['tables'] = []
+        pdf_v2_plain = build_synthetic_notice_pdf(spec_v2_plain)
+
+        def fetch_plain(url, *, max_bytes, timeout):
+            if url == detail:
+                return {'status': 200, 'headers': {'content-type': 'text/html; charset=utf-8'}, 'body': html.encode()}
+            return {'status': 200, 'headers': {'content-type': 'application/pdf'}, 'body': pdf_v2_plain}
+
+        cat_two, _, receipt_two = collect_notice_catalog(
+            self.inputs['noticeSource'], self.inputs['target'], ReplayTransport(self.bundle), page_size=2,
+            review_documents=partial(
+                review_catalog_documents, fetch=fetch_plain,
+                read_upload=lambda: {'id': 'synthetic-prior-v1', 'content': pdf_v1},
+                prior_revisions=prior_index,
+            ),
+        )
+        self.assertEqual(receipt_two['acquisitionStatus'], 'partial')
+        self.assertEqual(cat_two['housingTypes'][0]['checkedSupplyArea']['status'], 'confirmed')
+        upper = next(r for r in cat_two['rooms'] if r['room'] == '101동·102동 3호 라인 11~15층')
+        lower = next(r for r in cat_two['rooms'] if r['room'] == '101동·102동 3호 라인 6~10층')
+        self.assertEqual(upper['salePrice']['status'], 'conflict')
+        self.assertCountEqual(upper['salePrice']['values'], ['700000000', '710000000'])
+        self.assertIsNone(upper['subtotal']['won'])
+        self.assertEqual(lower['subtotal']['won'], '680000000')

@@ -14,6 +14,7 @@ import {
 import { emptyState } from './directory-view.js';
 import { evidence } from './planning-fields.js';
 import { marketView, noticeRange, priceLabel, tradeNames } from './trade-comparison.js';
+import { priceUnitNoun } from './comparison-values.js';
 import { comparisonScopeView, scopeInfo } from './comparison-scope.js';
 import { evidenceChip } from './evidence-viewer.js';
 
@@ -109,14 +110,15 @@ export function analysisConditionBar(data, input, open, lookup = null, { canEdit
 
 function priceView(data) {
   const p = data.noticePrice ?? {};
+  const noun = priceUnitNoun(p);
   const range = noticeRange(p);
   const confirmed = p.confirmedRooms ?? [], held = p.heldRooms ?? [];
-  const label = p.scope === 'selected_room' ? (p.room || '선택한 호실') + ' 소계' :
-    range ? (confirmed.length > 1 ? '호실별 소계 범위' : '호실 소계') + ' · ' + confirmed.length + '개 호실 확인' : '호실 소계 미확인';
-  return `<section class="panel price-panel" aria-label="공고 호실 가격">
-    <div class="panel-title">${icon('building-2')}<h2>호실별 공고 가격</h2></div>
+  const label = p.scope === 'selected_room' ? (p.room || '선택한 ' + noun) + ' 소계' :
+    range ? (confirmed.length > 1 ? noun + '별 소계 범위' : noun + ' 소계') + ' · ' + confirmed.length + '개 ' + noun + ' 확인' : noun + ' 소계 미확인';
+  return `<section class="panel price-panel" aria-label="공고 ${noun} 가격">
+    <div class="panel-title">${icon('building-2')}<h2>${noun}별 공고 가격</h2></div>
     <div class="price-highlight${range ? '' : ' price-unverified'}"><span>${esc(label)}</span><strong class="big-price">${esc(priceLabel(range))}</strong>
-    <p>각 호실의 분양가와 필수 옵션을 더한 금액입니다. 세금·등기 비용은 별도입니다.</p></div>
+    <p>각 ${noun}의 분양가와 필수 옵션을 더한 금액입니다. 세금·등기 비용은 별도입니다.</p></div>
     ${confirmed.map((r, idx) => `<div class="room-breakdown"><h3>${esc(r.room)}${badge('verified', 'circle-check', '소계 확인')}</h3>
       <dl>${[['분양가', r.salePriceWon, r.evidence?.salePrice, `room:${idx}:salePrice`], ['필수 옵션', r.requiredOptionsWon, r.evidence?.requiredOptions, `room:${idx}:requiredOptions`]].map(([label, value, refs, itemId]) => {
         const chip = evidenceChip(refs, itemId, r.room + ' ' + label);
@@ -124,8 +126,8 @@ function priceView(data) {
         return `<div><dt>${label}</dt><dd><strong>${esc(won(value))}</strong>${chip || detail ? `<div class="evidence-action-row">${chip}${detail}</div>` : '<small>문서 쪽수 미확인</small>'}</dd></div>`;
       }).join('')}
       <div class="subtotal-line"><dt>소계</dt><dd>${esc(won(r.subtotalWon))}</dd></div></dl></div>`).join('')}
-    ${held.map(r => `<div class="held-room">${icon('circle-pause')}<div><strong>${esc(r.room)} · 소계 보류</strong><p>${esc(readableReasons(r.reasons).join(' ') || '같은 판본에서 호실의 두 금액을 확인해야 합니다.')}</p></div></div>`).join('')}
-    ${!range && !held.length ? `<p class="narrative">${esc(readableReasons(p.reasons).join(' ') || '같은 판본에서 호실별 분양가와 필수 옵션을 확인해야 합니다.')}</p>` : ''}
+    ${held.map(r => `<div class="held-room">${icon('circle-pause')}<div><strong>${esc(r.room)} · 소계 보류</strong><p>${esc(readableReasons(r.reasons).join(' ') || `같은 판본에서 ${noun}의 두 금액을 확인해야 합니다.`)}</p></div></div>`).join('')}
+    ${!range && !held.length ? `<p class="narrative">${esc(readableReasons(p.reasons).join(' ') || `같은 판본에서 ${noun}별 분양가와 필수 옵션을 확인해야 합니다.`)}</p>` : ''}
     </section>`;
 }
 
@@ -159,19 +161,20 @@ function holdPanel(data) {
   };
   const reasons = [...new Set(holds.map(h => reasonText(h.reasonCode) || subjects[h.subject] ||
     '비교에 필요한 근거 중 확인하지 못한 항목이 있습니다.'))];
+  const noun = priceUnitNoun(data.noticePrice);
   const codes = new Set(holds.map(h => h.reasonCode));
   const needed = [];
   if (codes.has('target_supply_area_unverified') || codes.has('trade_supply_area_unverified'))
     needed.push('해당 주택형의 전용면적과 주거공용면적을 확인할 수 있는 공급면적 자료');
   if (codes.has('no_confirmed_room_subtotal') || codes.has('notice_room_price_unverified'))
-    needed.push('같은 회차·판본에서 같은 호실의 분양가와 필수 옵션을 확인할 수 있는 공고문');
+    needed.push(`같은 회차·판본에서 같은 ${noun}의 분양가와 필수 옵션을 확인할 수 있는 공고문`);
   if (codes.has('trade_link_unverified') || codes.has('comparison_evidence_unverified'))
     needed.push('거래 당시의 단지와 주택형을 연결하는 자료');
   if (holds.some(h => h.subject === 'collection')) needed.push('누락된 지역·계약월의 수집 자료');
   if (codes.has('contract_period_unverified')) needed.push('양 끝 날짜가 확인된 계약 기간');
   const kept = [];
   if (data.target?.houseType) kept.push('선택 주택형 ' + data.target.houseType);
-  if (noticeRange(data.noticePrice)) kept.push('근거가 확인된 호실 소계');
+  if (noticeRange(data.noticePrice)) kept.push(`근거가 확인된 ${noun} 소계`);
   if (data.target?.supplyArea?.status === 'confirmed') kept.push('확인된 공급면적');
   if (data.comparables?.length) kept.push('근거가 확인된 거래 통계');
   return `<section class="panel hold-panel"><div class="panel-title">${icon('circle-pause')}<h2>${data.completeness === 'unavailable' ? '가격 비교를 보류했습니다' : '일부 항목의 비교를 보류했습니다'}</h2></div>

@@ -141,6 +141,24 @@ export function reasonText(code) {
     replacement_target_required: '교체할 기존 비교 단지를 지정해야 합니다.',
     replacement_candidate_ineligible: '선택한 단지가 현재 비교 기준을 통과하지 못해 교체하지 않았습니다.',
     replacement_request_conflict: '중복되거나 충돌하는 단지 교체 요청을 보류했습니다.',
+    band_household_count_mismatch: '가격 구간의 해당세대수 합이 공급세대수와 일치하지 않아 보류했습니다.',
+    band_floor_overlap: '같은 동·호 라인의 층 구간이 겹쳐 가격을 보류했습니다.',
+    band_location_unreadable: '동·호 라인 표기를 확인할 수 없어 가격을 보류했습니다.',
+    band_floor_unreadable: '층 구간 표기를 확인할 수 없어 가격을 보류했습니다.',
+    band_households_unreadable: '구간의 해당세대수를 확인할 수 없어 보류했습니다.',
+    room_unit_conflict: '같은 가격 단위의 범위 정보가 서로 달라 보류했습니다.',
+    in_pdf_correction_unverified: '공고문 본문에 정정 내용이 포함되어 있고 전량 대체가 명시되지 않아 정정 대상 항목을 보류했습니다.',
+    official_document_hash_changed: '같은 공고·회차의 공식 첨부 판본이 변경되어 이전 판본과 대조가 필요합니다.',
+    prior_official_revision_unavailable: '이전 공식 판본 원문을 확보할 수 없어 두 판본을 대조해야 합니다.',
+    correction_relation_unverified: '같은 회차의 여러 판본 사이 적용 관계가 확정되지 않아 충돌 항목을 보류했습니다.',
   };
   return typeof code === 'string' && Object.hasOwn(labels, code) ? labels[code] : null;
+}
+
+export function priceUnitNoun(price) {
+  if (price?.unit?.kind === 'band') return '가격 구간';
+  if (price?.unit?.kind === 'room') return '호실';
+  const items = [...(price?.confirmedRooms ?? []), ...(price?.heldRooms ?? [])];
+  if (items.length && items.every(item => item?.unit?.kind === 'band')) return '가격 구간';
+  return '호실';
 }

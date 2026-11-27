@@ -36,7 +36,9 @@ python3 scripts/run_analysis_worker.py --demo
 | `rankingComplete` | 수집이나 동률 판정이 남으면 `false`다. 확인한 후보를 보여주되 최종 순위로 안내하지 않는다. |
 | `targetReferences`, `holds`, `exclusions` | 대상 단지 자체 거래, 결론을 유보한 관측과 사유, 근거를 갖춰 제외한 관측을 구분한다. |
 
-금액은 원 단위 십진 문자열이다. 유효 거래가 짝수인 경우 두 가운데 값의 평균이 반 원이면 `medianWon`에 `.5`가 붙는다. `tradeStats.sale`의 매매가격과 두 권리 종류의 신고 거래금액은 따로 표시한다. 권리 신고금액을 프리미엄으로 해석하지 않는다. 호실 가격에는 분양가와 필수 옵션을 분리한 원문 페이지가 들어간다. `noticePrice.heldRooms`로 가격 범위에서 빠진 호실을 확인한다.
+금액은 원 단위 십진 문자열이다. 유효 거래가 짝수인 경우 두 가운데 값의 평균이 반 원이면 `medianWon`에 `.5`가 붙는다. `tradeStats.sale`의 매매가격과 두 권리 종류의 신고 거래금액은 따로 표시한다. 권리 신고금액을 프리미엄으로 해석하지 않는다. 호실·가격 구간 가격에는 분양가와 필수 옵션을 분리한 원문 페이지가 들어간다. `noticePrice.heldRooms`로 가격 범위에서 빠진 호실 또는 가격 구간을 확인한다.
+
+신규분양·무순위처럼 동·호 라인 × 층 구간 단위로 가격이 정해지는 공고에서는 `room` 문자열 자리에 구간 표시 이름(예: `"101동·102동 3호 라인 11~15층"`)을 그대로 사용하고, `noticePrice.confirmedRooms[]`, `noticePrice.heldRooms[]`, 선택 시 `noticePrice.unit`에 구조화된 단위 정보(`unit: {kind: "room" | "band", buildings: string[], lines: string[], floors: {from: number | null, to: number | null}, households: number}`)를 함께 전달한다. 층·라인 정보로 개별 호실 번호를 추정해 생성하지 않으며, 기존 호실별 표는 `unit.kind = "room"`으로 유지한다. `conditions_snapshot.comparison.room`에도 같은 표시 이름을 지정할 수 있다.
 
 기본 면적 허용 범위는 양 끝을 포함한 ±5%다. 2026-11-26 사용자 결정 Q-41에 따라 0% 초과 5% 이하로 좁히는 변경만 확인 후 허용하며, 확인한 경우에만 `areaTolerancePercent`를 십진 문자열로, `areaChangeConfirmed`를 `true`로 전달한다. 직접 지정은 `replacements`에 같은 범위의 `complexId`와 사용자가 교체하기로 한 `replaceComplexId`를 연결한다. 면적 차이 다음 순위는 확인된 단지 좌표 사이의 직선거리다. 동률 등 아직 결정하지 않은 조건이 선정에 영향을 주면 해당 항목에 사유를 표시한다.
 

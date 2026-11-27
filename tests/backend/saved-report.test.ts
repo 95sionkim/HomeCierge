@@ -265,3 +265,29 @@ test('S-07 rejects mismatched IDs and projects only owner list metadata in chron
   assert.equal(list.status, 200);
   assert.doesNotMatch(await list.text(), /SYNTHETIC_PRIVATE/);
 });
+
+test('S-07 and conversation copy switch between 호실 and 가격 구간 based on unit kind (synthetic)', async () => {
+  const { conversationExample } = await import('../../src/server/analysis-conversation.js');
+  const bandRaw = raw();
+  const bandName = '101동·102동 3호 라인 11~15층';
+  const bandUnit = { kind: 'band', buildings: ['101동', '102동'], lines: ['3호'], floors: { from: 11, to: 15 }, households: 3 };
+  bandRaw.sections.comparison.value.noticePrice.confirmedRooms[0].room = bandName;
+  bandRaw.sections.comparison.value.noticePrice.confirmedRooms[0].unit = bandUnit;
+  bandRaw.sections.comparison.value.noticePrice.confirmedRooms[0].requiredOptionsWon = '0';
+  bandRaw.sections.comparison.value.noticePrice.confirmedRooms[0].subtotalWon = '700000000';
+  bandRaw.sections.comparison.value.noticePrice.heldRooms = [];
+  const report = projectSavedReport(bandRaw);
+  const noticeSection = report.sections[0];
+  assert.equal(noticeSection.tables[0].headers[0], '가격 구간');
+  assert.equal(noticeSection.tables[0].rows[0][0], bandName);
+  assert.ok(noticeSection.rows.some((r) => r.label === '가격 구간'));
+  assert.ok(noticeSection.rows.some((r) => r.label === '확인된 가격 구간 소계 범위'));
+
+  const priceReply = conversationExample('가격 구간 분양가 알려줘', bandRaw.sections.comparison.value);
+  assert.match(priceReply.answer, /가격 구간/);
+  bandRaw.sections.comparison.value.noticePrice.scope = 'selected_room';
+  bandRaw.sections.comparison.value.noticePrice.room = bandName;
+  bandRaw.sections.comparison.value.noticePrice.won = '700000000';
+  const selectedReply = conversationExample('분양가 알려줘', bandRaw.sections.comparison.value);
+  assert.equal(selectedReply.answer, '선택한 가격 구간의 분양가와 필수 옵션을 더한 금액은 700,000,000원입니다.');
+});

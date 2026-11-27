@@ -16,10 +16,10 @@ from itertools import groupby
 from typing import Optional
 
 if __package__:
-    from .ingestion_notices import AREA_LENGTH, CONTRACT as CATALOG_VERSION, NOTICE_SOURCES
+    from .ingestion_notices import AREA_LENGTH, CONTRACT as CATALOG_VERSION, NOTICE_SOURCES, normalize_price_unit
     from .ingestion_trades import IDENTIFIER_FIELDS, NORMALIZER_VERSION, SOURCE_KINDS, TRADE_KINDS, trade_period
 else:
-    from ingestion_notices import AREA_LENGTH, CONTRACT as CATALOG_VERSION, NOTICE_SOURCES
+    from ingestion_notices import AREA_LENGTH, CONTRACT as CATALOG_VERSION, NOTICE_SOURCES, normalize_price_unit
     from ingestion_trades import IDENTIFIER_FIELDS, NORMALIZER_VERSION, SOURCE_KINDS, TRADE_KINDS, trade_period
 
 
@@ -233,8 +233,12 @@ def _room_total(room, house_type, documents):
     if (sale.get('status') != 'confirmed' or options.get('status') != 'confirmed' or None in prices
             or not common or sum(prices) != _won(subtotal.get('won'))):
         return None
-    return {'room': room['room'], 'salePriceWon': sale['won'], 'requiredOptionsWon': options['won'],
-            'subtotalWon': subtotal['won'], 'evidence': {'salePrice': sale_refs, 'requiredOptions': option_refs}}
+    entry = {'room': room['room'], 'salePriceWon': sale['won'], 'requiredOptionsWon': options['won'],
+             'subtotalWon': subtotal['won'], 'evidence': {'salePrice': sale_refs, 'requiredOptions': option_refs}}
+    unit = normalize_price_unit(room.get('unit'))
+    if unit is not None:
+        entry['unit'] = unit
+    return entry
 
 
 def _notice_price(catalog, model, selection, documents):
@@ -249,19 +253,33 @@ def _notice_price(catalog, model, selection, documents):
     own = [row for row in _items(catalog.get('rooms')) if _obj(row).get('modelNo') == model['modelNo']]
     rooms, duplicates = _unique(own, lambda row: _text(row.get('room')))
     confirmed, held = {}, {name: ['room_identity_conflict'] for name in duplicates}
+    held_units = {}
     for name, room in rooms.items():
         total = _room_total(room, _reported(model.get('houseType')), documents)
         if total is not None:
             confirmed[name] = total
         else:
             held[name] = _reasons(_obj(room.get('subtotal')).get('reasons')) or ['room_subtotal_unverified']
-    result['heldRooms'] = [{'room': name, 'reasons': reasons} for name, reasons in sorted(held.items())]
+            unit = normalize_price_unit(room.get('unit'))
+            if unit is not None:
+                held_units[name] = unit
+    held_rows = []
+    for name, reasons in sorted(held.items()):
+        entry = {'room': name, 'reasons': reasons}
+        if name in held_units:
+            entry['unit'] = held_units[name]
+        held_rows.append(entry)
+    result['heldRooms'] = held_rows
     if explicit:
         if chosen in confirmed:
             room = confirmed[chosen]
             result.update(status='confirmed', won=room['subtotalWon'], confirmedRooms=[room])
+            if 'unit' in room:
+                result['unit'] = room['unit']
         else:
             result['reasons'] = held.get(chosen, ['room_unverified'])
+            if chosen in held_units:
+                result['unit'] = held_units[chosen]
     elif confirmed:
         amounts = [int(room['subtotalWon']) for room in confirmed.values()]
         result.update(status='confirmed', minWon=str(min(amounts)), maxWon=str(max(amounts)),

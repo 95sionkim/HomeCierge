@@ -93,7 +93,7 @@ def combine_reviews(reviews):
     return {'evidence': evidence, 'issues': issues, 'paymentSchedules': _combine_payment_schedules(reviews)}
 
 
-def review_catalog_documents(target, catalog, *, official_index=None, read_upload=None,
+def review_catalog_documents(target, catalog, *, official_index=None, prior_revisions=None, read_upload=None,
                              fetch=None, inspect=inspect_notice_pdf, monotonic=None):
     """공식 상세 페이지를 대조하고 첨부 바이트는 이 호출 안에서 사용한다.
 
@@ -105,12 +105,16 @@ def review_catalog_documents(target, catalog, *, official_index=None, read_uploa
     url = link.get('value') if link.get('kind') == 'notice_page' and link.get('status') == 'reported' else None
     if official_index is not None and not isinstance(official_index, (list, tuple)):
         raise ValueError('공식 출처 기록 목록이 필요합니다.')
+    if prior_revisions is not None and not isinstance(prior_revisions, (list, tuple)):
+        raise ValueError('이전 공식 판본 이력 목록이 필요합니다.')
     acquired = acquire_notice_pdf(target, url, fetch=fetch if fetch is not None else make_live_fetch(),
                                   upload=read_upload, official_index=official_index or (),
+                                  prior_revisions=prior_revisions or (),
                                   notice_date=reported_notice_date(catalog), monotonic=monotonic)
     reviews = []
     version_rows = []
     inspected = {}
+    corrections = {}
     next_actions = {item['action'] for item in acquired['next']}
     requires_set = False
     for doc in acquired['documents']:
@@ -130,6 +134,8 @@ def review_catalog_documents(target, catalog, *, official_index=None, read_uploa
                 parsed = {'status': 'unreadable', 'evidence': [], 'issues': [
                     {'code': 'document_inspection_failed', 'document': doc['id'], 'version': doc['version']}]}
             inspected[(doc['id'], doc['version'])] = parsed['status']
+            if isinstance(parsed.get('correction'), dict) and parsed['correction'].get('detected'):
+                corrections[(doc['id'], doc['version'])] = parsed['correction']
             issues = parsed['issues']
             if not parsed['evidence']:
                 reasons.extend(issue['code'] for issue in issues)
@@ -147,7 +153,16 @@ def review_catalog_documents(target, catalog, *, official_index=None, read_uploa
         # 근거 행이 없는 파일도 판본 식별자가 파생 자료다. 저장 시 같은 출처·삭제 조건을 적용한다.
         version_rows.append(dict(metadata, status=status, records=0,
                                  reasons=list(dict.fromkeys(reasons)) or ['no_checked_document_fields']))
-    relation = acquired['relation']
+    relation = dict(acquired['relation'])
+    if corrections:
+        if relation['kind'] == 'sole':
+            relation['kind'] = 'correction_included'
+        if any(not info.get('fullReplacementDeclared') for info in corrections.values()):
+            rel_reasons = list(relation.get('reasons') or ())
+            if 'in_pdf_correction_unverified' not in rel_reasons:
+                rel_reasons.append('in_pdf_correction_unverified')
+            relation['reasons'] = rel_reasons
+            next_actions.add('check_correction_relation')
     if requires_set and (relation['kind'] != 'unresolved' or len(reviews) < 2
                          or relation.get('allDocumentsAvailable') is not True):
         # 일부 정정 파일을 읽지 못했다. 원본의 단독 확인값을 정정 후 값으로 사용할 수 없다.
@@ -168,6 +183,8 @@ def review_catalog_documents(target, catalog, *, official_index=None, read_uploa
         entry.update(sourceUrl=location.get('url') if official else None,
                      originMatch=location.get('matchedBy'), officialAttachmentId=location.get('indexRecord'),
                      inspectionStatus=inspected.get((doc['id'], doc['version'])))
+        if (doc['id'], doc['version']) in corrections:
+            entry['correction'] = corrections[(doc['id'], doc['version'])]
         documents.append(entry)
     checked['review'] = {
         'contractVersion': 'notice-document-review/v1', 'acquisitionStatus': acquired['status'],

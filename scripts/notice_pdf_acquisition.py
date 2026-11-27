@@ -489,10 +489,12 @@ def _read_upload(upload, needed, notes):
     return upload
 
 
-def _apply_upload(upload, target, entries, set_known, records):
+def _apply_upload(upload, target, entries, set_known, records, prior_records=()):
     """업로드는 내용 해시가 같은 호출의 공식 문서 또는 서버 공식 확보 기록(같은 공고·회차·첨부 ID)과 같을 때만 출처 확인이다.
 
-    현재 페이지의 같은 첨부 ID 자리에 공식 bytes가 없을 때 그 자리를 채운다(관계 판정은 그대로). 그 밖의 경우는 별도 문서다.
+    현재 페이지의 같은 첨부 ID 자리에 공식 bytes가 없을 때 그 자리를 채운다(관계 판정은 그대로).
+    같은 공고·회차의 이전 공식 해시(prior_records)와 일치하고 현재 공식 판본과 해시가 다르면
+    A-59 복수 판본 대조(with_set)로 보존한다.
     """
     content = upload['content']
     doc_id = 'upload:' + upload['id']
@@ -532,6 +534,15 @@ def _apply_upload(upload, target, entries, set_known, records):
             doc['adoption'] = 'with_set'  # 현재 첨부 목록을 읽지 못해 정정 등 관계를 확인할 수 없다.
             doc['reasons'].append('attachment_set_unverified')
         return doc
+    # 같은 공고·회차의 이전 공식 해시 이력(prior_records)에 기록된 판본이고 다른 공고 충돌이 없으면 A-59 비교용으로 보존한다.
+    prior_matches = [r for r in prior_records if r['sha256'] == digest]
+    prior_own = [r for r in prior_matches if (r['houseManageNo'], r['noticeNo'], r['edition']) == triple]
+    if prior_own and not matches and any(e['doc'] is not None for e in entries):
+        record = prior_own[0]
+        doc = _document(doc_id, target, content, source='upload', origin='confirmed', role=record['role'],
+                        acquisition=dict(acquisition, matchedBy='official_index', indexRecord=record['id']))
+        doc['reasons'].append('upload_version_differs_from_current')
+        return doc
     official = any(e['doc'] is not None for e in entries)
     origin, reason = ('conflict', 'upload_matches_other_notice') if matches else (
         'unverified', 'upload_differs_from_official' if official else 'upload_origin_unverified')
@@ -539,6 +550,58 @@ def _apply_upload(upload, target, entries, set_known, records):
                     acquisition=acquisition)
     doc['reasons'].append(reason)
     return doc
+
+
+def _apply_prior_revisions(target, entries, relation, upload_doc, prior_records):
+    """같은 공고·회차의 공식 색인에 해시가 다른 이전 판이 있으면 두 판을 모두 보존하고 A-59 관계 미확정으로 처리한다."""
+    if not entries or relation['kind'] == 'full_replacement':
+        return
+    ready_entries = [e for e in entries if e['doc'] is not None and e['doc']['sha256']]
+    if not ready_entries:
+        return
+    triple = (target['houseManageNo'], target['noticeNo'], target['edition'])
+    current_hashes = {e['doc']['sha256'] for e in ready_entries}
+    differing = []
+    seen_hashes = set()
+    for record in prior_records:
+        if (record['houseManageNo'], record['noticeNo'], record['edition']) != triple:
+            continue
+        digest = record['sha256']
+        if digest in current_hashes or digest in seen_hashes:
+            continue
+        seen_hashes.add(digest)
+        differing.append(record)
+    if not differing:
+        return
+
+    extra_reasons = ('official_document_hash_changed', 'correction_relation_unverified')
+    for entry in ready_entries:
+        entry['doc']['adoption'] = 'with_set'
+        for reason in extra_reasons:
+            _add(entry['doc']['reasons'], reason)
+
+    upload_supplied = None
+    if (upload_doc is not None and upload_doc['originCheck'] == 'confirmed'
+            and upload_doc['sha256'] in seen_hashes and isinstance(upload_doc.get('content'), bytes)):
+        upload_doc['adoption'] = 'with_set'
+        for reason in extra_reasons:
+            _add(upload_doc['reasons'], reason)
+        upload_supplied = upload_doc['sha256']
+
+    relation['kind'] = 'unresolved'
+    relation['basis'] = 'detail_page+official_index'
+    for reason in extra_reasons:
+        _add(relation['reasons'], reason)
+    if upload_supplied and upload_doc['id'] not in relation['documents']:
+        relation['documents'].append(upload_doc['id'])
+    for record in differing:
+        if record['sha256'] == upload_supplied:
+            continue
+        relation['missing'].append({
+            'id': record['id'], 'version': 'sha256:' + record['sha256'],
+            'role': record['role'], 'reason': 'prior_official_revision_unavailable',
+        })
+    relation['allDocumentsAvailable'] = bool(relation['setKnown'] and not relation['missing'])
 
 
 def _upload_next(target, reason):
@@ -552,7 +615,7 @@ def _add(reasons, reason):
 
 
 def acquire_notice_pdf(target, detail_url, *, fetch, source='applyhome', upload=None, official_index=(),
-                       notice_date=None, business_policy=None, now=None, monotonic=None, limits=None):
+                       prior_revisions=(), notice_date=None, business_policy=None, now=None, monotonic=None, limits=None):
     """한 공고·회차의 공식 PDF bytes와 문서별 상태·근거, 또는 명시적 보류·재시도·업로드 요청을 돌려준다.
 
     target: {'houseManageNo', 'noticeNo', 'edition'}. edition은 호출자의 회차 라벨이며 번호쌍으로만 대조한다.
@@ -561,6 +624,7 @@ def acquire_notice_pdf(target, detail_url, *, fetch, source='applyhome', upload=
     upload: None | {'id': 등록 업로드 ID, 'content': bytes} | 같은 dict 또는 None을 돌려주는 callable.
       callable은 공식 첨부가 모두 확보되면 부르지 않고, 확보 자료가 없거나 빠진 첨부가 있을 때 한 번 부른다.
     official_index: 서버가 이전에 공식 경로로 확보한 기록 [{'id', 'houseManageNo', 'noticeNo', 'edition', 'sha256', 'role'}].
+    prior_revisions: 같은 공고·회차에서 관측된 이전 공식 판본 해시 이력(같은 첨부 ID의 복수 해시 포함).
     notice_date: API 모집공고일(YYYY-MM-DD). 상세 페이지 표시값과 다르면 보류한다.
     """
     if not (isinstance(target, dict) and all(_text(target.get(k)) for k in ('houseManageNo', 'noticeNo', 'edition'))):
@@ -585,6 +649,8 @@ def acquire_notice_pdf(target, detail_url, *, fetch, source='applyhome', upload=
     observed = (now or (lambda: datetime.now(timezone.utc)))()
     reasons, candidates, references, entries = [], [], [], []
     records = _index_records(official_index, reasons)
+    prior_records = _index_records(prior_revisions, reasons) if prior_revisions else []
+    all_prior = list(records) + [r for r in prior_records if r not in records]
     numbers = (target['houseManageNo'], target['noticeNo'])
 
     if source == 'applyhome':
@@ -705,11 +771,18 @@ def acquire_notice_pdf(target, detail_url, *, fetch, source='applyhome', upload=
                 entry['doc'], entry['acquisition'] = _download(ctx, entry, target, numbers)
 
     upload_notes = {}
-    needed = not entries or any(e['doc'] is None for e in entries)
+    triple = (target['houseManageNo'], target['noticeNo'], target['edition'])
+    live_hashes = {e['doc']['sha256'] for e in entries if e['doc'] is not None and e['doc']['sha256']}
+    prior_hash_changed = bool(live_hashes) and any(
+        (r['houseManageNo'], r['noticeNo'], r['edition']) == triple and r['sha256'] not in live_hashes
+        for r in all_prior
+    )
+    needed = not entries or any(e['doc'] is None for e in entries) or prior_hash_changed
     received = _read_upload(upload, needed, upload_notes)
-    upload_doc = _apply_upload(received, target, entries, set_known, records) if received else None
+    upload_doc = _apply_upload(received, target, entries, set_known, records, all_prior) if received else None
     relation = _resolve(entries, set_known)
-    if upload_doc is not None and upload_doc['adoption'] == 'with_set':
+    _apply_prior_revisions(target, entries, relation, upload_doc, all_prior)
+    if upload_doc is not None and upload_doc['adoption'] == 'with_set' and relation['kind'] != 'unresolved':
         relation.update(kind='unresolved', basis='official_index', documents=[upload_doc['id']],
                         reasons=['attachment_set_unverified'])  # 이전 공식 기록과 같은 판이나 현재 집합은 미확인
     documents = []
@@ -740,7 +813,10 @@ def acquire_notice_pdf(target, detail_url, *, fetch, source='applyhome', upload=
     if status in ('failed', 'held'):
         actions.append(_upload_next(target, reasons[0]))
     elif relation['missing'] and relation['kind'] != 'full_replacement':
-        actions.append(_upload_next(target, MISSING_REASON[relation['missing'][0]['role']]))
+        first_missing = relation['missing'][0]
+        next_reason = (first_missing['reason'] if first_missing.get('reason') == 'prior_official_revision_unavailable'
+                       else MISSING_REASON[first_missing['role']])
+        actions.append(_upload_next(target, next_reason))
     return {'contract': CONTRACT, 'target': target, 'status': status, 'reasons': reasons, 'detail': detail,
             'documents': documents, 'relation': relation, 'references': references, 'candidates': candidates,
             'upload': {'provided': upload_notes['provided'], 'called': upload_notes['called']},

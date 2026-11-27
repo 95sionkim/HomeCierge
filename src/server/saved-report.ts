@@ -160,6 +160,12 @@ function held(id: Id, p: Part) {
   );
   return s;
 }
+function isBandPrice(price: Record<string, unknown>, rooms: Record<string, unknown>[]): boolean {
+  const topUnit = obj(price.unit);
+  if (topUnit.kind === 'band') return true;
+  if (topUnit.kind === 'room') return false;
+  return rooms.length > 0 && rooms.every((r) => obj(r.unit).kind === 'band');
+}
 function comparisonSections(c: Comparison, p: Part) {
   const target = obj(c.target),
     price = obj(c.noticePrice),
@@ -167,6 +173,13 @@ function comparisonSections(c: Comparison, p: Part) {
   const identity = p.identity,
     conditions = c.conditions,
     period = obj(conditions.period);
+  const relevantRooms = (rooms: unknown) =>
+    array(rooms)
+      .map(obj)
+      .filter((r) => price.scope !== 'selected_room' || r.room === price.room);
+  const confirmedList = relevantRooms(price.confirmedRooms);
+  const heldRooms = relevantRooms(price.heldRooms);
+  const unitNoun = isBandPrice(price, [...confirmedList, ...heldRooms]) ? '가격 구간' : '호실';
   const notice = section('notice', 'partial', p.exportAllowed);
   field(notice, '공고', label(target.name) ?? label(identity.title));
   field(notice, '주택관리번호', token(target.houseManageNo) ?? token(identity.houseManageNo));
@@ -175,31 +188,26 @@ function comparisonSections(c: Comparison, p: Part) {
   if (isDate(identity.noticeDate)) field(notice, '모집공고일', identity.noticeDate);
   field(notice, '주택형', label(target.houseType));
   field(notice, '모델 번호', token(target.modelNo));
-  field(notice, '호실', label(price.room) ?? (price.scope === 'confirmed_rooms' ? '호실 미지정' : '선택 미확인'));
+  field(notice, unitNoun, label(price.room) ?? (price.scope === 'confirmed_rooms' ? `${unitNoun} 미지정` : '선택 미확인'));
   field(notice, '공급면적', supply.status === 'confirmed' ? area(supply.m2) : null);
   const range = noticeRange(price);
   field(
     notice,
-    price.scope === 'selected_room' ? '선택 호실 소계' : '확인된 호실 소계 범위',
+    price.scope === 'selected_room' ? `선택 ${unitNoun} 소계` : `확인된 ${unitNoun} 소계 범위`,
     range ? priceLabel(range) : null,
   );
-  const relevantRooms = (rooms: unknown) =>
-    array(rooms)
-      .map(obj)
-      .filter((r) => price.scope !== 'selected_room' || r.room === price.room);
-  const heldRooms = relevantRooms(price.heldRooms);
-  const roomRows = relevantRooms(price.confirmedRooms).map((r) => {
-    return [label(r.room) ?? '호실 미확인', won(r.salePriceWon), won(r.requiredOptionsWon), won(r.subtotalWon)];
+  const roomRows = confirmedList.map((r) => {
+    return [label(r.room) ?? `${unitNoun} 미확인`, won(r.salePriceWon), won(r.requiredOptionsWon), won(r.subtotalWon)];
   });
   for (const r of heldRooms) {
     roomRows.push([
-      label(r.room) ?? '호실 미확인',
+      label(r.room) ?? `${unitNoun} 미확인`,
       '—',
       '—',
       array(r.reasons).map(reason).filter(Boolean).join(' · ') || '소계 미확인',
     ]);
   }
-  table(notice, ['호실', '분양가', '필수 옵션', '소계 또는 보류 사유'], roomRows);
+  table(notice, [unitNoun, '분양가', '필수 옵션', '소계 또는 보류 사유'], roomRows);
   notice.notes.push(
     '소계는 분양가와 필수 옵션을 합한 금액입니다. 취득세·등기비·금융비용은 별도로 확인해야 합니다.',
   );

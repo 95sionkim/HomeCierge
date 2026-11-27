@@ -380,7 +380,7 @@ def public_models(catalog, allowed, reasons):
 
 
 def inventory_complete(facts, rows, models, catalog, receipt):
-    # API의 공고 총량과 각 주택형의 일반·특별공급 합계가 모두 PDF의 확인된 고유 호실 수와 일치해야 한다.
+    # API의 공고 총량과 각 주택형의 일반·특별공급 합계가 모두 PDF의 확인된 고유 호실(또는 구간 해당세대수 합)과 일치해야 한다.
     if (not receipt or receipt.get('acquisitionStatus') != 'acquired'
             or receipt['relation']['kind'] not in ('sole', 'full_replacement')
             or not receipt['relation']['allDocumentsAvailable']
@@ -394,10 +394,19 @@ def inventory_complete(facts, rows, models, catalog, receipt):
         if number is None or number in expected or general is None or special is None or general + special < 1:
             return False
         expected[number] = general + special
+    unit_households = {}
+    for entry in catalog.get('rooms', ()):
+        unit = entry.get('unit')
+        count = unit['households'] if isinstance(unit, dict) and type(unit.get('households')) is int and unit['households'] >= 1 else 1
+        unit_households[(entry['modelNo'], entry['room'])] = count
     rooms = [room['room'] for model in models for room in model['rooms']]
-    return (len(rooms) == len(set(rooms)) == facts['total'] == sum(expected.values())
+    total_households = sum(unit_households.get((model['modelNo'], room['room']), 1)
+                           for model in models for room in model['rooms'])
+    return (len(rooms) == len(set(rooms))
+            and total_households == facts['total'] == sum(expected.values())
             and all(model['houseType'] and model['supplyAreaM2']
-                    and expected.get(model['modelNo']) == len(model['rooms'])
+                    and expected.get(model['modelNo']) == sum(
+                        unit_households.get((model['modelNo'], room['room']), 1) for room in model['rooms'])
                     and all(room['subtotalWon'] is not None for room in model['rooms']) for model in models))
 
 

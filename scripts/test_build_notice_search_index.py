@@ -486,6 +486,41 @@ class NoticeSearchIndexTests(unittest.TestCase):
         self.assertNotIn('notices', summary)
         self.assertNotIn('regionCodes', summary)
 
+    def test_inventory_complete_sums_band_households_across_units(self):
+        row = endpoint_row(PBLANC_URL=official_paths()[0], TOT_SUPLY_HSHLDCO=5)
+
+        def inspect_bands(households_pair):
+            def _inspect(content, *, target, catalog, document):
+                evidence = [{'document': document, 'page': 2, 'modelNo': '01', 'houseType': '084.0000A',
+                             'item': 'supply_area', 'check': 'confirmed', 'basis': 'supply', 'unit': 'm2', 'm2': '112.4000'}]
+                bands = [
+                    ('101동·102동 3호 라인 11~15층', '700000000', {'from': 11, 'to': 15}, households_pair[0]),
+                    ('101동·102동 3호 라인 6~10층', '680000000', {'from': 6, 'to': 10}, households_pair[1]),
+                ]
+                for room_name, won, floors, hh in bands:
+                    unit = {'kind': 'band', 'buildings': ['101동', '102동'], 'lines': ['3호'],
+                            'floors': floors, 'households': hh}
+                    evidence.append({'document': document, 'page': 2, 'modelNo': '01', 'houseType': '084.0000A',
+                                     'item': 'sale_price', 'check': 'confirmed', 'room': room_name, 'won': won, 'unit': unit})
+                    evidence.append({'document': document, 'page': 3, 'modelNo': '01', 'houseType': '084.0000A',
+                                     'item': 'required_options', 'check': 'confirmed', 'room': room_name, 'won': '0', 'unit': unit})
+                return {'status': 'checked', 'evidence': evidence, 'issues': []}
+            return _inspect
+
+        ok_index, _ = self.build(
+            [page(APT, [row]), page(REMAINDER, []), *detail(row, [model(SUPLY_HSHLDCO=5)])],
+            max_detail_notices=1, document_fetch=get_synthetic_documents, document_inspect=inspect_bands((3, 2)),
+        )
+        self.assertTrue(ok_index['notices'][0]['inventoryComplete'])
+        self.assertEqual([r['room'] for r in ok_index['notices'][0]['models'][0]['rooms']],
+                         ['101동·102동 3호 라인 11~15층', '101동·102동 3호 라인 6~10층'])
+
+        bad_index, _ = self.build(
+            [page(APT, [row]), page(REMAINDER, []), *detail(row, [model(SUPLY_HSHLDCO=5)])],
+            max_detail_notices=1, document_fetch=get_synthetic_documents, document_inspect=inspect_bands((2, 2)),
+        )
+        self.assertFalse(bad_index['notices'][0]['inventoryComplete'])
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -1,4 +1,5 @@
 import * as api from './client.js';
+import { priceUnitNoun } from './comparison-values.js';
 import { esc, icon, won, dateText, isoDate, errorText, reasonText } from './display.js';
 import { amountInput, evidence, planningReasons } from './planning-fields.js';
 import { evidenceChip } from './evidence-viewer.js';
@@ -215,16 +216,17 @@ export function createFundingPage({ root, render, onRoomSelected }) {
   function view() {
     if (!s.ctx) return '<p class="planning-box plan-empty" role="status">자금표를 준비하고 있습니다.</p>';
     const { ctx } = s;
+    const unitNoun = priceUnitNoun(ctx.price);
     let panel;
     if (!s.room)
-      panel = `<div class="planning-box plan-empty">${icon('circle-help')}<h2>호실 확인이 필요합니다</h2><p>선택한 주택형의 공식 호실 근거가 들어오면 납부 일정을 볼 수 있습니다.</p></div>`;
+      panel = `<div class="planning-box plan-empty">${icon('circle-help')}<h2>${esc(unitNoun)} 확인이 필요합니다</h2><p>선택한 주택형의 공식 ${esc(unitNoun)} 근거가 들어오면 납부 일정을 볼 수 있습니다.</p></div>`;
     else if (s.planError)
       panel = `<div class="planning-box plan-empty"><h2>자금표를 불러올 수 없습니다</h2><p>${esc(errorText(s.planError))}</p><button class="action secondary" data-plan-reload>다시 조회</button></div>`;
     else if (!s.plan)
       panel = '<p class="planning-box plan-empty" role="status">납부 일정을 불러오는 중입니다.</p>';
     else panel = timeline(s.plan, s.scenario);
-    return `<section class="section-header"><h1>호실별 자금표</h1><p>${esc(ctx.name || '선택한 공고')}${ctx.houseType ? ' · ' + esc(ctx.houseType) : ''}${ctx.guest ? ' · 합성 예시' : ctx.origin === 'synthetic' ? ' · 합성 수집본' : ''}</p><button type="button" class="text-action fund-jump" data-fund-jump>내 자금 보기 ${icon('chevron-down')}</button></section>
-      <div class="fund-layout"><div class="fund-main">${s.rooms.length && ctx.modelNo ? `<div class="room-control"><label for="fund-room">납부 일정을 볼 호실</label><select id="fund-room">${s.rooms.map((r) => `<option${flag(s.room, r)}>${esc(r)}</option>`).join('')}</select></div>` : ''}${panel}</div>${fundsPanel(s)}</div>`;
+    return `<section class="section-header"><h1>${unitNoun === '가격 구간' ? '가격 구간별 자금표' : '호실별 자금표'}</h1><p>${esc(ctx.name || '선택한 공고')}${ctx.houseType ? ' · ' + esc(ctx.houseType) : ''}${ctx.guest ? ' · 합성 예시' : ctx.origin === 'synthetic' ? ' · 합성 수집본' : ''}</p><button type="button" class="text-action fund-jump" data-fund-jump>내 자금 보기 ${icon('chevron-down')}</button></section>
+      <div class="fund-layout"><div class="fund-main">${s.rooms.length && ctx.modelNo ? `<div class="room-control"><label for="fund-room">납부 일정을 볼 ${esc(unitNoun)}</label><select id="fund-room">${s.rooms.map((r) => `<option${flag(s.room, r)}>${esc(r)}</option>`).join('')}</select></div>` : ''}${panel}</div>${fundsPanel(s)}</div>`;
   }
   root.addEventListener('change', (e) => {
     const f = e.target;

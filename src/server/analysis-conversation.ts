@@ -500,7 +500,7 @@ export function interpretChat(message: string, result: Result): InterpretResult 
   if (requestedAreaSame || requestedKindsSame) return explain('inclusion');
 
   if (/보류|미확인|누락|미해결|불완전|빠졌|빠진|제외/u.test(plain)) return explain('holds');
-  if (/분양가|필수\s*옵션|소계|공고\s*가격|호실\s*(?:가격|금액)|분양\s*가격/u.test(plain)) return explain('price');
+  if (/분양가|필수\s*옵션|소계|공고\s*가격|(?:호실|가격\s*구간)\s*(?:가격|금액)?|분양\s*가격/u.test(plain)) return explain('price');
   if (/언제부터|언제까지|기간|기준일|몇\s*개월|계약일/u.test(plain)) return explain('period');
   if (/범위|지역|법정동|같은 동|동네|확대|반경|거리순/u.test(plain) && !/면적/u.test(plain)) return explain('scope');
   if (/포함|선정|선택|비교\s*(?:근거|대상|기준)|거래|몇\s*건|몇\s*개|왜.*(?:건|개|썼|썼어|썼나|썼지|사용)|면적/u.test(plain)) return explain('inclusion');
@@ -623,15 +623,20 @@ function tradeExamples(result: Result) {
 
 function explainPrice(result: Result) {
   const price = object(result.noticePrice);
+  const confirmed = Array.isArray(price.confirmedRooms) ? price.confirmedRooms : [];
+  const held = Array.isArray(price.heldRooms) ? price.heldRooms : [];
+  const all = [...confirmed, ...held].map(object);
+  const isBand = object(price.unit).kind === 'band' || (all.length > 0 && all.every(item => object(item.unit).kind === 'band'));
+  const unitNoun = isBand ? '가격 구간' : '호실';
   const selected = won(price.won), low = won(price.minWon), high = won(price.maxWon);
   if (price.status === 'confirmed' && selected)
-    return '선택한 호실의 분양가와 필수 옵션을 더한 금액은 ' + selected + '입니다.';
-  if (price.status === 'confirmed' && price.scope === 'confirmed_rooms' && low && high && Array.isArray(price.confirmedRooms) && price.confirmedRooms.length) {
+    return `선택한 ${unitNoun}의 분양가와 필수 옵션을 더한 금액은 ${selected}입니다.`;
+  if (price.status === 'confirmed' && price.scope === 'confirmed_rooms' && low && high && confirmed.length) {
     const range = low === high ? low : low + '부터 ' + high + '까지';
-    return '분양가와 필수 옵션을 함께 확인한 ' + price.confirmedRooms.length + '개 호실의 소계는 ' + range + '입니다.'
-      + (Array.isArray(price.heldRooms) && price.heldRooms.length ? ' 다른 ' + price.heldRooms.length + '개 호실은 금액을 확인 중입니다.' : '');
+    return `분양가와 필수 옵션을 함께 확인한 ${confirmed.length}개 ${unitNoun}의 소계는 ${range}입니다.`
+      + (held.length ? ` 다른 ${held.length}개 ${unitNoun}은 금액을 확인 중입니다.` : '');
   }
-  return '이 결과에는 분양가와 필수 옵션을 함께 확인한 호실 소계가 없습니다.';
+  return `이 결과에는 분양가와 필수 옵션을 함께 확인한 ${unitNoun} 소계가 없습니다.`;
 }
 
 function complexDisplayName(complexId: string, result: Result): string {

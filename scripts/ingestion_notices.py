@@ -238,6 +238,54 @@ def _origin(document):
     return origin
 
 
+UNIT_KINDS = ('room', 'band')
+UNIT_KEYS = frozenset(('kind', 'buildings', 'lines', 'floors', 'households'))
+UNIT_LABEL_MAX = 32
+UNIT_LIST_MAX = 100
+UNSAFE_UNIT_CHAR = re.compile(r'[\x00-\x1f\x7f]')
+
+
+def normalize_price_unit(unit):
+    """가격 단위 메타데이터({kind, buildings, lines, floors, households})를 검증·복사한다. 형식 오류면 None."""
+    if not isinstance(unit, dict) or set(unit) != UNIT_KEYS:
+        return None
+    kind = unit.get('kind')
+    if kind not in UNIT_KINDS:
+        return None
+    buildings, lines = unit.get('buildings'), unit.get('lines')
+    if not isinstance(buildings, list) or not isinstance(lines, list):
+        return None
+    if len(buildings) > UNIT_LIST_MAX or len(lines) > UNIT_LIST_MAX:
+        return None
+    for entries in (buildings, lines):
+        for entry in entries:
+            if (not isinstance(entry, str) or not entry or entry != entry.strip()
+                    or len(entry) > UNIT_LABEL_MAX or UNSAFE_UNIT_CHAR.search(entry)):
+                return None
+    floors = unit.get('floors')
+    if not isinstance(floors, dict) or set(floors) != {'from', 'to'}:
+        return None
+    low, high = floors.get('from'), floors.get('to')
+    if low is not None and (not _count(low, 1) or low > 300):
+        return None
+    if high is not None and (not _count(high, 1) or high > 300):
+        return None
+    if low is not None and high is not None and low > high:
+        return None
+    households = unit.get('households')
+    if not _count(households, 1) or households > 100000:
+        return None
+    if kind == 'room' and households != 1:
+        return None
+    return {
+        'kind': kind,
+        'buildings': list(buildings),
+        'lines': list(lines),
+        'floors': {'from': low, 'to': high},
+        'households': households,
+    }
+
+
 def _record_problem(record):
     """구조가 맞지 않는 첫 필드 이름. 금액 형식은 값 단위로 따로 검사한다."""
     if not isinstance(record, dict):
@@ -260,8 +308,12 @@ def _record_problem(record):
         for name, expected in (('basis', 'supply'), ('unit', 'm2'), ('room', None), ('won', None)):
             if record.get(name) != expected:
                 return name
-    elif not _text(record.get('room')):
-        return 'room'
+    else:
+        if not _text(record.get('room')):
+            return 'room'
+        raw_unit = record.get('unit')
+        if raw_unit is not None and raw_unit != 'won' and normalize_price_unit(raw_unit) is None:
+            return 'unit'
     if record.get('check') not in CHECKS:
         return 'check'
     if record.get('raw') is not None and not isinstance(record.get('raw'), str):
@@ -371,17 +423,21 @@ def _evidence(evidence, target, edition, types, types_state, issues):
     accepted = [d['id'] + '@' + d['version'] for d in document_out if d['status'] == 'accepted']
     if len(accepted) > 1:
         issues.append({'code': 'multiple_documents_same_edition', 'decisionId': 'D-04', 'documents': accepted})
-    cells, room_models, areas = {}, {}, {}
+    cells, room_models, areas, room_units = {}, {}, {}, {}
     # room_flags: 채택 문서가 같은 호실을 다른 주택형으로 가리킨 적용 모순. area_flags: 모델이 명확한 면적 기록의 주택형 모순.
     # origin_rooms: 출처 대조만 보류된 문서가 대상 공고·회차·주택형·호실을 정확히 가리킨 호실과 그 보류 사유.
     room_flags, area_flags, origin_rooms = {}, {}, {}
 
-    def add(model_no, room, item, contribution):
+    def add(model_no, room, item, contribution, unit=None):
         if item == 'supply_area':
             areas.setdefault(model_no, []).append(contribution)
             return
         room_models.setdefault(room, set()).add(model_no)
         cells.setdefault((model_no, room), {i: [] for i in PRICE_ITEMS})[item].append(contribution)
+        if unit is not None:
+            units = room_units.setdefault((model_no, room), [])
+            if unit not in units:
+                units.append(unit)
 
     for index, (model_no, room, item), reason in malformed:
         if model_no in by_no and by_no[model_no]['status'] == 'linked':
@@ -424,11 +480,13 @@ def _evidence(evidence, target, edition, types, types_state, issues):
             issues.append({'code': reason, 'evidenceIndex': index})
             check = 'unverified'
         confirmed = check == 'confirmed'
+        unit = None if is_area else normalize_price_unit(record.get('unit'))
         add(record['modelNo'], record.get('room'), item,
             {'check': check, 'value': value if confirmed else None,
              'key': (Decimal(value) if is_area else (len(value), value)) if confirmed else None,
              'document': key, 'reason': reason,
-             'ref': {'document': key[0], 'version': key[1], 'page': record['page'], 'evidenceIndex': index}})
+             'ref': {'document': key[0], 'version': key[1], 'page': record['page'], 'evidenceIndex': index}},
+            unit=unit)
     for housing in types:
         # API SUPLY_AR(supplyArea)은 보고값으로 그대로 두고, 문서 점검값만 따로 판정한다. 면적 보류는 호실 소계와 무관하다.
         checked = _checked_area(areas.get(housing['modelNo'], []), housing['supplyArea'])
@@ -444,7 +502,11 @@ def _evidence(evidence, target, edition, types, types_state, issues):
     for model_no, room in sorted(cells):
         cell = cells[(model_no, room)]
         sale, options = _aggregate(cell['sale_price'], 'won'), _aggregate(cell['required_options'], 'won')
+        units_seen = room_units.get((model_no, room), [])
         reasons = ['room_model_conflict'] if len(room_models[room]) > 1 else []
+        if len(units_seen) > 1:
+            reasons.append('room_unit_conflict')
+            issues.append({'code': 'room_unit_conflict', 'modelNo': model_no, 'room': room})
         reasons += sorted(room_flags.get(room, ()))
         reasons += [name + '_' + part['status'] for name, part in (('sale_price', sale), ('required_options', options))
                     if part['status'] != 'confirmed']
@@ -464,9 +526,12 @@ def _evidence(evidence, target, edition, types, types_state, issues):
         elif not reasons:
             subtotal.update(status='confirmed', won=str(int(sale['won']) + int(options['won'])),
                             documents=[{'id': d, 'version': v} for d, v in shared])
-        rooms.append({'modelNo': model_no, 'houseType': by_no[model_no]['houseType']['value'], 'room': room,
-                      'status': subtotal['status'], 'salePrice': sale, 'requiredOptions': options,
-                      'subtotal': subtotal})
+        entry = {'modelNo': model_no, 'houseType': by_no[model_no]['houseType']['value'], 'room': room,
+                 'status': subtotal['status'], 'salePrice': sale, 'requiredOptions': options,
+                 'subtotal': subtotal}
+        if len(units_seen) == 1:
+            entry['unit'] = units_seen[0]
+        rooms.append(entry)
     for model_no, room in sorted(origin_rooms):
         if room in room_models:
             continue  # 같은 호실에 독립 근거가 있으면 출처 미확인 문서가 막지 않는다.

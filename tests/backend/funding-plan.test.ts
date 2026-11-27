@@ -425,3 +425,33 @@ test('holds a sum outside the BE-02 subtotal bound while keeping both component 
   assert.equal(atLimit.requiredTotalWon, maxSubtotal);
   assert.equal(atLimit.rows[0].knownDueWon, maxSubtotal);
 });
+
+test('accepts band display names in funding request and computes optional-only band funding plan (synthetic)', async () => {
+  const { readFundingSelection } = await import('../../src/server/funding-request.js');
+  const bandName = '101동·102동 3호 라인 11~15층';
+  const req = new Request('https://example.invalid/api/v1/analyses/' + selection.analysisId + '/funding-plan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ snapshotId: selection.snapshotId, modelNo: '01', room: bandName }),
+  });
+  const parsed = await readFundingSelection(req, selection.analysisId);
+  assert.equal(parsed.room, bandName);
+
+  for (const badRoom of ['가'.repeat(121), '101동\n1층', ' 101동 1층 ']) {
+    const badReq = new Request('https://example.invalid/api/v1/analyses/' + selection.analysisId + '/funding-plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ snapshotId: selection.snapshotId, modelNo: '01', room: badRoom }),
+    });
+    await assert.rejects(() => readFundingSelection(badReq, selection.analysisId));
+  }
+
+  const bandSale = { ...sale('700000000', [payment('deposit', '70000000', '2027-01-10'), payment('balance', '630000000', null, 'relative')]), room: bandName };
+  const bandOpt = { ...freeOptions, room: bandName };
+  const plan = calculateFundingPlan(envelope({ room: bandName, schedules: [bandSale, bandOpt] }));
+  assert.equal(plan.selection.room, bandName);
+  assert.equal(plan.requiredTotalWon, '700000000');
+  assert.equal(plan.components[1].status, 'confirmed');
+  assert.equal(plan.components[1].totalWon, '0');
+  assert.equal(plan.undatedInstallments.length, 1);
+});

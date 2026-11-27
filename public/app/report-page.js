@@ -1113,14 +1113,15 @@ export function createReportPage({ root, render, announce = () => {}, user, navi
         s.saveRetry.fundingRoom === activeFundingRoom,
     );
     const saveIsAuth = s.saveError?.code === 'authentication_required';
+    const unitNoun = ctx.unitKind === 'band' ? '가격 구간' : '호실';
     const hasRoomSelector = Boolean(ctx.selectedRoom || ctx.rooms.length > 0);
     const fundingSelectorHtml = hasRoomSelector
       ? `<div class="report-funding-choice">
           <div class="report-funding-head">
-            <label for="report-funding-room">자금표에 포함할 호실</label>
+            <label for="report-funding-room">자금표에 포함할 ${esc(unitNoun)}</label>
             ${
               ctx.selectedRoom
-                ? badge('closed', 'bookmark', '원래 실행 호실 고정')
+                ? badge('closed', 'bookmark', `원래 실행 ${unitNoun} 고정`)
                 : `<span class="report-funding-opt">선택 사항</span>`
             }
           </div>
@@ -1129,9 +1130,9 @@ export function createReportPage({ root, render, announce = () => {}, user, navi
               ? `<select id="report-funding-room" name="fundingRoom" data-report-field="funding-room" disabled aria-describedby="report-funding-room-help">
                   <option value="${esc(ctx.selectedRoom)}" selected>${esc(ctx.selectedRoom)}</option>
                 </select>
-                <p id="report-funding-room-help" class="report-funding-help">이 분석 실행에서 지정한 단일 호실이 그대로 적용됩니다. 원래 비교 결과의 기준과 범위도 저장된 그대로 유지됩니다.</p>`
+                <p id="report-funding-room-help" class="report-funding-help">이 분석 실행에서 지정한 단일 ${esc(unitNoun)}이 그대로 적용됩니다. 원래 비교 결과의 기준과 범위도 저장된 그대로 유지됩니다.</p>`
               : `<select id="report-funding-room" name="fundingRoom" data-report-field="funding-room"${s.saving || !validRun ? ' disabled' : ''} aria-describedby="report-funding-room-help">
-                  <option value=""${activeFundingRoom === null ? ' selected' : ''}>선택 안 함 (자금표 호실 미지정)</option>
+                  <option value=""${activeFundingRoom === null ? ' selected' : ''}>선택 안 함 (자금표 ${esc(unitNoun)} 미지정)</option>
                   ${ctx.rooms
                     .map(
                       (room) =>
@@ -1139,7 +1140,7 @@ export function createReportPage({ root, render, announce = () => {}, user, navi
                     )
                     .join('')}
                 </select>
-                <p id="report-funding-room-help" class="report-funding-help">호실을 고르면 해당 호실의 자금표를 보고서에 함께 저장합니다. 이 선택은 자금표에만 적용되며 원래 비교 결과의 저장 범위는 바뀌지 않습니다.</p>`
+                <p id="report-funding-room-help" class="report-funding-help">${esc(unitNoun)}을 고르면 해당 ${esc(unitNoun)}의 자금표를 보고서에 함께 저장합니다. 이 선택은 자금표에만 적용되며 원래 비교 결과의 저장 범위는 바뀌지 않습니다.</p>`
           }
         </div>`
       : '';
