@@ -110,7 +110,7 @@ async function counter(userId) {
 }
 
 test('requires a verified owner and grants no direct access to the private counter', async () => {
-  const { rows: grants } = await db.query(`select n.nspname as schema, p.prosecdef as definer,
+  const { rows: grants } = await db.query(`select n.nspname as schema, p.prosecdef as definer, p.provolatile as volatile,
     has_function_privilege('anon',p.oid,'execute') as anon,
     has_function_privilege('authenticated',p.oid,'execute') as authenticated,
     has_function_privilege('service_role',p.oid,'execute') as service_role
@@ -118,8 +118,8 @@ test('requires a verified owner and grants no direct access to the private count
     where n.nspname in ('private','public') and p.proname = 'prepare_analysis_regional_news'
     order by n.nspname`);
   assert.deepEqual(grants, [
-    { schema: 'private', definer: true, anon: false, authenticated: true, service_role: false },
-    { schema: 'public', definer: false, anon: false, authenticated: true, service_role: false },
+    { schema: 'private', definer: true, volatile: 'v', anon: false, authenticated: true, service_role: false },
+    { schema: 'public', definer: false, volatile: 'v', anon: false, authenticated: true, service_role: false },
   ]);
   assert.deepEqual(await one(`select relrowsecurity as rls, to_regclass('public.regional_news_attempts') is null as private_only
     from pg_class where oid = 'private.regional_news_attempts'::regclass`), { rls: true, private_only: true });
@@ -317,14 +317,22 @@ test('bounds ready attempts per user and window, preserves holds and cascades on
 
   await setCaller('authenticated', owner.userId);
   // PGlite 큐에 동시에 제출한다. Postgres 기동 환경에서는 같은 upsert가 사용자 기본키를 잠근다.
-  const attempts = await Promise.all(Array.from({ length: 6 }, (_, index) => index < 3
+  const attempts = await Promise.all(Array.from({ length: 12 }, (_, index) => index < 6
     ? prepare(owner.analysisId, snapshot) : prepare(sibling.analysisId, siblingSnapshot)));
   assert.ok(attempts.every(attempt => attempt.status === 'ready'));
   await assert.rejects(prepare(owner.analysisId, snapshot), limited);
   assert.deepEqual(await prepare(owner.analysisId, syntheticSnapshot), result(owner, syntheticSnapshot, 'synthetic_input'));
-  assert.deepEqual(await counter(owner.userId), { attempts: 6 });
+  assert.deepEqual(await counter(owner.userId), { attempts: 12 });
+
+  // 테이블 범위 제약도 12회 상한을 유지한다.
+  await db.exec('reset role');
+  await assert.rejects(
+    db.query('update private.regional_news_attempts set attempts = 13 where user_id = $1', [owner.userId]),
+    { code: '23514' },
+  );
 
   await setCaller('authenticated', stranger.userId);
+  await assert.rejects(prepare(owner.analysisId, snapshot), notFound);
   assert.deepEqual(await prepare(stranger.analysisId, strangerSnapshot), result(stranger, strangerSnapshot, 'ready', '서울특별시 광진구'));
   assert.deepEqual(await counter(stranger.userId), { attempts: 1 });
   await db.query(`update private.regional_news_attempts set window_start = window_start - interval '1 minute' where user_id = $1`, [owner.userId]);

@@ -255,27 +255,36 @@ test('a completed run opens each source independently, binds its snapshot and re
   let law = readLegalEvidence(legalContext, analysisId, snapshotId);
   let conditionStatus = 403;
   const comparisonFixture = JSON.parse(await readFile(new URL('../../public/app/assets/comparison-example.json', import.meta.url)));
-  const ready = await readRegionalNews(
-    { analysisId, snapshotId, status: 'ready', region: '서울특별시 광진구' },
-    analysisId,
-    snapshotId,
-    {
-      signal: new AbortController().signal,
-      clientId: 'synthetic-browser-id',
-      clientSecret: 'synthetic-browser-value',
-      fetch: async () =>
-        Response.json({
-          total: 2,
-          items: ['나', '가'].map((label, index) => ({
-            title: '합성 기사 ' + label,
-            description: '합성 검색 발췌 ' + label,
-            originallink: 'https://example.org/' + index,
-            pubDate: 'Mon, 05 Oct 2026 10:00:00 +0900',
-          })),
-        }),
-    },
-  );
-  let news = ready,
+  const buildNewsPage = (pageNumber = 1) =>
+    readRegionalNews(
+      { analysisId, snapshotId, status: 'ready', region: '서울특별시 광진구' },
+      analysisId,
+      snapshotId,
+      {
+        page: pageNumber,
+        signal: new AbortController().signal,
+        clientId: 'synthetic-browser-id',
+        clientSecret: 'synthetic-browser-value',
+        fetch: async (input) => {
+          const start = Number(new URL(String(input)).searchParams.get('start'));
+          const total = 25;
+          const count = Math.max(0, Math.min(10, total - start + 1));
+          return Response.json({
+            total,
+            start,
+            display: count,
+            items: Array.from({ length: count }, (_, index) => ({
+              title: '합성 기사 ' + (start + index),
+              description: '합성 검색 발췌 ' + (start + index),
+              originallink: 'https://example.org/' + (start + index),
+              pubDate: 'Mon, 05 Oct 2026 10:00:00 +0900',
+            })),
+          });
+        },
+      },
+    );
+  const ready = await buildNewsPage(1);
+  let newsOverride = null,
     newsHttp = 200,
     pending = false,
     notifyPending,
@@ -304,12 +313,15 @@ test('a completed run opens each source independently, binds its snapshot and re
         : { status: conditionStatus, json: { error: conditionStatus === 403 ? 'comparison_source_restricted' : 'backend_unavailable' } });
     if (p === refPath + '/legal-evidence') return route.fulfill({ json: law });
     if (p === refPath + '/regional-news') {
-      requests.push({ method: req.method(), body: req.postData(), auth: req.headers().authorization });
+      const bodyText = req.postData();
+      const parsed = bodyText ? JSON.parse(bodyText) : {};
+      requests.push({ method: req.method(), body: bodyText, auth: req.headers().authorization });
       if (pending) {
         notifyPending();
         await gate;
       }
-      await route.fulfill({ status: newsHttp, json: news }).catch(() => {});
+      const payload = newsOverride ?? (await buildNewsPage(parsed.page ?? 1));
+      await route.fulfill({ status: newsHttp, json: payload }).catch(() => {});
       return;
     }
     return route.continue();
@@ -353,40 +365,88 @@ test('a completed run opens each source independently, binds its snapshot and re
     await p.locator('#analysis-conditions').click();
     conditionStatus = 403;
     await p.getByRole('button', { name: '지역 뉴스 보기' }).click();
-    await p.getByRole('link', { name: '합성 기사 나' }).waitFor();
+    await p.getByRole('link', { name: '합성 기사 1', exact: true }).waitFor();
     assert.deepEqual(
       (await p.locator('.ref-news-list h3').allInnerTexts()).map((title) => title.trim()),
-      ['합성 기사 나', '합성 기사 가'],
+      Array.from({ length: 10 }, (_, idx) => '합성 기사 ' + (idx + 1)),
     );
     assert.equal(
-      await p.getByRole('link', { name: '합성 기사 나' }).getAttribute('href'),
-      'https://example.org/0',
+      await p.getByRole('link', { name: '합성 기사 1', exact: true }).getAttribute('href'),
+      'https://example.org/1',
     );
-    assert.deepEqual(requests, [{ method: 'POST', body: null, auth: 'Bearer SYNTHETIC_TEST_SESSION' }]);
+    const nav = p.getByRole('navigation', { name: '뉴스 쪽 이동' });
+    const prevBtn = nav.getByRole('button', { name: '이전' });
+    const nextBtn = nav.getByRole('button', { name: '다음' });
+    assert.equal((await nav.locator('.ref-page-status').innerText()).trim(), '1 / 3');
+    assert.equal(await prevBtn.isDisabled(), true);
+    assert.equal(await nextBtn.isDisabled(), false);
+
+    // 다음 쪽(2쪽)으로 이동하면 본문 {"page":2}로 새 요청하고 11~20번 기사만 표시한다.
+    await nextBtn.focus();
+    await nextBtn.press('Enter');
+    await p.getByRole('link', { name: '합성 기사 11', exact: true }).waitFor();
+    assert.equal(await p.locator('.ref-news-list h3').count(), 10);
+    assert.equal(await p.getByRole('link', { name: '합성 기사 1', exact: true }).count(), 0);
+    assert.equal((await nav.locator('.ref-page-status').innerText()).trim(), '2 / 3');
+    assert.equal(await prevBtn.isDisabled(), false);
+    assert.equal(await nextBtn.isDisabled(), false);
+    assert.equal(await p.evaluate(() => document.activeElement?.id), 'ref-news-next');
+
+    // 마지막 쪽(3쪽)에서는 5건을 표시하고 다음 버튼을 비활성화한다.
+    await nextBtn.click();
+    await p.getByRole('link', { name: '합성 기사 21', exact: true }).waitFor();
+    assert.equal(await p.locator('.ref-news-list h3').count(), 5);
+    assert.equal((await nav.locator('.ref-page-status').innerText()).trim(), '3 / 3');
+    assert.equal(await prevBtn.isDisabled(), false);
+    assert.equal(await nextBtn.isDisabled(), true);
+
+    // 이전 쪽(2쪽)과 첫 쪽(1쪽)으로 되돌아간다.
+    await prevBtn.click();
+    await p.getByRole('link', { name: '합성 기사 11', exact: true }).waitFor();
+    assert.equal((await nav.locator('.ref-page-status').innerText()).trim(), '2 / 3');
+    await prevBtn.click();
+    await p.getByRole('link', { name: '합성 기사 1', exact: true }).waitFor();
+    assert.equal((await nav.locator('.ref-page-status').innerText()).trim(), '1 / 3');
+    assert.equal(await prevBtn.isDisabled(), true);
+
+    assert.deepEqual(
+      requests.map((r) => ({ method: r.method, page: JSON.parse(r.body).page, auth: r.auth })),
+      [1, 2, 3, 2, 1].map((page) => ({ method: 'POST', page, auth: 'Bearer SYNTHETIC_TEST_SESSION' })),
+    );
     for (const [status, label] of [
       ['partial', '검색 결과 일부 누락'],
       ['empty', '검색 결과 0건'],
       ['rate_limited', '뉴스 조회 한도 도달'],
       ['source_restricted', '출처 표시 보류'],
     ]) {
-      news = {
+      newsOverride = {
         ...ready,
         status,
         search:
           status === 'source_restricted'
             ? null
-            : { ...ready.search, items: [], omittedCount: status === 'partial' ? 1 : 0 },
+            : {
+                ...ready.search,
+                page:
+                  status === 'rate_limited'
+                    ? null
+                    : status === 'empty'
+                      ? { number: 1, size: 10, total: 0, lastPage: 0, hasPrevious: false, hasNext: false }
+                      : ready.search.page,
+                items: [],
+                omittedCount: status === 'partial' ? 1 : 0,
+              },
       };
       await p.getByRole('button', { name: '다시 조회' }).click();
       await p.getByText(label, { exact: true }).waitFor();
       assert.equal(await p.locator('.ref-news-list').count(), 0);
     }
     newsHttp = 429;
-    news = { error: 'news_rate_limited' };
+    newsOverride = { error: 'news_rate_limited' };
     await p.getByRole('button', { name: '다시 조회' }).click();
     await p.getByText('최근 뉴스 요청이 많습니다. 1분 뒤 다시 조회하세요.').waitFor();
     newsHttp = 200;
-    news = ready;
+    newsOverride = null;
     pending = true;
     await p.getByRole('button', { name: '다시 조회' }).click();
     await paused;
@@ -428,13 +488,29 @@ for (const width of [1440, 390]) {
       await query.press('Enter');
       await page.locator('.ref-news-list li').first().waitFor();
       assert.equal(await page.evaluate(() => document.activeElement?.id), 'ref-query-action');
-      assert.equal(await page.locator('.ref-news-list h3').count(), 2);
+      assert.equal(await page.locator('.ref-news-list h3').count(), 10);
       assert.equal(await page.locator('.ref-news-list a').count(), 0);
+      const guestNav = page.getByRole('navigation', { name: '뉴스 쪽 이동' });
+      assert.equal((await guestNav.locator('.ref-page-status').innerText()).trim(), '1 / 3');
+      assert.equal(await guestNav.getByRole('button', { name: '이전' }).isDisabled(), true);
+      await guestNav.getByRole('button', { name: '다음' }).click();
+      await page.waitForFunction(() => document.querySelector('.ref-page-status')?.textContent?.trim() === '2 / 3');
+      assert.equal(await page.locator('.ref-news-list h3').count(), 10);
+      await guestNav.getByRole('button', { name: '다음' }).click();
+      await page.waitForFunction(() => document.querySelector('.ref-page-status')?.textContent?.trim() === '3 / 3');
+      assert.equal(await page.locator('.ref-news-list h3').count(), 3);
+      assert.equal(await guestNav.getByRole('button', { name: '다음' }).isDisabled(), true);
+      await guestNav.getByRole('button', { name: '이전' }).click();
+      await page.waitForFunction(() => document.querySelector('.ref-page-status')?.textContent?.trim() === '2 / 3');
       await page.getByRole('link', { name: '법령 근거' }).click();
       await page.getByText('판본 표시 예시', { exact: true }).waitFor();
       await page.goBack();
       await page.getByRole('button', { name: '예시 기사 보기' }).waitFor();
       assert.equal(await page.locator('.ref-news-list').count(), 0);
+      const guestStores = await page.evaluate(() =>
+        JSON.stringify([Object.values(localStorage), Object.values(sessionStorage)]),
+      );
+      assert.equal(guestStores.includes('가람구'), false);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       assert.deepEqual(calls, []);
     } finally {

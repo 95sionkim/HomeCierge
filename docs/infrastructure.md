@@ -166,7 +166,9 @@ BE-11에서 서울 개발 DB에 [오늘 공고 목록](../supabase/migrations/20
 
 2026-11-27 운영 프로젝트 `homecierge-prod`를 만들었다(Q-46). 무료 활성 프로젝트 2개 한도 때문에 `zero-delegation`을 일시중지했다(90일 안에 다시 켜면 복구). `npx supabase db push --remote=rwomqnyhqpnejytdzwfn --yes`로 저장소 마이그레이션 32개를 적용했고(이후 출발지·공고 형식 2개를 더해 34개), 생성한 타입이 저장소 파일과 같았다(PostgREST 판만 17.1로 다름). Auth는 `supabase/config.toml`의 `[remotes.production]` 블록으로 개발과 같은 값에 화면 주소(`https://homecierge-api.vercel.app`)만 바꿔 `config push`했다. 연결 풀 크기 2개는 관리 API로 바꿀 수 없어 대시보드 값으로 남았다. 운영 가입은 개발처럼 이메일 확인 없이 바로 확인되며, 실제 출시 전 이메일 확인·SMTP는 D-06에서 정한다. 무료 프로젝트는 7일 동안 활동이 적으면 일시중지될 수 있다.
 
-같은 날 개발 Mac에 운영 전용 작업자 서비스 4개(`kr.homecierge.production.*`)를 설치했다(설치 커밋 `72f95aa`). 운영 작업자 키는 `.secrets/production/worker.env`에 두었고 운영 프로젝트 권한 확인을 통과했다. 운영 공고 목록은 197건으로 처음 게시됐다(새 PDF 점검 코드 설치 전 판). Vercel Production에는 `SUPABASE_URL`·`SUPABASE_PUBLISHABLE_KEY`·`APP_ENV=production`·`ALLOWED_ORIGINS=https://homecierge-api.vercel.app`·`KAKAO_REST_API_KEY`를 등록했다. `NAVER_API_CLIENT_ID`·`NAVER_API_CLIENT_SECRET`·`ODSAY_WEB_API_KEY`는 사용자가 등록한다. 운영 DB에는 개발과 같은 출처 허용 값 12개와 에이전트 설정(`gpt-6.2-sol` 켬)을 CLI로 넣었다.
+같은 날 개발 Mac에 운영 전용 작업자 서비스 4개(`kr.homecierge.production.*`)를 설치했다(설치 커밋 `72f95aa`). 운영 작업자 키는 `.secrets/production/worker.env`에 두었고 운영 프로젝트 권한 확인을 통과했다. 운영 공고 목록은 197건으로 처음 게시됐다(새 PDF 점검 코드 설치 전 판). Vercel Production에는 `SUPABASE_URL`·`SUPABASE_PUBLISHABLE_KEY`·`APP_ENV=production`·`ALLOWED_ORIGINS=https://homecierge-api.vercel.app`·`KAKAO_REST_API_KEY`를 등록했다. `NAVER_API_CLIENT_ID`·`NAVER_API_CLIENT_SECRET`·`ODSAY_WEB_API_KEY`는 사용자가 같은 날 등록했고(ODsay는 Preview에도), 등록 뒤 Production을 다시 배포했다. 실제 뉴스·대중교통 조회는 로그인 계정으로 검수한다. 운영 DB에는 개발과 같은 출처 허용 값 12개와 에이전트 설정(`gpt-6.2-sol` 켬)을 CLI로 넣었다.
+
+PR #2를 `main`에 병합해(`64b3ebc`) Vercel Production 배포가 `READY`가 됐다. `https://homecierge-api.vercel.app`에서 `/api/health` 200, `/api/v1/client-config`가 운영 프로젝트 주소를 반환하고, 로그인 필요 경로는 토큰 없이 401(환경 불일치 503 아님)이었다. 운영 계정으로 로그인한 흐름과 실제 카카오·ODsay 경로는 아직 검수하지 않았다.
 
 ## 6. 연결할 환경변수를 구분한다
 

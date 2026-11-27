@@ -3,6 +3,8 @@ import { badge, dateText, errorText, esc, icon, isoDate } from './display.js';
 
 const lawBase = 'https://www.law.go.kr/LSW/';
 const newsSource = 'https://www.ncloud.com/product/applicationService/NAVERAPIHUB';
+const newsPageSize = 10;
+const newsMaxPage = 100;
 const clock = new Intl.DateTimeFormat('ko-KR', {
   timeZone: 'Asia/Seoul',
   year: 'numeric',
@@ -67,8 +69,29 @@ function originalLink(item) {
   }
 }
 
+function validNewsPage(page, start, expectedPage) {
+  if (!page || typeof page !== 'object' || Array.isArray(page)) return false;
+  if (
+    !Number.isSafeInteger(page.number) ||
+    page.number < 1 ||
+    page.number > newsMaxPage ||
+    page.number !== expectedPage ||
+    page.size !== newsPageSize ||
+    start !== (page.number - 1) * newsPageSize + 1 ||
+    !Number.isSafeInteger(page.total) ||
+    page.total < 0
+  )
+    return false;
+  const lastPage = Math.min(Math.ceil(page.total / newsPageSize), newsMaxPage);
+  return (
+    page.lastPage === lastPage &&
+    page.hasPrevious === (page.number > 1) &&
+    page.hasNext === (page.number < lastPage)
+  );
+}
+
 // 공개 링크·전체 목록을 묶어서 검사해 잘못 연결된 판본이나 일부 기사만 표시하지 않도록 한다.
-function validResponse(data, ctx) {
+function validResponse(data, ctx, expectedPage = 1) {
   if (!data || data.analysisId !== ctx.analysisId || data.snapshotId !== ctx.snapshotId) return false;
   if (ctx.section === 'law') {
     if (
@@ -123,6 +146,7 @@ function validResponse(data, ctx) {
         data.status,
       )
     );
+  const expectedStart = (expectedPage - 1) * newsPageSize + 1;
   if (
     s.source?.url !== newsSource ||
     s.source?.provider !== 'naver_api_hub' ||
@@ -132,15 +156,18 @@ function validResponse(data, ctx) {
     typeof s.conditions?.region !== 'string' ||
     s.conditions.query !== s.conditions.region + ' 분양' ||
     s.conditions.sort !== 'date' ||
-    s.conditions.display !== 3 ||
+    s.conditions.display !== newsPageSize ||
+    s.conditions.start !== expectedStart ||
     !Array.isArray(s.items)
   )
     return false;
-  if (data.status === 'available')
+  if (data.status === 'available') {
+    if (!validNewsPage(s.page, s.conditions.start, expectedPage)) return false;
+    const expectedCount = Math.max(0, Math.min(s.conditions.display, s.page.total - s.conditions.start + 1));
     return (
       s.omittedCount === 0 &&
       s.items.length > 0 &&
-      s.items.length <= s.conditions.display &&
+      s.items.length <= expectedCount &&
       Number.isFinite(Date.parse(s.queriedAt)) &&
       s.items.every(
         (i) =>
@@ -150,12 +177,28 @@ function validResponse(data, ctx) {
           originalLink(i),
       )
     );
+  }
+  if (data.status === 'partial') {
+    return (
+      validNewsPage(s.page, s.conditions.start, expectedPage) &&
+      s.items.length === 0 &&
+      Number.isInteger(s.omittedCount) &&
+      s.omittedCount > 0 &&
+      s.omittedCount <= s.conditions.display
+    );
+  }
+  if (data.status === 'empty') {
+    return (
+      validNewsPage(s.page, s.conditions.start, expectedPage) &&
+      s.items.length === 0 &&
+      s.omittedCount === 0
+    );
+  }
   return (
+    ['not_configured', 'provider_unavailable', 'rate_limited'].includes(data.status) &&
+    s.page === null &&
     s.items.length === 0 &&
-    (data.status === 'partial'
-      ? Number.isInteger(s.omittedCount) && s.omittedCount > 0 && s.omittedCount <= s.conditions.display
-      : ['empty', 'not_configured', 'provider_unavailable', 'rate_limited'].includes(data.status) &&
-        s.omittedCount === 0)
+    s.omittedCount === 0
   );
 }
 function reviewSteps(remainder) {
@@ -187,15 +230,25 @@ function lawView(data, demo) {
 }
 function newsConditions(s, demo) {
   return `<div class="ref-query"><dl><div><dt>검색어</dt><dd>${esc(s.conditions.query)}</dd></div>
-    <div><dt>검색 조건</dt><dd>최신순 · 최대 ${s.conditions.display}건</dd></div>
+    <div><dt>검색 조건</dt><dd>최신순 · 쪽당 ${s.conditions.display}건</dd></div>
     ${s.queriedAt ? `<div><dt>조회 시각</dt><dd>${stamp(s.queriedAt)}</dd></div>` : ''}</dl>
     ${demo ? '<span class="ref-meta">합성 검색 예시</span>' : link(s.source.url, s.source.name)}</div>`;
 }
-function newsView(data, demo) {
+function newsPagination(page, busy) {
+  if (!page || (page.lastPage === 0 && !page.hasPrevious)) return '';
+  const prevPage = page.lastPage > 0 ? Math.min(page.number - 1, page.lastPage) : Math.max(1, page.number - 1);
+  const nextPage = page.number + 1;
+  return `<nav class="ref-pagination" aria-label="뉴스 쪽 이동">
+    <button type="button" id="ref-news-prev" class="action secondary compact" data-news-page="${prevPage}"${!page.hasPrevious || busy ? ' disabled' : ''}>${icon('chevron-left')}이전</button>
+    <span class="ref-page-status" aria-current="page">${page.number} / ${page.lastPage}</span>
+    <button type="button" id="ref-news-next" class="action secondary compact" data-news-page="${nextPage}"${!page.hasNext || busy ? ' disabled' : ''}>다음${icon('chevron-right')}</button>
+  </nav>`;
+}
+function newsView(data, demo, busy) {
   const s = data.search;
   let content;
   if (data.status === 'available') {
-    content = `<ol class="ref-news-list">${s.items
+    content = `<ol class="ref-news-list" start="${s.conditions.start}">${s.items
       .map(
         (i) => `<li><article>
       <h3>${demo ? esc(i.title) : link(i.originalUrl, i.title, 'ref-headline')}</h3>
@@ -205,7 +258,11 @@ function newsView(data, demo) {
       )
       .join('')}</ol>`;
   } else if (data.status === 'empty')
-    content = noticeState('circle-minus', '검색 결과 0건', '이 검색어로 제공된 기사가 없습니다.');
+    content = noticeState(
+      'circle-minus',
+      '검색 결과 0건',
+      s?.page?.total > 0 ? '이 쪽에는 제공된 기사가 없습니다.' : '이 검색어로 제공된 기사가 없습니다.',
+    );
   else if (data.status === 'partial')
     content = noticeState(
       'circle-pause',
@@ -220,7 +277,8 @@ function newsView(data, demo) {
       body,
     );
   }
-  return `${s ? newsConditions(s, demo) : ''}<section class="panel ref-news" aria-label="지역 뉴스 검색 결과">${content}</section>
+  const pagination = s ? newsPagination(s.page, busy) : '';
+  return `${s ? newsConditions(s, demo) : ''}<section class="panel ref-news" aria-label="지역 뉴스 검색 결과">${content}${pagination}</section>
     ${data.status === 'available' ? '<p class="ref-note">' + icon('info') + '기사의 지역 관련성과 사실 여부는 원문에서 확인하세요.</p>' : ''}
     ${s && !demo ? '<p class="ref-credit">네이버™는 NAVER®의 등록상표입니다.</p>' : ''}`;
 }
@@ -229,16 +287,21 @@ export function createReferencePage({ root, render }) {
   let context = null,
     request = null,
     data = null,
-    error = null;
+    error = null,
+    currentPage = 1;
   function reset() {
     request?.abort();
     context = request = data = error = null;
+    currentPage = 1;
   }
-  async function load() {
+  async function load(page = currentPage, focusId = null) {
     if (!context || request || document.hidden) return;
     const ctx = context,
+      targetPage = ctx.section === 'news' && Number.isSafeInteger(page) && page >= 1 && page <= newsMaxPage ? page : 1,
       controller = new AbortController();
     request = controller;
+    if (ctx.section === 'news') currentPage = targetPage;
+    // 이전 쪽 기사를 메모리에 남기지 않고 요청 중인 쪽 결과로 교체한다.
     data = error = null;
     render();
     try {
@@ -246,11 +309,17 @@ export function createReferencePage({ root, render }) {
       if (ctx.guest) {
         if (ctx.saved) {
           const examples = await import('./reference-examples.js');
-          value = ctx.section === 'law' ? examples.lawExample : examples.newsExample;
+          value = ctx.section === 'law' ? examples.lawExample : examples.newsExamplePage(targetPage);
         } else value = { status: 'synthetic_input', search: null };
       } else {
-        value = await readSnapshotReference(ctx.section, ctx.analysisId, ctx.snapshotId, controller.signal);
-        if (!validResponse(value, ctx)) throw new Error('invalid reference');
+        value = await readSnapshotReference(
+          ctx.section,
+          ctx.analysisId,
+          ctx.snapshotId,
+          controller.signal,
+          ctx.section === 'news' ? targetPage : null,
+        );
+        if (!validResponse(value, ctx, targetPage)) throw new Error('invalid reference');
       }
       if (request === controller) data = value;
     } catch (err) {
@@ -259,6 +328,20 @@ export function createReferencePage({ root, render }) {
       if (request === controller) {
         request = null;
         render();
+        if (focusId) {
+          const preferred = document.getElementById(focusId);
+          const fallback =
+            focusId === 'ref-news-next'
+              ? document.getElementById('ref-news-prev')
+              : focusId === 'ref-news-prev'
+                ? document.getElementById('ref-news-next')
+                : null;
+          const target =
+            (preferred && !preferred.disabled ? preferred : null) ??
+            (fallback && !fallback.disabled ? fallback : null) ??
+            document.getElementById('ref-query-action');
+          target?.focus({ preventScroll: true });
+        }
       }
     }
   }
@@ -279,7 +362,7 @@ export function createReferencePage({ root, render }) {
         : '가상의 지역과 기사로 검색 결과를 살펴보세요.'
       : law
         ? '모집공고일에 시행된 규칙과 확인할 조문을 살펴보세요.'
-        : '공고 소재지의 시·군·구와 ‘분양’으로 검색해 최신 기사 최대 3건을 보여줍니다.';
+        : '공고 소재지의 시·군·구와 ‘분양’으로 검색해 최신 기사를 한 쪽당 10건씩 보여줍니다.';
     let content;
     if (request)
       content = noticeState(
@@ -289,7 +372,7 @@ export function createReferencePage({ root, render }) {
       );
     else if (error)
       content = noticeState('triangle-alert', law ? '법령 조회 실패' : '뉴스 조회 실패', errorText(error));
-    else if (data) content = law ? lawView(data, demo) : newsView(data, demo);
+    else if (data) content = law ? lawView(data, demo) : newsView(data, demo, Boolean(request));
     else content = '';
     const action = request
       ? '조회 중'
@@ -301,12 +384,28 @@ export function createReferencePage({ root, render }) {
             ? '예시 기사 보기'
             : '지역 뉴스 보기';
     const symbol = request ? 'loader-circle' : law || data || error ? 'refresh-cw' : 'search';
+    const announcement =
+      data?.status === 'available'
+        ? law
+          ? '법령 판본을 표시했습니다.'
+          : `${data.search.page.number}쪽 / ${data.search.page.lastPage}쪽, ${data.search.items.length}건의 검색 결과를 표시했습니다.`
+        : '';
     return `<section class="section-header ref-heading"><div><h1>${title}</h1>${name ? `<p>${esc(name)}</p>` : ''}</div></section>
       <div class="ref-intro"><p>${desc}</p><button type="button" id="ref-query-action" class="action ${law || data ? 'secondary compact' : 'primary'}"${request ? ' aria-disabled="true"' : ''}>${icon(symbol)}${action}</button></div>
-      ${data?.status === 'available' ? `<p class="sr-only" role="status">${law ? '법령 판본을 표시했습니다.' : data.search.items.length + '건의 검색 결과를 표시했습니다.'}</p>` : ''}${content}`;
+      ${announcement ? `<p class="sr-only" role="status">${announcement}</p>` : ''}${content}`;
   }
   root.addEventListener('click', (e) => {
-    if (e.target.closest('#ref-query-action')) void load();
+    if (e.target.closest('#ref-query-action')) {
+      void load(currentPage, 'ref-query-action');
+      return;
+    }
+    const pageButton = e.target.closest('[data-news-page]');
+    if (pageButton && !pageButton.disabled) {
+      const nextPage = Number(pageButton.dataset.newsPage);
+      if (Number.isSafeInteger(nextPage) && nextPage >= 1 && nextPage <= newsMaxPage) {
+        void load(nextPage, pageButton.id || null);
+      }
+    }
   });
   return { reset, enter, view };
 }
