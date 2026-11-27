@@ -1,4 +1,4 @@
-"""개발 수집·분석 작업자가 공통으로 사용하는 Supabase RPC 전송."""
+"""수집·분석·삭제·에이전트 작업자가 공통으로 사용하는 Supabase RPC 전송."""
 import base64
 import binascii
 import http.client
@@ -7,6 +7,12 @@ import re
 from urllib import error, parse, request
 
 from probe_apis import NoRedirect
+
+PROJECT_ORIGINS = {
+    'development': 'https://jcaelooqogosbzrfyrhe.supabase.co',
+    'production': 'https://rwomqnyhqpnejytdzwfn.supabase.co',
+}
+ENVIRONMENTS = tuple(PROJECT_ORIGINS)
 
 
 class WorkerRpcError(RuntimeError):
@@ -23,20 +29,29 @@ class WorkerRpcResponseTooLarge(WorkerRpcError):
 
 class WorkerRpc:
     def __init__(self, env, opener=None):
-        if (env.get('APP_ENV', 'development') != 'development' or env.get('VERCEL_ENV') == 'production'
-                or env.get('VERCEL_TARGET_ENV') == 'production' or env.get('NODE_ENV') == 'production'):
-            raise ValueError('개발 환경에서만 작업자를 실행할 수 있습니다.')
+        if env.get('VERCEL_ENV') or env.get('VERCEL_TARGET_ENV'):
+            raise ValueError('Vercel 함수 환경에서는 작업자를 실행할 수 없습니다.')
+        app_env = env.get('APP_ENV', 'development')
+        if app_env not in PROJECT_ORIGINS or (app_env == 'development' and env.get('NODE_ENV') == 'production'):
+            raise ValueError('허용된 작업자 실행 환경이 아닙니다.')
+        raw_url = env.get('SUPABASE_URL', '')
+        if not isinstance(raw_url, str) or raw_url != raw_url.strip():
+            raise ValueError('실행 환경과 일치하는 Supabase 주소가 필요합니다.')
         try:
-            target = parse.urlsplit(env.get('SUPABASE_URL', ''))
+            target = parse.urlsplit(raw_url)
             port = target.port
         except ValueError:
-            raise ValueError('개발 Supabase의 주소가 필요합니다.') from None
-        local = target.hostname in ('localhost', '127.0.0.1', '::1') and target.scheme in ('http', 'https')
-        hosted = (target.hostname == 'jcaelooqogosbzrfyrhe.supabase.co'
+            raise ValueError('실행 환경과 일치하는 Supabase 주소가 필요합니다.') from None
+        expected_host = parse.urlsplit(PROJECT_ORIGINS[app_env]).hostname
+        local = (app_env == 'development'
+                 and target.hostname in ('localhost', '127.0.0.1', '::1')
+                 and target.scheme in ('http', 'https'))
+        hosted = (target.hostname == expected_host
                   and target.scheme == 'https' and port in (None, 443))
         if (not (local or hosted) or target.username is not None or target.password is not None
-                or target.path not in ('', '/') or target.query or target.fragment):
-            raise ValueError('개발 Supabase의 주소가 필요합니다.')
+                or target.netloc.endswith(':') or target.path not in ('', '/')
+                or target.query or target.fragment or '?' in raw_url or '#' in raw_url):
+            raise ValueError('실행 환경과 일치하는 Supabase 주소가 필요합니다.')
         key = env.get('SUPABASE_WORKER_KEY', '')
         self.headers = {'Content-Type': 'application/json', 'apikey': key}
         if re.fullmatch(r'[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+', key):

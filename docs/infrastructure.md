@@ -30,13 +30,13 @@ flowchart LR
   API -->|소유권·등록 상태 확인 후 PDF 읽기| Storage
 ```
 
-사용자 요청의 Vercel API는 `service_role`로 RLS를 우회하지 않는다. 요청마다 Supabase 클라이언트를 생성하고 Auth 서버의 `getUser()`로 사용자를 확인한다. 수집·분석용 관리 권한, 외부 API 인증값, LLM 실행은 이번 API에 연결하지 않는다.
+사용자 요청의 Vercel API는 `service_role`로 RLS를 우회하지 않는다. 요청마다 Supabase 클라이언트를 생성하고 Auth 서버의 `getUser()`로 사용자를 확인한다. 수집·분석·삭제·에이전트용 관리 권한과 작업자 실행은 Vercel 함수에 연결하지 않으며(`WorkerRpc`는 `VERCEL_ENV`·`VERCEL_TARGET_ENV` 값이 있으면 환경 조합과 무관하게 거부한다), 운영 작업자도 개발 Mac의 운영 전용 `launchd` 서비스(`kr.homecierge.production.*`)로만 실행한다. 실제 운영 서비스 설치와 운영 키 등록은 총괄이 수행한다. [개발 Mac 작업 운영](api/notice-operations.md)
 
 | 환경을 구분한다 | DB 연결을 정한다 | 배포·자료 사용 조건을 정한다 |
 | --- | --- | --- |
 | 로컬 | PGlite 합성 검사 또는 별도 로컬 Supabase | 합성 자료만 기본 사용. Docker가 없으면 전체 Supabase 로컬 스택은 실행할 수 없음 |
 | Development / Preview | 생성한 `homecierge-dev` | 별도 개발 계정·합성 검사 자료. 공고 탐색에는 이용 조건을 확인한 청약홈 구조화 목록과 현존 지역코드를 게시 |
-| Production | 별도 무료 프로젝트 `homecierge-prod`(`rwomqnyhqpnejytdzwfn`, 서울) | 2026-11-27 생성(Q-46). 저장소 마이그레이션만 CLI로 적용하고 총괄은 운영 DB에 직접 SQL로 접근하지 않는다. Preview·개발에는 운영 연결을 넣지 않는다 |
+| Production | 별도 무료 프로젝트 `homecierge-prod`(`rwomqnyhqpnejytdzwfn`, 서울) | 2026-11-27 생성(Q-46). 저장소 마이그레이션만 CLI로 적용하고 총괄은 운영 DB에 직접 SQL로 접근하지 않는다. Preview·개발에는 운영 연결을 넣지 않는다. 운영 작업자는 개발 Mac에 별도 서비스(`--environment production`)로 설치하며 실제 설치는 총괄이 수행한다 |
 
 Supabase는 서울 `ap-northeast-2`, API 실행 리전은 서울 `icn1`이다. Vercel 빌드 머신은 미국 `iad1`에서 실행됐으므로 빌드 위치와 함수 실행 위치를 구분한다. `APP_ENV`가 Production과 맞지 않으면 인증 API는 503으로 닫힌다. `health`의 200은 DB 연결 성공을 의미하지 않는다. 운영 DB는 2026-11-27에 만들었고, Production 환경변수와 `main` 병합 배포는 이어서 연결한다.
 
@@ -67,7 +67,7 @@ Supabase는 서울 `ap-northeast-2`, API 실행 리전은 서울 `icn1`이다. V
 
 ## 4. 삭제 요청과 파일 정리를 연결한다
 
-계정 메뉴의 **내 데이터 관리**에서 개별 자료와 계정 전체의 영향을 먼저 읽고 삭제를 요청한다. 사용자 API는 본인의 JWT로 범위를 확인한다. 비공개 파일과 계정의 실제 정리는 개발 작업자가 수행한다. 가입 계정이 사라진 뒤에도 접수번호로 상태를 확인할 수 있다. 백업 파기 여부는 별도 근거가 있어야 확인된다. [삭제 범위·운영 절차](api/data-deletion.md)
+계정 메뉴의 **내 데이터 관리**에서 개별 자료와 계정 전체의 영향을 먼저 읽고 삭제를 요청한다. 사용자 API는 본인의 JWT로 범위를 확인한다. 비공개 파일과 계정의 실제 정리는 개발 Mac의 환경별 삭제 작업자(`kr.homecierge.development.data-deletion`·`kr.homecierge.production.data-deletion`)가 수행한다. 가입 계정이 사라진 뒤에도 접수번호로 상태를 확인할 수 있다. 백업 파기 여부는 별도 근거가 있어야 확인된다. [삭제 범위·운영 절차](api/data-deletion.md)
 
 공고 PDF는 계정별 비공개 버킷에 업로드한다. 파일의 공식성·정정 회차·내용 판정과 보고서 PDF 생성은 별도 단계다. [저장·업로드 호출 순서](api/ingestion-storage.md)
 
@@ -174,7 +174,8 @@ BE-11에서 서울 개발 DB에 [오늘 공고 목록](../supabase/migrations/20
 | `SUPABASE_PUBLISHABLE_KEY` | `.secrets/backend.env` 또는 Vercel의 해당 환경 | 새 publishable key. 값은 문서·Git·출력에 남기지 않음 |
 | `APP_ENV` | 해당 환경 | `development`, `preview`, `production` 중 실제 환경 |
 | `ALLOWED_ORIGINS` | 해당 환경 | 화면 origin의 정확한 목록을 쉼표로 구분. 전체 와일드카드 금지 |
-| `SUPABASE_WORKER_KEY` | 수집 작업자 또는 격리된 통합 검사 프로세스 | 서버 전용 저장 및 시험 계정 관리에 사용 |
+| `SUPABASE_WORKER_KEY` | 개발 Mac 작업자(`.secrets/worker.env`·`.secrets/production/worker.env`) 또는 격리된 통합 검사 프로세스 | 서버 전용 저장·대기열 처리 및 시험 계정 관리에 사용. 운영은 `.secrets/production/worker.env`에서만 읽으며 개발 키로 대체하지 않음 |
+| `DATA_GO_KR_SERVICE_KEY`, `KAKAO_REST_API_KEY`, `OPENAI_API_KEY` (작업자용) | 개발 Mac의 `.secrets/<이름>.env` 또는 운영 전용 `.secrets/production/<이름>.env` | 운영 작업자는 `.secrets/production/<이름>.env`가 있으면 그것을, 없으면 `.secrets/<이름>.env`를 읽음. [개발 Mac 작업 운영](api/notice-operations.md) |
 | `NAVER_API_CLIENT_ID`, `NAVER_API_CLIENT_SECRET` | 지역 뉴스를 활성화하는 서버 환경 | 등록한 NAVER API HUB Application으로 뉴스 검색. 화면에서 사용하지 않음 |
 | `KAKAO_REST_API_KEY` | Vercel Preview·Production 서버 환경 | 공고·목적지 주소 확인(카카오 로컬)과 자동차 길찾기(카카오모빌리티). [출퇴근 연결](api/commute.md) |
 | `ODSAY_WEB_API_KEY` | Vercel Preview·Production 서버 환경 | ODsay LAB URI(웹) 플랫폼 키(등록된 서비스 출처 최대 5개). 출퇴근 POST의 `transitQuery`로 브라우저에 전달해 화면에서 대중교통 경로를 직접 조회한다(Q-47). 기존 서버 플랫폼 키 `ODSAY_API_KEY`는 출퇴근 API에서 제거 예정(미사용). [출퇴근 연결](api/commute.md) |

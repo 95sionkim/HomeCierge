@@ -418,9 +418,14 @@ class NoticeAnalysisWorkerTests(TestCase):
 
 
 class AnalysisWorkerStartupTests(TestCase):
-    def test_live_cli_keeps_worker_rpc_development_only(self):
+    def test_live_cli_enforces_worker_rpc_environment_and_origin_pairing(self):
         for override in ({'APP_ENV': 'production', 'SUPABASE_URL': 'https://syntheticprodproject.supabase.co'},
-                         {'VERCEL_ENV': 'production'}, {'SUPABASE_URL': 'https://syntheticprodproject.supabase.co'}):
+                         {'APP_ENV': 'production', 'SUPABASE_URL': 'https://jcaelooqogosbzrfyrhe.supabase.co'},
+                         {'APP_ENV': 'development', 'SUPABASE_URL': 'https://rwomqnyhqpnejytdzwfn.supabase.co'},
+                         {'APP_ENV': 'production', 'SUPABASE_URL': 'http://127.0.0.1'},
+                         {'VERCEL_ENV': 'production'}, {'VERCEL_ENV': 'preview'},
+                         {'VERCEL_TARGET_ENV': 'preview'},
+                         {'SUPABASE_URL': 'https://syntheticprodproject.supabase.co'}):
             with self.subTest(override=override), patch.dict('os.environ', {**WORKER_ENV, **override}, clear=True), \
                     patch('sys.argv', ['worker', '--once', '--live']), patch.object(WorkerRpc, 'post') as post, \
                     patch('run_analysis_worker.live_notice_transports') as provider, redirect_stderr(io.StringIO()):
@@ -429,7 +434,12 @@ class AnalysisWorkerStartupTests(TestCase):
                 self.assertEqual(exit_status.exception.code, 2)
                 post.assert_not_called()
                 provider.assert_not_called()
-        self.assertIn('/rest/v1/rpc/', WorkerRpc({**WORKER_ENV, 'VERCEL_ENV': 'preview'}).base)
+        prod_client = WorkerRpc({
+            'APP_ENV': 'production',
+            'SUPABASE_URL': 'https://rwomqnyhqpnejytdzwfn.supabase.co',
+            'SUPABASE_WORKER_KEY': WORKER_ENV['SUPABASE_WORKER_KEY'],
+        })
+        self.assertEqual(prod_client.base, 'https://rwomqnyhqpnejytdzwfn.supabase.co/rest/v1/rpc/')
 
     def test_rpc_preserves_pt403_without_the_server_error_body(self):
         opener = Mock()
