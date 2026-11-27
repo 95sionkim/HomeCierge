@@ -12,12 +12,20 @@ const env = { APP_ENV: 'development', SUPABASE_URL: 'https://db.invalid',
   SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_SYNTHETIC', ALLOWED_ORIGINS: 'https://screen.invalid',
   NAVER_API_CLIENT_ID: 'synthetic-id', NAVER_API_CLIENT_SECRET: 'synthetic-secret' };
 const headers = { Origin: env.ALLOWED_ORIGINS, Authorization: 'Bearer SYNTHETIC_USER' };
+const jsonHeaders = { ...headers, 'Content-Type': 'application/json' };
 const ready = { analysisId, snapshotId, status: 'ready', region: '서울특별시 광진구' };
-const request = (url = path, body?: string) => new Request(url, { method: 'POST', headers, body });
+const request = (url = path, body?: string, contentType?: string) =>
+  new Request(url, {
+    method: 'POST',
+    headers: contentType ? { ...headers, 'Content-Type': contentType } : headers,
+    body,
+  });
+const jsonRequest = (body: string, url = path) => request(url, body, 'application/json');
 
-function connect(t: TestContext, rpc: () => Response) {
+function connect(t: TestContext, rpc: () => Response, provider?: (url: URL) => Response) {
   let calls = 0;
   let searches = 0;
+  const searchParams: Array<{ display: string | null; start: string | null }> = [];
   t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const req = new Request(input, init);
     const url = new URL(req.url);
@@ -37,13 +45,19 @@ function connect(t: TestContext, rpc: () => Response) {
     assert.equal(req.headers.get('Authorization'), null);
     assert.equal(req.headers.get('apikey'), null);
     searches++;
-    return Response.json({ total: 0, start: 1, display: 0, items: [] });
+    searchParams.push({ display: url.searchParams.get('display'), start: url.searchParams.get('start') });
+    if (provider) return provider(url);
+    return Response.json({ total: 0, start: Number(url.searchParams.get('start')), display: 0, items: [] });
   };
-  return { handle: createHandler({ env, createBackend, newsFetch, log() {} }), counts: () => [calls, searches] };
+  return {
+    handle: createHandler({ env, createBackend, newsFetch, log() {} }),
+    counts: () => [calls, searches],
+    searchParams,
+  };
 }
 
 test('request uses only the owner snapshot region and reports verified provider zero with private caching', async t => {
-  const { handle, counts } = connect(t, () => Response.json(ready));
+  const { handle, counts, searchParams } = connect(t, () => Response.json(ready));
   const res = await handle(request());
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('cache-control'), 'private, no-store');
@@ -53,8 +67,70 @@ test('request uses only the owner snapshot region and reports verified provider 
   assert.equal(body.analysisId, analysisId);
   assert.equal(body.snapshotId, snapshotId);
   assert.equal(body.status, 'empty');
+  assert.equal(body.search.conditions.display, 10);
+  assert.equal(body.search.conditions.start, 1);
+  assert.deepEqual(body.search.page, {
+    number: 1, size: 10, total: 0, lastPage: 0, hasPrevious: false, hasNext: false,
+  });
   assert.deepEqual(body.search.items, []);
   assert.deepEqual(counts(), [1, 1]);
+  assert.deepEqual(searchParams, [{ display: '10', start: '1' }]);
+});
+
+test('optional JSON page body defaults empty object to page 1, forwards start offset and never caches pages', async t => {
+  const { handle, counts, searchParams } = connect(
+    t,
+    () => Response.json(ready),
+    url => {
+      const start = Number(url.searchParams.get('start'));
+      const total = 25;
+      const count = Math.max(0, Math.min(10, total - start + 1));
+      const items = Array.from({ length: count }, (_, idx) => ({
+        title: `합성 기사 ${start + idx}`,
+        description: `합성 발췌 ${start + idx}`,
+        originallink: `https://example.org/news/${start + idx}`,
+        pubDate: 'Mon, 02 Nov 2026 09:00:00 +0900',
+      }));
+      return Response.json({ total, start, display: items.length, items });
+    },
+  );
+  const emptyJson = await handle(jsonRequest('{}'));
+  assert.equal(emptyJson.status, 200);
+  const page1 = await emptyJson.json();
+  assert.equal(page1.status, 'available');
+  assert.equal(page1.search.conditions.start, 1);
+  assert.equal(page1.search.items.length, 10);
+  assert.deepEqual(page1.search.page, {
+    number: 1, size: 10, total: 25, lastPage: 3, hasPrevious: false, hasNext: true,
+  });
+
+  const page2Res = await handle(jsonRequest('{"page":2}'));
+  assert.equal(page2Res.status, 200);
+  const page2 = await page2Res.json();
+  assert.equal(page2.search.conditions.start, 11);
+  assert.equal(page2.search.items[0].title, '합성 기사 11');
+  assert.deepEqual(page2.search.page, {
+    number: 2, size: 10, total: 25, lastPage: 3, hasPrevious: true, hasNext: true,
+  });
+
+  const page3Res = await handle(jsonRequest('{"page":3}'));
+  assert.equal(page3Res.status, 200);
+  const page3 = await page3Res.json();
+  assert.equal(page3.search.conditions.start, 21);
+  assert.equal(page3.search.items.length, 5);
+  assert.deepEqual(page3.search.page, {
+    number: 3, size: 10, total: 25, lastPage: 3, hasPrevious: true, hasNext: false,
+  });
+
+  const page1Again = await handle(new Request(path, { method: 'POST', headers: jsonHeaders }));
+  assert.equal(page1Again.status, 200);
+  assert.deepEqual(counts(), [4, 4]);
+  assert.deepEqual(searchParams, [
+    { display: '10', start: '1' },
+    { display: '10', start: '11' },
+    { display: '10', start: '21' },
+    { display: '10', start: '1' },
+  ]);
 });
 
 test('holds, invalid backend context, foreign accounts and limits do not trigger a search', async t => {
@@ -81,15 +157,36 @@ test('holds, invalid backend context, foreign accounts and limits do not trigger
   assert.deepEqual(counts(), [9, 0]);
 });
 
-test('free text, query overrides, invalid UUID and missing login cannot spend a search attempt', async t => {
+test('free text, invalid page values, query overrides, invalid UUID and missing login cannot spend a search attempt', async t => {
   const { handle, counts } = connect(t, () => { throw Error('unexpected_rpc'); });
   assert.equal((await handle(new Request(path, { method: 'POST' }))).status, 401);
   assert.equal((await handle(new Request(path, { headers }))).status, 405);
   assert.equal((await handle(new Request(path, { method: 'OPTIONS', headers }))).headers.get('access-control-allow-methods'), 'POST, OPTIONS');
-  for (const req of [request(path, '{"region":"other"}'), request(path + '?query=other'), request(path.replace(snapshotId, 'bad'))]) {
+  for (const req of [
+    jsonRequest('{"region":"other"}'),
+    jsonRequest('{"page":0}'),
+    jsonRequest('{"page":-1}'),
+    jsonRequest('{"page":1.5}'),
+    jsonRequest('{"page":"2"}'),
+    jsonRequest('{"page":101}'),
+    jsonRequest('{"page":null}'),
+    jsonRequest('{"page":true}'),
+    jsonRequest('{"page":1,"extra":true}'),
+    jsonRequest('[]'),
+    jsonRequest('null'),
+    jsonRequest('{'),
+    request(path + '?query=other'),
+    request(path.replace(snapshotId, 'bad')),
+  ]) {
     const res = await handle(req);
     assert.equal(res.status, 400);
     assert.equal((await res.json()).error, 'invalid_news_input');
   }
+  const wrongMedia = await handle(request(path, '{"page":1}', 'text/plain'));
+  assert.equal(wrongMedia.status, 415);
+  assert.equal((await wrongMedia.json()).error, 'unsupported_media_type');
+  const tooLarge = await handle(jsonRequest('{"page":1}' + ' '.repeat(5000)));
+  assert.equal(tooLarge.status, 413);
+  assert.equal((await tooLarge.json()).error, 'payload_too_large');
   assert.deepEqual(counts(), [0, 0]);
 });

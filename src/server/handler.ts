@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { ApiError, isUuid, readBody, readJsonRequest, uuidPattern } from './http-input.js';
+import { ApiError, isUuid, readJsonRequest, uuidPattern } from './http-input.js';
 import { koreaDate } from './public-fields.js';
 import { commuteRequest, readCommute, readCommuteOrigin } from './commute.js';
 import { readLegalEvidence } from './legal-evidence.js';
-import { readRegionalNews } from './regional-news-request.js';
+import { readRegionalNews, readRegionalNewsPage } from './regional-news-request.js';
 import { parseNoticeSearchConditions, evaluateNoticeSearch } from './notice-search.js';
 import { evaluateNoticeDirectory, noticeRegionOptions, parseNoticeDirectoryQuery } from './notice-directory.js';
 import { evaluateNoticeLookup, parseNoticeLookupQuery, serveChatHome } from './notice-lookup.js';
@@ -201,9 +201,10 @@ export function createHandler(deps: {
           }), 200);
         }
         if (news) {
-          if (await readBody(request, 0, 'invalid_news_input') === null) throw new ApiError('invalid_news_input');
+          const page = await readRegionalNewsPage(request);
           const context = await backend.prepareRegionalNews(analysisId, snapshotId, request.signal);
           return respond(await readRegionalNews(context, analysisId, snapshotId, {
+            page,
             clientId: deps.env.NAVER_API_CLIENT_ID, clientSecret: deps.env.NAVER_API_CLIENT_SECRET,
             signal: request.signal, fetch: deps.newsFetch, now: deps.now,
           }), 200);

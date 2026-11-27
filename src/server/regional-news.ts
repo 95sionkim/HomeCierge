@@ -6,7 +6,9 @@ import { isTimestamp } from './public-fields.js';
 const endpoint = 'https://naverapihub.apigw.ntruss.com/search/v1/news';
 const source = Object.freeze({ provider: 'naver_api_hub', name: '네이버 검색결과',
   url: 'https://www.ncloud.com/product/applicationService/NAVERAPIHUB' } as const);
-const display = 3;
+const display = 10;
+const maxStart = 1000;
+export const maxRegionalNewsPage = Math.floor((maxStart - 1) / display) + 1;
 const timeoutMs = 5_000;
 const maxResponseBytes = 64 * 1024;
 
@@ -20,11 +22,21 @@ const provinces = new Set([
 const integratedCity = '전남광주통합특별시';
 
 export type RegionalNewsOptions = {
+  page?: number;
   clientId?: string;
   clientSecret?: string;
   signal: AbortSignal;
   fetch?: typeof fetch;
   now?: () => Date;
+};
+
+export type RegionalNewsPage = {
+  number: number;
+  size: 10;
+  total: number;
+  lastPage: number;
+  hasPrevious: boolean;
+  hasNext: boolean;
 };
 
 type RegionalNewsItem = {
@@ -38,7 +50,8 @@ type RegionalNewsItem = {
 export type RegionalNewsResult = {
   status: 'available' | 'empty' | 'partial' | 'provider_unavailable' | 'rate_limited' | 'not_configured';
   queriedAt: string | null;
-  conditions: { region: string; query: string; sort: 'date'; display: 3; format: 'json' };
+  conditions: { region: string; query: string; sort: 'date'; display: 10; start: number; format: 'json' };
+  page: RegionalNewsPage | null;
   source: typeof source;
   textFormat: 'plain_text';
   geographicRelevance: 'unverified';
@@ -128,32 +141,58 @@ function readItem(value: unknown, credentials: string[]): RegionalNewsItem | und
   return item;
 }
 
-function readPage(value: unknown, credentials: string[]): Pick<RegionalNewsResult, 'status' | 'items' | 'omittedCount'> {
+function readPage(
+  value: unknown,
+  pageNumber: number,
+  start: number,
+  credentials: string[],
+): Pick<RegionalNewsResult, 'status' | 'page' | 'items' | 'omittedCount'> {
   if (!isObject(value) || 'error' in value || 'errorCode' in value || 'errorMessage' in value
     || typeof value.total !== 'number' || !Number.isSafeInteger(value.total) || value.total < 0
-    || !Array.isArray(value.items) || value.items.length > Math.min(value.total, display)) {
+    || !Array.isArray(value.items)) {
     throw new Error('invalid_news_response');
   }
-  const firstPage = value.start === undefined || value.start === 1 || (value.total === 0 && value.start === 0);
+  const expected = Math.max(0, Math.min(display, value.total - start + 1));
+  if (value.items.length > expected) {
+    throw new Error('invalid_news_response');
+  }
+  const validStart = value.start === start || (value.total === 0 && value.start === 0);
   // 응답 display가 생략되거나 실제 항목 수와 요청 크기 중 하나를 표시할 수 있다.
   const validDisplay = value.display === undefined || value.display === value.items.length || value.display === display;
-  if (!firstPage || !validDisplay) throw new Error('invalid_news_response');
+  if (!validStart || !validDisplay) throw new Error('invalid_news_response');
+
+  const lastPage = Math.min(Math.ceil(value.total / display), maxRegionalNewsPage);
+  const page: RegionalNewsPage = {
+    number: pageNumber,
+    size: display,
+    total: value.total,
+    lastPage,
+    hasPrevious: pageNumber > 1,
+    hasNext: pageNumber < lastPage,
+  };
 
   const validItems: RegionalNewsItem[] = [];
   for (const row of value.items) {
     const item = readItem(row, credentials);
     if (item) validItems.push(item);
   }
-  const omittedCount = Math.min(value.total, display) - validItems.length;
-  if (omittedCount > 0) return { status: 'partial', items: [], omittedCount };
-  return { status: value.total === 0 ? 'empty' : 'available', items: validItems, omittedCount };
+  const omittedCount = expected - validItems.length;
+  if (omittedCount > 0) return { status: 'partial', page, items: [], omittedCount };
+  return { status: expected === 0 ? 'empty' : 'available', page, items: validItems, omittedCount };
 }
 
 export async function fetchRegionalNews(region: string, options: RegionalNewsOptions): Promise<RegionalNewsResult> {
   if (!isRegionalNewsRegion(region)) throw new TypeError('invalid_news_region');
+  const pageNumber = options.page ?? 1;
+  if (typeof pageNumber !== 'number' || !Number.isSafeInteger(pageNumber)
+    || pageNumber < 1 || pageNumber > maxRegionalNewsPage) {
+    throw new TypeError('invalid_news_page');
+  }
+  const start = (pageNumber - 1) * display + 1;
   const base: RegionalNewsResult = {
     status: 'provider_unavailable', queriedAt: null,
-    conditions: { region, query: `${region} 분양`, sort: 'date', display, format: 'json' },
+    conditions: { region, query: `${region} 분양`, sort: 'date', display, start, format: 'json' },
+    page: null,
     source, textFormat: 'plain_text', geographicRelevance: 'unverified', factVerification: 'unverified',
     items: [], omittedCount: 0,
   };
@@ -164,7 +203,9 @@ export async function fetchRegionalNews(region: string, options: RegionalNewsOpt
 
   const { query, sort, format } = base.conditions;
   const url = new URL(endpoint);
-  url.search = new URLSearchParams({ query, display: String(display), sort, format }).toString();
+  url.search = new URLSearchParams({
+    query, display: String(display), start: String(start), sort, format,
+  }).toString();
   const signal = AbortSignal.any([options.signal, AbortSignal.timeout(timeoutMs)]);
   const queriedAt = (options.now?.() ?? new Date()).toISOString();
   try {
@@ -179,8 +220,8 @@ export async function fetchRegionalNews(region: string, options: RegionalNewsOpt
       const status = !signal.aborted && !response.redirected && response.status === 429 ? 'rate_limited' : 'provider_unavailable';
       return { ...base, status, queriedAt };
     }
-    const page = await readLimitedJson(response, signal, maxResponseBytes);
-    return { ...base, queriedAt, ...readPage(page, [clientId, clientSecret]) };
+    const payload = await readLimitedJson(response, signal, maxResponseBytes);
+    return { ...base, queriedAt, ...readPage(payload, pageNumber, start, [clientId, clientSecret]) };
   } catch {
     return { ...base, queriedAt };
   }

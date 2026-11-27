@@ -342,13 +342,16 @@ export function readFundingPlan(analysisId, snapshotId, modelNo, room) {
   return request('/api/v1/analyses/' + analysisId + '/funding-plan', 'POST', { snapshotId, modelNo, room });
 }
 
-export function readSnapshotReference(section, analysisId, snapshotId, signal) {
+export function readSnapshotReference(section, analysisId, snapshotId, signal, page = null) {
   const law = section === 'law';
   if ((!law && section !== 'news') || !uuid.test(analysisId) || !uuid.test(snapshotId))
     throw apiError(law ? 'invalid_legal_input' : 'invalid_news_input');
+  if (!law && page !== null && (!Number.isSafeInteger(page) || page < 1 || page > 100))
+    throw apiError('invalid_news_input');
   const service = law ? 'legal-evidence' : 'regional-news';
+  const body = !law && page !== null ? { page } : undefined;
   return request(`/api/v1/analyses/${analysisId}/snapshots/${snapshotId}/${service}`,
-    law ? 'GET' : 'POST', undefined, signal);
+    law ? 'GET' : 'POST', body, signal);
 }
 
 export function readCommuteOrigin(analysisId, snapshotId, signal) {
