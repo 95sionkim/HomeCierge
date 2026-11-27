@@ -36,9 +36,9 @@ flowchart LR
 | --- | --- | --- |
 | 로컬 | PGlite 합성 검사 또는 별도 로컬 Supabase | 합성 자료만 기본 사용. Docker가 없으면 전체 Supabase 로컬 스택은 실행할 수 없음 |
 | Development / Preview | 생성한 `homecierge-dev` | 별도 개발 계정·합성 검사 자료. 공고 탐색에는 이용 조건을 확인한 청약홈 구조화 목록과 현존 지역코드를 게시 |
-| Production | 별도 운영 Supabase를 연결하는 설계 | 이번에 운영 DB를 자동 생성하지 않음. 이용 조건·삭제·인증 설정 검수 후 별도 연결 |
+| Production | 별도 무료 프로젝트 `homecierge-prod`(`rwomqnyhqpnejytdzwfn`, 서울) | 2026-11-27 생성(Q-46). 저장소 마이그레이션만 CLI로 적용하고 총괄은 운영 DB에 직접 SQL로 접근하지 않는다. Preview·개발에는 운영 연결을 넣지 않는다 |
 
-Supabase는 서울 `ap-northeast-2`, API 실행 리전은 서울 `icn1`이다. Vercel 빌드 머신은 미국 `iad1`에서 실행됐으므로 빌드 위치와 함수 실행 위치를 구분한다. `APP_ENV`가 Production과 맞지 않으면 인증 API는 503으로 닫힌다. `health`의 200은 DB 연결 성공을 의미하지 않는다. Production 환경변수·운영 DB·운영 배포는 준비하지 않았다.
+Supabase는 서울 `ap-northeast-2`, API 실행 리전은 서울 `icn1`이다. Vercel 빌드 머신은 미국 `iad1`에서 실행됐으므로 빌드 위치와 함수 실행 위치를 구분한다. `APP_ENV`가 Production과 맞지 않으면 인증 API는 503으로 닫힌다. `health`의 200은 DB 연결 성공을 의미하지 않는다. 운영 DB는 2026-11-27에 만들었고, Production 환경변수와 `main` 병합 배포는 이어서 연결한다.
 
 ## 3. 저장 범위와 권한을 확인한다
 
@@ -163,6 +163,8 @@ BE-11에서 서울 개발 DB에 [오늘 공고 목록](../supabase/migrations/20
 이어서 [채팅 홈 에이전트 대기열](../supabase/migrations/20261126160000_chat_agent_replies.sql)을 CLI로 적용했고 다시 생성한 타입이 저장소 파일과 같다. 작업자 RPC 5개(임대·문맥·완료·실패·만료)는 서비스 키 전용이고, 사용자 확인 카드의 확인·결정 RPC 2개는 로그인 사용자에게만 실행 권한이 있음을 원격에서 확인했다. 실제 OpenAI 호출로 채팅 응답 품질을 확인하는 검수는 남아 있다. [채팅 홈](api/chat-home.md)
 
 2026-11-27 새 통합 검사(`npm run test:auth -- --upload-supplement`)가 GitHub Actions의 실제 Supabase에서 업로드 보완 문맥 조회의 503을 찾았다. `STABLE`로 선언된 공개 RPC를 PostgREST가 읽기 전용 트랜잭션에서 실행하는데, 공통 로그인 확인이 Auth 사용자 행을 `FOR SHARE`로 잠가 25006으로 실패했다. PGlite 검사는 SQL을 직접 실행해 이 차이를 드러내지 못했다. [변동성 수정](../supabase/migrations/20261127003000_upload_supplement_rpc_volatility.sql)으로 `read_upload_supplement_context`·`get_upload_supplement_run`을 `VOLATILE`로 바꿔 개발 DB에 적용했고, `STABLE`·`IMMUTABLE` 공개 RPC가 행 잠금에 닿으면 실패하는 [정적 검사](../scripts/test_migration_rpc_volatility.py)를 기본 Python 검사에 추가했다.
+
+2026-11-27 운영 프로젝트 `homecierge-prod`를 만들었다(Q-46). 무료 활성 프로젝트 2개 한도 때문에 `zero-delegation`을 일시중지했다(90일 안에 다시 켜면 복구). `npx supabase db push --remote=rwomqnyhqpnejytdzwfn --yes`로 저장소 마이그레이션 33개를 적용했고, 생성한 타입이 저장소 파일과 같았다(PostgREST 판만 17.1로 다름). Auth는 `supabase/config.toml`의 `[remotes.production]` 블록으로 개발과 같은 값에 화면 주소(`https://homecierge-api.vercel.app`)만 바꿔 `config push`했다. 연결 풀 크기 2개는 관리 API로 바꿀 수 없어 대시보드 값으로 남았다. 운영 가입은 개발처럼 이메일 확인 없이 바로 확인되며, 실제 출시 전 이메일 확인·SMTP는 D-06에서 정한다. 무료 프로젝트는 7일 동안 활동이 적으면 일시중지될 수 있다.
 
 ## 6. 연결할 환경변수를 구분한다
 
