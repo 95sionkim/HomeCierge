@@ -67,7 +67,7 @@
 
 ## ODsay URI(웹) 키 등록
 
-1. ODsay LAB 콘솔에서 애플리케이션의 **URI(웹)** 플랫폼에 서비스 출처 주소를 등록한다(최대 5개, 예: 개발·미리보기·운영 도메인).
+1. ODsay LAB 콘솔에서 애플리케이션의 **URI(웹)** 플랫폼에 서비스 도메인을 등록한다(최대 5개). 콘솔 안내대로 `https://` 없이 도메인만 넣는다(예: `homecierge-api.vercel.app`, 미리보기 브랜치 도메인). 키는 플랫폼마다 따로 발급되므로 서버(IP) 플랫폼 키가 아니라 URI 플랫폼 줄의 키를 쓴다.
 2. 발급된 URI(웹) 플랫폼 키를 서버 환경변수 `ODSAY_WEB_API_KEY`에 설정한다(로컬 `.secrets/backend.env` 또는 Vercel Preview·Production 서버 환경). 키가 URL 인코딩된 형태로 복사돼도 서버가 한 번 정규화해 전달하고 브라우저가 `encodeURIComponent`로 전송한다.
 3. 기존 서버 플랫폼 키 `ODSAY_API_KEY`는 출퇴근 API 서버에서 사용하지 않는다.
 

@@ -782,6 +782,26 @@ test('commute ambiguous area shows raw address, reason, suggestion input and sub
     assert.deepEqual(posted, [{destination:'서울특별시 중구 합성대로 110',origin:'서울특별시 종로구 합성동 28'}]);
     assert.match(await p.locator('.commute-result-origin').innerText(), /서울특별시 종로구 합성동 28[\s\S]*입력한 단지 주소 기준/);
 
+    // 결과가 있는 상태에서 한글 첫 글자를 조합하는 동안 입력칸을 다시 만들지 않는다('월' → 'ㅇㅝㄹ' 방지).
+    const composed = await p.evaluate(async () => {
+      const field = document.querySelector('#commute-destination');
+      field.focus();
+      field.dataset.composeMarker = 'kept';
+      field.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '' }));
+      field.value = 'ㅇ';
+      field.dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: true, data: 'ㅇ', inputType: 'insertCompositionText' }));
+      field.value = '워';
+      field.dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: true, data: '워', inputType: 'insertCompositionText' }));
+      const sameDuring = document.querySelector('#commute-destination') === field && field.dataset.composeMarker === 'kept';
+      field.value = '월';
+      field.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '월' }));
+      field.dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: false, data: '월', inputType: 'insertCompositionText' }));
+      await new Promise(resolve => setTimeout(resolve, 30));
+      const after = document.querySelector('#commute-destination');
+      return { sameDuring, value: after.value, results: document.querySelectorAll('.commute-results').length };
+    });
+    assert.deepEqual(composed, { sameDuring: true, value: '월', results: 0 });
+
     // 블록 표기처럼 대표 지번이 없으면 입력칸이 비어 있고 조회 버튼이 비활성으로 시작한다.
     mode='block';
     await p.reload();
