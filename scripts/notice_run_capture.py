@@ -20,7 +20,7 @@ from typing import Callable, Optional
 from urllib import error as urllib_error, parse as urllib_parse, request as urllib_request
 from uuid import UUID
 
-from compare_trades import _checked_target_area, _documents, _selected_model, compare_snapshot
+from compare_trades import _reported_house_type, _selected_model, compare_snapshot, parse_exclusive_area_class
 from complex_coordinates import KakaoCoordinateBudgetExceeded, live_kakao_transport
 from complex_evidence import (
     DEFAULT_APPLYHOME_REQUEST_LIMIT,
@@ -408,7 +408,7 @@ def capture_notice(plan, transports, guard, generation, *, official_index=(), re
 
 
 def has_confirmed_target_area(capture, selection):
-    """비교 엔진과 같은 기준으로 대상 주택형의 공급면적이 문서 대조까지 확정되었는지 판정한다."""
+    """비교 엔진과 같은 기준으로 대상 주택형의 평형(전용면적 정수부, Q-52)을 확인할 수 있는지 판정한다."""
     if not isinstance(capture, dict) or capture.get('dataOrigin') != 'collected':
         return False
     period = capture.get('period')
@@ -421,9 +421,19 @@ def has_confirmed_target_area(capture, selection):
     model, _ = _selected_model(catalog, selection if isinstance(selection, dict) else {})
     if model is None:
         return False
-    documents = _documents(catalog, target)
-    _, area = _checked_target_area(model, documents)
-    return area is not None
+    house_type = _reported_house_type(model.get('houseType'))
+    return parse_exclusive_area_class(house_type) is not None
+
+
+def _capture_target_area_class(capture, selection):
+    catalog = capture.get('catalog') if isinstance(capture, dict) else None
+    if not isinstance(catalog, dict):
+        return None
+    model, _ = _selected_model(catalog, selection if isinstance(selection, dict) else {})
+    if model is None:
+        return None
+    parsed = parse_exclusive_area_class(_reported_house_type(model.get('houseType')))
+    return parsed[1] if parsed is not None else None
 
 
 def build_capture_auto_evidence(
@@ -462,7 +472,7 @@ def build_capture_auto_evidence(
     if len(req_regions) != 1:
         return None, None
     sgg_code = req_regions[0]
-    cache_keys = prefetch_cache_keys(capture)
+    cache_keys = prefetch_cache_keys(capture, target_area_class=_capture_target_area_class(capture, plan['comparison']))
 
     cached_region = None
     applyhome_cache = {}
@@ -655,7 +665,9 @@ def prepare_upload_supplement_comparison(
     return inputs, capture, comparison, schedules
 
 
-def execute_upload_supplement_lease(client, lease, selection, lease_seconds, transports):
+def execute_upload_supplement_lease(
+    client, lease, selection, lease_seconds, transports, *, finish=None, retry_log=None,
+):
     """업로드 보완 실행 한 건을 작업자 임대 안에서 검증·점검·원자 저장한다."""
     if transports is None:
         raise NoticeWorkerConfigurationError('업로드 보완 실행을 처리하려면 --live 또는 공고·업로드 전송이 필요합니다.')
@@ -683,6 +695,14 @@ def execute_upload_supplement_lease(client, lease, selection, lease_seconds, tra
             **lease, 'p_region': region_record, 'p_entries': entries,
         })
 
+    if isinstance(transports, NoticeTransports):
+        limits = dict(LIMITS, **(transports.limits or {}))
+        save_lease_seconds = min(300, max(lease_seconds, limits['leaseSeconds']))
+        save_sleep = transports.sleep
+    else:
+        save_lease_seconds = min(300, max(lease_seconds, LIMITS['leaseSeconds']))
+        save_sleep = None
+
     try:
         try:
             work = client.post('read_upload_supplement_work', lease, limit=MAX_UPLOAD_SUPPLEMENT_WORK_BYTES)
@@ -694,6 +714,11 @@ def execute_upload_supplement_lease(client, lease, selection, lease_seconds, tra
             read_permissions=read_permissions, read_cache=read_cache, upsert_cache=upsert_cache,
             return_evidence=True,
         )
+        if finish is not None:
+            return finish(
+                client, lease, inputs, capture, comparison, schedules, evidence_bundle,
+                lease_seconds=save_lease_seconds, renew=renew, sleep=save_sleep, retry_log=retry_log,
+            )
         payload = {**lease, 'p_input': inputs, 'p_result': capture, 'p_comparison': comparison}
         if evidence_bundle is not None:
             body = dict(

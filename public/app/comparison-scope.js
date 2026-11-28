@@ -1,4 +1,13 @@
-import { badge, esc, icon, reasonText, supplyLabel } from './display.js';
+import {
+  areaClassLabel,
+  badge,
+  comparisonAreaCriterion,
+  esc,
+  icon,
+  reasonText,
+  supplyAreaRefLabel,
+  supplyLabel,
+} from './display.js';
 import { tradeRange } from './comparison-values.js';
 
 const tradeNames = { sale: '아파트 매매', presale_right: '분양권', occupancy_right: '입주권' };
@@ -20,7 +29,9 @@ const regionUnitLabels = {
 const EXTRA_REASON_LABELS = {
   cancelled_trade: '해제 거래 제외',
   outside_contract_period: '계약 기간 밖 제외',
+  outside_area_class: '다른 평형 제외',
   outside_supply_area: '공급면적 허용 범위 밖 제외',
+  target_area_class_unverified: '대상 주택형 평형 미확인',
   outside_applied_region: '적용 지역 밖 제외',
   trade_kind_not_included: '분석 대상 외 거래 종류 제외',
   target_complex_trade: '대상 단지 자체 거래 (주변 집계 제외)',
@@ -327,7 +338,7 @@ function characteristicStatusChips(characteristics) {
   return chips.join('');
 }
 
-function renderCandidateCard(candidate, role, targetAreaM2) {
+function renderCandidateCard(candidate, role, isAreaClass) {
   const isTarget = role === 'target';
   const trade = candidateTradeSummary(candidate);
   const rankLabel = isTarget
@@ -347,12 +358,13 @@ function renderCandidateCard(candidate, role, targetAreaM2) {
       : dist?.status === 'conflict'
         ? `<span class="hc-cell-empty" aria-label="값 없음">—</span> ${badge('conflict', 'link-2-off', '좌표 충돌')}`
         : `<span class="hc-cell-empty" aria-label="값 없음">—</span> ${badge('unknown', 'circle-help', '거리 미확인')}`;
-  const diffHtml =
-    candidate.areaDifferenceM2 != null
-      ? `<small class="muted">기준 대비 ${esc(formatAreaDiff(candidate.areaDifferenceM2))} 차이</small>`
-      : targetAreaM2
-        ? ''
-        : '';
+  const areaBlock = isAreaClass
+    ? `<div><dt>비교 평형</dt><dd><strong>${esc(areaClassLabel(candidate.areaClass))}</strong> <small class="muted">${esc(supplyAreaRefLabel(candidate))}</small></dd></div>`
+    : `<div><dt>선정 면적</dt><dd><strong>공급 ${esc(supplyLabel(candidate.supplyAreaM2))}</strong>${
+        candidate.areaDifferenceM2 != null
+          ? `<small class="muted">기준 대비 ${esc(formatAreaDiff(candidate.areaDifferenceM2))} 차이</small>`
+          : ''
+      }</dd></div>`;
   const charChips = characteristicStatusChips(candidate.characteristics);
   return `<article class="scope-candidate-card${isTarget ? ' is-target-ref' : ''}" data-complex-card="${esc(candidate.complexId)}">
     <div class="scope-card-head">
@@ -363,7 +375,7 @@ function renderCandidateCard(candidate, role, targetAreaM2) {
       </div>
     </div>
     <dl class="scope-card-dl">
-      <div><dt>선정 면적</dt><dd><strong>공급 ${esc(supplyLabel(candidate.supplyAreaM2))}</strong>${diffHtml}</dd></div>
+      ${areaBlock}
       ${isTarget ? '' : `<div><dt>거리</dt><dd>${distHtml}</dd></div>`}
       <div><dt>유효 거래</dt><dd><strong>${esc(trade.parts.join(' · ') || '—')}</strong>${trade.hasSmallSample ? ' <small class="muted">소표본</small>' : ''}</dd></div>
     </dl>
@@ -500,14 +512,15 @@ export function comparisonScopeView(data) {
   </div>`;
 
   // 확인된 비교 단지 카드 + 자체 거래 카드
-  const targetAreaM2 = data.target?.supplyArea?.status === 'confirmed' ? data.target.supplyArea.m2 : null;
+  const criterion = comparisonAreaCriterion(data);
+  const isAreaClass = criterion.basis === 'exclusive_area_class';
   const candidateCardsHtml = comparables.length
     ? `<div class="scope-candidates-wrap">
         <div class="scope-subhead">
           <h3>확인된 비교 단지 <span class="num">${comparables.length}곳</span></h3>
           <span class="small muted">카드를 누르면 식별 근거와 제외 거래까지 확인할 수 있습니다.</span>
         </div>
-        <div class="scope-candidate-grid">${comparables.map((c) => renderCandidateCard(c, 'comparable', targetAreaM2)).join('')}</div>
+        <div class="scope-candidate-grid">${comparables.map((c) => renderCandidateCard(c, 'comparable', isAreaClass)).join('')}</div>
       </div>`
     : '';
 
@@ -517,7 +530,7 @@ export function comparisonScopeView(data) {
           <h3>대상 단지 자체 거래 <span class="num">${targetRefs.length}곳</span></h3>
           ${badge('zero', 'info', '별도 참고 · 주변 5단지 집계 제외')}
         </div>
-        <div class="scope-candidate-grid">${targetRefs.map((c) => renderCandidateCard(c, 'target', targetAreaM2)).join('')}</div>
+        <div class="scope-candidate-grid">${targetRefs.map((c) => renderCandidateCard(c, 'target', isAreaClass)).join('')}</div>
       </div>`
     : '';
 
@@ -580,6 +593,7 @@ export function comparisonScopeView(data) {
       <div class="scope-head-main">
         <div class="panel-title">${icon('map-pin')}<h2>비교 대상 판정</h2></div>
         ${scopeBadge(data)}
+        ${criterion.basis !== 'unknown' ? `<span class="scope-criterion-chip" data-comparison-criterion>${icon('sliders-horizontal')}${esc(criterion.banner)}</span>` : ''}
       </div>
       ${info.code ? `<span class="scope-code-chip code" title="적용 지역 코드">코드 ${esc(info.code)}</span>` : ''}
     </div>

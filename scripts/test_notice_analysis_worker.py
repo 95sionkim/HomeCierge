@@ -50,6 +50,8 @@ class NoticeAnalysisWorkerTests(TestCase):
         self.renew_error = None
         self.fail_read = None
         self.fail_finish = None
+        self.fail_finish_queue = None
+        self.run_status_reply = None
         self.business_error = None
 
     def rpc(self, name, params, **kwargs):
@@ -63,16 +65,31 @@ class NoticeAnalysisWorkerTests(TestCase):
             if self.fail_read is not None:
                 raise self.fail_read
             return self.work
+        if name == 'read_analysis_run_status':
+            if isinstance(self.run_status_reply, Exception):
+                raise self.run_status_reply
+            if self.run_status_reply is not None:
+                return self.run_status_reply
+            return {'runId': self.job['runId'], 'status': 'running',
+                    'attempt': self.job['generation'], 'leaseActive': True}
         if name == 'renew_analysis_run':
             if self.cancelled:
                 raise WorkerRpcError(409, 'PT409')
             if self.renew_error is not None:
                 raise self.renew_error
             return {'runId': self.job['runId'], 'status': 'running', 'attempt': self.job['generation']}
-        if name in ('finish_analysis_comparison', 'finish_notice_with_funding'):
+        if name in ('finish_analysis_comparison', 'finish_notice_with_funding', 'finish_notice_with_evidence'):
+            if self.fail_finish_queue:
+                next_reply = self.fail_finish_queue.pop(0)
+                if isinstance(next_reply, Exception):
+                    raise next_reply
+                return next_reply
             if self.fail_finish is not None:
                 raise self.fail_finish
             return self.finished
+        if name == 'read_auto_evidence_permissions':
+            return {'applyhomeApt': False, 'applyhomeRemainder': False, 'moisRegions': False,
+                    'kakaoRuntime': False, 'kakaoStorage': False}
         if name == 'fail_notice_analysis_run':
             return {'status': 'retry_wait' if params['p_retryable'] else 'failed', 'runId': self.job['runId']}
         if name == 'fail_analysis_run':
@@ -341,13 +358,62 @@ class NoticeAnalysisWorkerTests(TestCase):
         for stage, failure in (('renew_error', WorkerRpcError(429)), ('fail_finish', WorkerRpcError())):
             with self.subTest(stage=stage):
                 self.events.clear()
-                self.renew_error = self.fail_finish = None
+                self.renew_error = self.fail_finish = self.run_status_reply = None
                 setattr(self, stage, failure)
+                if stage == 'fail_finish':
+                    self.run_status_reply = WorkerRpcError()
                 with self.assertRaises(WorkerRpcError):
                     self.run_job()
                 if stage == 'renew_error':
                     self.assertEqual(self.calls('api') + self.calls('pdf') + self.calls('finish_analysis_comparison'), [])
+                else:
+                    self.assertEqual(len(self.calls('finish_analysis_comparison')), 1)
+                    self.assertEqual(len(self.calls('read_analysis_run_status')), 4)
                 self.assertEqual(self.calls('fail_notice_analysis_run'), [])
+
+    def test_notice_save_retry_preserves_collection_and_renews_notice_lease(self):
+        self.work['noticeCapture']['allowOfficialPdf'] = True
+        self.fail_finish_queue = [WorkerRpcError(500, '57014'), WorkerRpcError(503)]
+        sleeps = []
+
+        def record_sleep(sec):
+            sleeps.append(sec)
+            self.advance(sec)
+
+        transports = NoticeTransports(self.api, self.pdf, clock=lambda: self.seconds,
+                                      sleep=record_sleep, inspect=self.inspect)
+        outcome = run_once(self.client, notice=transports)
+        self.assertEqual(outcome, {
+            **self.finished,
+            'saveRetries': 2,
+            'saveRetryReasons': ['statement_timeout', 'http_503'],
+        })
+        # 외부 API·PDF 수집은 한 번만 수행하고 같은 수집본으로 저장 RPC만 3회(최초 1회 + 재시도 2회) 호출한다.
+        self.assertEqual(len(self.calls('api')), 28)
+        self.assertEqual(self.calls('pdf'), [DETAIL, self.attachment])
+        finishes = self.calls('finish_notice_with_funding')
+        self.assertEqual(len(finishes), 3)
+        self.assertEqual(finishes[0], finishes[1])
+        self.assertEqual(finishes[1], finishes[2])
+        self.assertEqual(sleeps[-2:], [2, 5])
+        renews = self.calls('renew_analysis_run')
+        self.assertGreaterEqual(len(renews), 3)
+        self.assertEqual([r['p_lease_seconds'] for r in renews[-2:]], [120, 120])
+        self.assertEqual(self.calls('fail_notice_analysis_run'), [])
+        self.assertNotIn('synthetic raw API marker', json.dumps(outcome))
+
+    def test_notice_uncertain_finish_already_committed_returns_without_rewriting(self):
+        self.fail_finish_queue = [WorkerRpcError()]
+        self.run_status_reply = {
+            'runId': self.job['runId'], 'status': 'finished',
+            'attempt': self.job['generation'], 'snapshotId': self.finished['snapshotId'],
+            'leaseActive': False,
+        }
+        self.assertEqual(self.run_job(), self.finished)
+        self.assertEqual(len(self.calls('api')), 28)
+        self.assertEqual(len(self.calls('finish_analysis_comparison')), 1)
+        self.assertEqual(len(self.calls('read_analysis_run_status')), 1)
+        self.assertEqual(self.calls('fail_notice_analysis_run'), [])
 
     def test_request_limit_and_deadline_stop_before_another_call(self):
         for limits, allowed in (({'apiRequests': 2}, 2),

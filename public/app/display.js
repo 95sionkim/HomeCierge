@@ -1,5 +1,12 @@
 import { reasonText } from './comparison-values.js';
-export { reasonText, won } from './comparison-values.js';
+export {
+  reasonText,
+  won,
+  exclusiveAreaClass,
+  areaClassLabel,
+  groupModelsByAreaClass,
+  comparisonAreaCriterion,
+} from './comparison-values.js';
 
 export function esc(value) {
   return String(value ?? '').replace(
@@ -217,6 +224,28 @@ export function supplyLabel(value) {
     (Number(fraction[2] ?? 0) >= 5 ? 1n : 0n);
   if (cents === 0n && /[1-9]/.test(value)) return '0.01㎡ 미만';
   return (cents / 100n).toString() + '.' + (cents % 100n).toString().padStart(2, '0') + '㎡';
+}
+
+export function supplyAreaRefLabel(item, { legacy = false } = {}) {
+  const ref = item?.supplyAreaReference;
+  if (ref && typeof ref === 'object') {
+    if (ref.status === 'single' && ref.m2) {
+      return `참고 공급 ${supplyLabel(ref.m2)}`;
+    }
+    if (ref.status === 'range' && ref.minM2 && ref.maxM2) {
+      const low = supplyLabel(ref.minM2);
+      const high = supplyLabel(ref.maxM2);
+      if (low !== '면적 미확인' && high !== '면적 미확인') {
+        return `참고 공급 ${low.replace(/㎡$/, '')}–${high}`;
+      }
+    }
+    if (ref.status === 'restricted_for_llm') return '참고 공급 제한';
+    return '참고 공급 없음';
+  }
+  if (legacy) {
+    return item?.supplyAreaM2 ? `공급 ${supplyLabel(item.supplyAreaM2)}` : '공급 미확인';
+  }
+  return item?.supplyAreaM2 ? `참고 공급 ${supplyLabel(item.supplyAreaM2)}` : '참고 공급 없음';
 }
 
 export function inRange(notice, date) {

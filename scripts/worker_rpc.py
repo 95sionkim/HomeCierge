@@ -17,14 +17,36 @@ ENVIRONMENTS = tuple(PROJECT_ORIGINS)
 
 class WorkerRpcError(RuntimeError):
     """응답 본문·인증값 없이 전송 결과만 전달한다. status=None이면 커밋 여부는 미확인이다."""
-    def __init__(self, status=None, code=None):
+    def __init__(self, status=None, code=None, *, save_retries=0, save_retry_reasons=()):
         super().__init__('RPC 응답을 확인할 수 없습니다.' if status is None else f'RPC 실패 (HTTP {status})')
         self.status = status
         self.code = code
+        self.save_retries = save_retries
+        self.save_retry_reasons = tuple(save_retry_reasons)
 
 
 class WorkerRpcResponseTooLarge(WorkerRpcError):
     """읽기 응답이 호출자가 처리할 수 있는 크기를 넘었다."""
+
+
+def is_transient_save_error(exc):
+    """저장 RPC 재시도 대상 일시 오류(HTTP 5xx, 57014, 연결·시간 초과)인지 판정한다."""
+    if not isinstance(exc, WorkerRpcError) or isinstance(exc, WorkerRpcResponseTooLarge):
+        return False
+    if exc.code == '57014':
+        return True
+    if exc.status is None:
+        return True
+    return 500 <= exc.status <= 599
+
+
+def save_error_reason(exc):
+    """상태 기록용 안전한 저장 재시도 사유 코드를 반환한다(원문·키 미포함)."""
+    if exc.code == '57014':
+        return 'statement_timeout'
+    if exc.status is None:
+        return 'response_unconfirmed'
+    return f'http_{int(exc.status)}'
 
 
 class WorkerRpc:
@@ -68,13 +90,13 @@ class WorkerRpc:
         self.base = parse.urlunsplit((target.scheme, target.netloc, '/rest/v1/rpc/', '', ''))
         self.opener = opener if opener is not None else request.build_opener(NoRedirect)
 
-    def post(self, name, arguments, *, limit=16384, allow_no_content=False):
+    def post(self, name, arguments, *, limit=16384, allow_no_content=False, timeout=30):
         if not re.fullmatch(r'[a-z_]+', name):
             raise ValueError('잘못된 RPC 이름입니다.')
         body = json.dumps(arguments, ensure_ascii=False, allow_nan=False).encode()
         call = request.Request(self.base + name, data=body, headers=self.headers, method='POST')
         try:
-            with self.opener.open(call, timeout=30) as response:
+            with self.opener.open(call, timeout=timeout) as response:
                 data = response.read(limit + 1)
                 if allow_no_content and response.status == 204 and not data:
                     return None
@@ -87,7 +109,7 @@ class WorkerRpc:
                 try:
                     detail = json.loads(exc.read(2048))
                     if isinstance(detail, dict) and detail.get('code') in (
-                            'PT403', 'PT404', 'PT409', 'PT422', '22023', '23503', '23505', '42501'):
+                            'PT403', 'PT404', 'PT409', 'PT422', '22023', '23503', '23505', '42501', '57014'):
                         code = detail['code']
                 except (OSError, http.client.HTTPException, ValueError, TypeError):
                     pass

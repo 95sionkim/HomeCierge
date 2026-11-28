@@ -60,8 +60,9 @@ const tradeKindLabels: Record<TradeKind, string> = {
   presale_right: '분양권',
   occupancy_right: '입주권',
 };
-const MAX_AREA_TOLERANCE_SCALED = 50000n; // 5.0000% (10^-4 단위, Q-41)
-const ALLOWED_CONDITION_KEYS = new Set(['period', 'areaTolerancePercent', 'tradeKinds', 'replacements']);
+const MAX_AREA_TOLERANCE_SCALED = 50000n; // 5.0000% (이전 Q-41 저장 기록 읽기 호환용)
+const ALLOWED_CONDITION_KEYS = new Set(['period', 'tradeKinds', 'replacements']);
+const LEGACY_READ_CONDITION_KEYS = new Set(['period', 'areaTolerancePercent', 'tradeKinds', 'replacements']);
 
 function object(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -127,11 +128,15 @@ export function normalizeReplacements(value: unknown): ReplacementPair[] | null 
   return pairs;
 }
 
-export function normalizeConditionPatch(value: unknown): ConditionPatch | null {
+export function normalizeConditionPatch(
+  value: unknown,
+  { allowLegacyArea = false }: { allowLegacyArea?: boolean } = {},
+): ConditionPatch | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const raw = value as Record<string, unknown>;
   const keys = Object.keys(raw);
-  if (!keys.length || keys.some(key => !ALLOWED_CONDITION_KEYS.has(key))) return null;
+  const allowedKeys = allowLegacyArea ? LEGACY_READ_CONDITION_KEYS : ALLOWED_CONDITION_KEYS;
+  if (!keys.length || keys.some(key => !allowedKeys.has(key))) return null;
   const out: ConditionPatch = {};
   if (Object.hasOwn(raw, 'period')) {
     const p = object(raw.period);
@@ -140,7 +145,7 @@ export function normalizeConditionPatch(value: unknown): ConditionPatch | null {
     if (!ordered) return null;
     out.period = ordered;
   }
-  if (Object.hasOwn(raw, 'areaTolerancePercent')) {
+  if (allowLegacyArea && Object.hasOwn(raw, 'areaTolerancePercent')) {
     const tol = normalizeAreaTolerance(raw.areaTolerancePercent);
     if (!tol) return null;
     out.areaTolerancePercent = tol;
@@ -161,14 +166,6 @@ export function normalizeConditionPatch(value: unknown): ConditionPatch | null {
 function confirmedPeriod(result: Result) {
   const period = object(result.conditions.period);
   return period.status === 'confirmed' ? orderedPeriod(period.start, period.end) : null;
-}
-
-function currentAreaTolerance(result: Result): string | null {
-  const target = object(result.target);
-  const supply = object(target.supplyArea);
-  const area = object(result.conditions.area);
-  if (supply.status !== 'confirmed' || area.basis !== 'supply') return null;
-  return normalizeAreaTolerance(area.tolerancePercent);
 }
 
 function currentTradeKinds(result: Result): TradeKind[] | null {
@@ -385,31 +382,14 @@ export function interpretChat(message: string, result: Result): InterpretResult 
 
   const patch: ConditionPatch = {};
   let requestedPeriodSame = false;
-  let requestedAreaSame = false;
   let requestedKindsSame = false;
 
-  // 1) 공급면적 허용 범위 변경 (전용면적 요청은 거부하고 안내로 돌려보낸다)
+  // 1) 면적 허용 범위 변경 요청은 Q-52 이후 지원하지 않으므로 안내로 돌려보낸다.
   const mentionsAreaChange = areaChangeAction.test(plain)
     && /(?:공급\s*)?면적|허용\s*(?:범위|오차)|±|\+\/-/u.test(plain)
     && !/^(?:왜|어째서|무슨|어떤)/u.test(plain) && !/\?$/u.test(plain);
   if (mentionsAreaChange) {
-    if (profileScopeWords.test(plain) || ambiguousChoiceWords.test(plain) || /말고|~|∼/u.test(plain)) {
-      return explain('help');
-    }
-    if (/전용\s*면적/u.test(plain)) return explain('help');
-    const pctMatches = Array.from(plain.matchAll(/(?:±|\+\/-|플마)?\s*(-?\d+(?:\.\d+)?)\s*%/gu));
-    if (pctMatches.length === 1) {
-      const tolerance = normalizeAreaTolerance(pctMatches[0][1]);
-      if (!tolerance) return explain('help');
-      const current = currentAreaTolerance(result);
-      if (!current) throw new ApiError('conversation_condition_unavailable');
-      if (tolerance === current) requestedAreaSame = true;
-      else patch.areaTolerancePercent = tolerance;
-    } else if (pctMatches.length > 1) {
-      return explain('help');
-    } else if (/넓혀|넓히|늘려|늘리|확대/u.test(plain) && !/좁혀|좁히|줄여|줄이/u.test(plain)) {
-      return explain('help');
-    }
+    return explain('help');
   }
 
   // 2) 거래 종류 변경
@@ -471,7 +451,7 @@ export function interpretChat(message: string, result: Result): InterpretResult 
   }
 
   // 4) 단지 직접 지정·교체 (다른 조건 변경이 없을 때)
-  if (!Object.keys(patch).length && !requestedPeriodSame && !requestedAreaSame && !requestedKindsSame) {
+  if (!Object.keys(patch).length && !requestedPeriodSame && !requestedKindsSame) {
     const rep = resolveReplacementIntent(plain, result);
     if (rep.status === 'reset') {
       if (result.appliedScope !== 'priority' && result.appliedScope !== 'expansion') {
@@ -497,7 +477,7 @@ export function interpretChat(message: string, result: Result): InterpretResult 
     return { intent: 'change_conditions', period: null, conditions: patch };
   }
   if (requestedPeriodSame) return explain('period');
-  if (requestedAreaSame || requestedKindsSame) return explain('inclusion');
+  if (requestedKindsSame) return explain('inclusion');
 
   if (/보류|미확인|누락|미해결|불완전|빠졌|빠진|제외/u.test(plain)) return explain('holds');
   if (/분양가|필수\s*옵션|소계|공고\s*가격|(?:호실|가격\s*구간)\s*(?:가격|금액)?|분양\s*가격/u.test(plain)) return explain('price');
@@ -508,6 +488,7 @@ export function interpretChat(message: string, result: Result): InterpretResult 
 }
 
 const reasons: Record<string, string> = {
+  target_area_class_unverified: '선택한 주택형의 평형(전용면적 정수부)을 확인해야 합니다.',
   target_supply_area_unverified: '선택한 주택형의 공급면적을 공고문에서 확인해야 합니다.',
   trade_supply_area_unverified: '거래 당시 주택형의 공급면적을 확인해야 합니다.',
   trade_link_unverified: '거래를 해당 단지·주택형에 연결할 근거가 부족합니다.',
@@ -518,6 +499,7 @@ const reasons: Record<string, string> = {
   subtotal_documents_differ: '분양가와 필수 옵션의 문서 판본이 서로 다릅니다.',
   cancelled_trade: '해제된 거래를 제외했습니다.',
   outside_contract_period: '계약 기간 밖의 거래를 제외했습니다.',
+  outside_area_class: '대상 주택형과 다른 평형의 거래를 제외했습니다.',
   outside_supply_area: '허용 공급면적 범위 밖의 거래를 제외했습니다.',
   outside_applied_region: '적용 지역 밖의 단지여서 비교표에 넣을 수 없습니다.',
   trade_kind_not_included: '선택한 거래 종류에 해당하는 거래가 없어 비교표에 넣을 수 없습니다.',
@@ -533,6 +515,7 @@ function candidateReasonSentence(code: string | null): string {
   if (!code) return '현재 비교 기준을 충족하지 못해';
   const map: Record<string, string> = {
     outside_applied_region: '현재 적용 지역 밖의 단지여서',
+    outside_area_class: '대상 주택형과 다른 평형의 단지여서',
     outside_supply_area: '허용 공급면적 범위 밖의 단지여서',
     outside_contract_period: '현재 계약 기간 안의 거래가 없어',
     trade_kind_not_included: '선택한 거래 종류의 거래가 없어',
@@ -592,8 +575,11 @@ function explainInclusion(result: Result) {
       : '현재 비교표에 표시할 주변 단지는 없습니다. 이 결과로 조건에 맞는 거래가 0건이라고 확정할 수는 없습니다.');
   }
   const area = object(result.conditions.area);
-  if (area.basis === 'supply' && typeof area.tolerancePercent === 'string' && /^\d{1,3}(?:\.\d+)?$/.test(area.tolerancePercent))
+  if (area.basis === 'exclusive_area_class' && integer(area.class) && area.class >= 1) {
+    text.push('비교 기준은 ' + area.class + '㎡형(전용면적 정수부)입니다. 같은 평형의 주변 단지를 확인 좌표 간 직선거리순으로 비교합니다.');
+  } else if (area.basis === 'supply' && typeof area.tolerancePercent === 'string' && /^\d{1,3}(?:\.\d+)?$/.test(area.tolerancePercent)) {
     text.push('대상 주택형의 공급면적 ±' + area.tolerancePercent + '% 안에서 단지별로 가장 가까운 공급면적을 비교합니다.');
+  }
   const configuredKinds = currentTradeKinds(result);
   if (configuredKinds) {
     text.push('비교 거래 종류는 ' + configuredKinds.map(k => tradeKindLabels[k]).join(' · ') + '입니다.');
@@ -679,31 +665,15 @@ function describeConditionDiff(proposal: ConditionProposal, result: Result): str
   return parts.join(', ');
 }
 
-function exceedsMaxAreaTolerance(raw: string): boolean {
-  if (!/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(raw)) return false;
-  const [whole, frac = ''] = raw.split('.');
-  const w = BigInt(whole);
-  if (w > 5n) return true;
-  return w === 5n && /[1-9]/.test(frac);
-}
-
 function explainConditionGuidance(message: string, result: Result): string | null {
   const plain = message.normalize('NFC').replace(/\s+/gu, ' ');
   if (negationWords.test(plain) || profileScopeWords.test(plain)) return null;
-  if (/전용\s*면적/u.test(plain) && (areaChangeAction.test(plain) || /%/u.test(plain))) {
-    return '비교 기준은 전용면적이 아니라 공급면적입니다. 공급면적 허용 범위를 ±3%처럼 0% 초과 5% 이하로 요청해 주세요.';
-  }
-  if (areaChangeAction.test(plain) && /(?:공급\s*)?면적|허용\s*(?:범위|오차)|±|\+\/-/u.test(plain)) {
-    const pctMatches = Array.from(plain.matchAll(/(?:±|\+\/-|플마)?\s*(-?\d+(?:\.\d+)?)\s*%/gu));
-    if (pctMatches.length === 1 && !normalizeAreaTolerance(pctMatches[0][1])) {
-      if (exceedsMaxAreaTolerance(pctMatches[0][1])) {
-        return '공급면적 허용 범위는 기본 ±5%가 상한입니다(Q-41). ±5%보다 넓히면 다른 규모의 주택형이 비교에 섞일 수 있어 확대할 수 없으며, 0% 초과 5% 이하(소수 4자리 이하)로 좁히는 변경만 요청할 수 있습니다.';
-      }
-      return '공급면적 허용 범위는 0% 초과 5% 이하의 양수(소수 4자리 이하)로 입력해 주세요. 기본 ±5%보다 좁히는 변경만 가능합니다.';
-    }
-    if (pctMatches.length === 0 && /넓혀|넓히|늘려|늘리|확대/u.test(plain) && !/좁혀|좁히|줄여|줄이/u.test(plain)) {
-      return '공급면적 허용 범위는 기본 ±5%가 상한입니다(Q-41). ±5%보다 넓히면 다른 규모의 주택형이 비교에 섞일 수 있어 확대할 수 없으며, 0% 초과 5% 이하(소수 4자리 이하)로 좁히는 변경만 요청할 수 있습니다.';
-    }
+  if (areaChangeAction.test(plain) && /(?:공급\s*|전용\s*)?면적|허용\s*(?:범위|오차)|±|\+\/-/u.test(plain)) {
+    const area = object(result.conditions.area);
+    const basisNote = area.basis === 'exclusive_area_class' && integer(area.class) && area.class >= 1
+      ? `${area.class}㎡형(전용면적 정수부)`
+      : '같은 평형(전용면적 정수부)';
+    return `주변 실거래 비교는 선택한 주택형과 같은 ${basisNote} 기준으로 적용되며 공급면적 허용 범위(±%) 변경은 지원하지 않습니다. 계약 기간, 거래 종류, 비교 단지 교체는 변경할 수 있습니다.`;
   }
   const rep = resolveReplacementIntent(plain, result);
   const currentNames = result.comparables
@@ -763,7 +733,7 @@ function answer(intent: Intent, result: Result, proposal: Proposal | null): stri
       return diff + ' 변경을 제안합니다. 승인하면 같은 수집본으로 새 비교를 계산하며, 공유 프로필은 바뀌지 않습니다.';
     }
     case 'help':
-      return '이 비교에 포함된 거래, 보류 사유, 비교 지역, 호실 가격이나 계약 기간을 물어보세요. 조건을 바꾸려면 “최근 6개월로 다시 비교해줘”, “공급면적 범위를 ±3%로 좁혀줘”, “매매만 비교해줘”처럼 요청하거나 조건 변경 패널을 여세요.';
+      return '이 비교에 포함된 거래, 보류 사유, 비교 지역, 호실 가격이나 계약 기간을 물어보세요. 조건을 바꾸려면 “최근 6개월로 다시 비교해줘”, “매매만 비교해줘”처럼 요청하거나 조건 변경 패널을 여세요.';
   }
 }
 
@@ -784,7 +754,6 @@ function buildGuestConditionProposal(patch: ConditionPatch, result: Result): Con
   const proposed: ConditionPatch = {};
   const effective: ConditionPatch = {};
   const originalPeriod = confirmedPeriod(result);
-  const originalArea = currentAreaTolerance(result);
   const originalKinds = currentTradeKinds(result);
   const originalReps = currentReplacements(result);
 
@@ -796,10 +765,7 @@ function buildGuestConditionProposal(patch: ConditionPatch, result: Result): Con
     effective.period = patch.period;
   }
   if (patch.areaTolerancePercent) {
-    if (!originalArea || patch.areaTolerancePercent === originalArea) return null;
-    previous.areaTolerancePercent = originalArea;
-    proposed.areaTolerancePercent = patch.areaTolerancePercent;
-    effective.areaTolerancePercent = patch.areaTolerancePercent;
+    return null;
   }
   if (patch.tradeKinds) {
     if (!originalKinds || patch.tradeKinds.some(k => !originalKinds.includes(k))) return null;
@@ -891,9 +857,9 @@ function readProposal(value: unknown, intent: Intent): Proposal | null {
   }
   if (intent === 'change_conditions') {
     if (raw.kind !== 'conditions') throw new Error('invalid_conversation_response');
-    const previous = normalizeConditionPatch(raw.previous);
-    const proposed = normalizeConditionPatch(raw.proposed);
-    const effective = normalizeConditionPatch(raw.effective);
+    const previous = normalizeConditionPatch(raw.previous, { allowLegacyArea: true });
+    const proposed = normalizeConditionPatch(raw.proposed, { allowLegacyArea: true });
+    const effective = normalizeConditionPatch(raw.effective, { allowLegacyArea: true });
     if (!previous || !proposed || !effective) throw new Error('invalid_conversation_response');
     return { kind: 'conditions', previous, proposed, effective, status, resultRunId };
   }
@@ -1050,7 +1016,7 @@ function validateStructuredConditions(conditions: ConditionPatch, result: Result
     }
   }
   if (conditions.areaTolerancePercent) {
-    if (!currentAreaTolerance(result)) throw new ApiError('conversation_condition_unavailable');
+    throw new ApiError('invalid_conversation_input');
   }
   if (conditions.tradeKinds) {
     if (!currentTradeKinds(result)) throw new ApiError('conversation_condition_unavailable');

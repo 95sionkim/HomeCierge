@@ -59,7 +59,7 @@ test('a notice, its housing model, and two trade sources are read under the same
     ['2026-10-09', '515000000', 'excluded', 'outside_contract_period'],
   ]);
   assert.deepEqual(rights.trades.map(t => [t.tradeKind, t.exclusiveArea.m2, t.supplyArea.m2]), [
-    ['presale_right', '82.50', null], ['occupancy_right', '82.50', null],
+    ['presale_right', '84.50', null], ['occupancy_right', '84.50', null],
   ]);
 });
 

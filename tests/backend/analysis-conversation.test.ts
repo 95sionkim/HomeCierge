@@ -141,17 +141,12 @@ const pooled = structuredClone(snapshot);
 const conditionTurn = (proposal: unknown, message = '공급면적 범위를 ±3%로 좁혀줘') =>
   ({ id, runId: rid, message, intent: 'change_conditions', createdAt: at, proposal });
 
-test('규칙 기반 해석은 공급면적·거래 종류·단지 교체 요청을 같은 조건 변경 제안으로 만든다', () => {
+test('규칙 기반 해석은 거래 종류·단지 교체·기간 요청을 조건 변경 제안으로 만들고 면적 범위 요청은 거절한다', () => {
   const r = pooled.result;
-  assert.deepEqual(interpretChat('공급면적 범위를 ±3%로 좁혀줘', r),
-    { intent: 'change_conditions', period: null, conditions: { areaTolerancePercent: '3' } });
-  assert.deepEqual(interpretChat('허용 범위를 ±4.5%로 좁혀줘', r),
-    { intent: 'change_conditions', period: null, conditions: { areaTolerancePercent: '4.5' } });
-  // 이미 ±3%로 좁힌 상태에서는 기본 상한인 ±5% 복원을 제안할 수 있다(Q-41).
-  const narrowedResult = structuredClone(r);
-  (narrowedResult.conditions.area as Record<string, unknown>).tolerancePercent = '3';
-  assert.deepEqual(interpretChat('공급면적 범위를 ±5%로 바꿔줘', narrowedResult),
-    { intent: 'change_conditions', period: null, conditions: { areaTolerancePercent: '5' } });
+  // Q-52: 공급면적 허용 범위(±%) 변경은 더 이상 제안하지 않는다.
+  for (const areaMsg of ['공급면적 범위를 ±3%로 좁혀줘', '허용 범위를 ±4.5%로 좁혀줘', '공급면적 범위를 ±5%로 바꿔줘']) {
+    assert.equal(interpretChat(areaMsg, r).intent, 'help', areaMsg);
+  }
   assert.deepEqual(interpretChat('매매만 비교해줘', r),
     { intent: 'change_conditions', period: null, conditions: { tradeKinds: ['sale'] } });
   assert.deepEqual(interpretChat('분양권 빼고 비교해줘', r),
@@ -180,7 +175,7 @@ test('규칙 기반 해석은 공급면적·거래 종류·단지 교체 요청�
   const combined = interpretChat('2026-10-15부터 2026-10-31까지로 바꾸고 매매만 비교해줘', r);
   assert.deepEqual(combined, { intent: 'change_conditions', period: null,
     conditions: { tradeKinds: ['sale'], period: { start: '2026-10-15', end: '2026-10-31' } } });
-  // 현재와 같은 값·5% 초과 확대(Q-41)·부정·모호한 선택·전용면적·0% 이하는 제안을 만들지 않는다.
+  // 부정·모호한 선택·면적 변경·공유 범위·부적격 교체는 제안을 만들지 않는다.
   for (const message of ['공급면적 ±5%로 바꿔줘', '매매만 비교하지 마', '면적 2% 또는 4%로 바꿔줘', '전용면적 ±3%로 바꿔줘',
     '공급면적 범위를 ±7%로 넓혀줘', '공급면적 ±5.0001%로 바꿔줘', '공급면적 범위를 넓혀줘',
     '공급면적 ±60%로 넓혀줘', '공급면적 ±0%로 바꿔줘', '공급면적 범위가 왜 5%야?', '모든 분석에서 매매만 비교해줘',
@@ -188,9 +183,6 @@ test('규칙 기반 해석은 공급면적·거래 종류·단지 교체 요청�
     '없는단지를 합성 비교 C로 바꿔줘']) {
     assert.notEqual(interpretChat(message, r).intent, 'change_conditions', message);
   }
-  const noArea = structuredClone(r);
-  (noArea.target as Record<string, Record<string, unknown>>).supplyArea.status = 'held';
-  assert.throws(() => interpretChat('공급면적 범위를 ±3%로 좁혀줘', noArea), /conversation_condition_unavailable/);
 });
 
 test('교체 대상이 불명확하거나 후보가 기준을 통과하지 못하면 사유를 설명하고 임의로 빼지 않는다', () => {
@@ -199,30 +191,31 @@ test('교체 대상이 불명확하거나 후보가 기준을 통과하지 못�
   assert.match(conversationExample('합성 비교 A를 합성 비교 D로 바꿔줘', r).answer, /적용 지역 밖의 단지여서 비교표에 넣을 수 없습니다/);
   assert.match(conversationExample('합성 비교 A를 없는단지로 바꿔줘', r).answer, /확인된 후보가 아니므로/);
   assert.match(conversationExample('없는단지를 합성 비교 C로 바꿔줘', r).answer, /찾지 못했습니다/);
-  assert.match(conversationExample('전용면적 ±3%로 바꿔줘', r).answer, /전용면적이 아니라 공급면적/);
-  // Q-41: 5%를 넘는 확대 요청에는 제안을 만들지 않고 상한과 이유를 정형 안내한다.
-  for (const message of ['공급면적 범위를 ±7%로 넓혀줘', '공급면적 ±5.0001%로 바꿔줘', '공급면적 범위를 넓혀줘']) {
+  // Q-52: 면적 허용 범위(±%) 변경 요청은 평형 기준 안내로 답하고 제안을 만들지 않는다.
+  for (const message of ['전용면적 ±3%로 바꿔줘', '공급면적 범위를 ±3%로 좁혀줘', '공급면적 범위를 ±7%로 넓혀줘', '공급면적 범위를 넓혀줘', '공급면적 ±0%로 바꿔줘']) {
     const reply = conversationExample(message, r);
     assert.equal(reply.intent, 'help', message);
     assert.equal(reply.proposal, null, message);
-    assert.match(reply.answer, /±5%가 상한.*Q-41.*0% 초과 5% 이하/, message);
+    assert.match(reply.answer, /84㎡형\(전용면적 정수부\).*공급면적 허용 범위\(±%\) 변경은 지원하지 않습니다/, message);
   }
-  const zeroReply = conversationExample('공급면적 ±0%로 바꿔줘', r);
-  assert.equal(zeroReply.proposal, null);
-  assert.match(zeroReply.answer, /0% 초과 5% 이하/);
   const preview = conversationExample('합성 비교 A를 합성 비교 C로 바꿔줘', r);
   assert.equal(preview.intent, 'change_conditions');
   assert.match(preview.answer, /비교 단지 교체 합성 비교 A → 합성 비교 C/);
+  // 이전 ±5% 저장 결과도 대화 설명에서 계속 읽힌다(읽기 호환).
+  const legacyResult = structuredClone(r);
+  legacyResult.conditions.area = { basis: 'supply', tolerancePercent: '5', minM2: '106.78', maxM2: '118.02' };
+  const legacyReply = conversationExample('왜 이 거래만 포함됐어?', legacyResult);
+  assert.match(legacyReply.answer, /공급면적 ±5%/);
 });
 
-test('구조화된 조건 제출은 정규화 후 DB로 전달하고 잘못된 값은 호출 없이 400으로 거부한다', async () => {
+test('구조화된 조건 제출은 정규화 후 DB로 전달하고 잘못된 값과 면적 범위는 호출 없이 400으로 거부한다', async () => {
   const f = fixture([], { getComparison: async () => pooled });
-  const body = { requestId: id, message: '비교 조건 변경', conditions: { areaTolerancePercent: '3.50', tradeKinds: ['presale_right', 'sale'] } };
+  const body = { requestId: id, message: '비교 조건 변경', conditions: { tradeKinds: ['presale_right', 'sale'] } };
   const response = await f.send(body);
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('cache-control'), 'private, no-store');
   assert.deepEqual(f.calls[0], { action: 'submit_conditions', analysisId: aid, runId: rid, requestId: id, message: '비교 조건 변경',
-    conditions: { areaTolerancePercent: '3.5', tradeKinds: ['sale', 'presale_right'] } });
+    conditions: { tradeKinds: ['sale', 'presale_right'] } });
   // 같은 요청 ID를 다시 보내도 같은 연산으로 전달하고 결과의 동일성은 DB가 보장한다.
   await f.send(body);
   assert.deepEqual(f.calls[1], f.calls[0]);
@@ -231,9 +224,9 @@ test('구조화된 조건 제출은 정규화 후 DB로 전달하고 잘못된 �
   assert.deepEqual(f.calls[2], { action: 'submit_conditions', analysisId: aid, runId: rid, requestId: next, message: '매매만 비교해줘',
     conditions: { tradeKinds: ['sale'] } });
   const before = f.calls.length;
-  for (const conditions of [{}, [], null, { other: '1' }, { areaTolerancePercent: '0' }, { areaTolerancePercent: 3 },
-    { areaTolerancePercent: '5.0001' }, { areaTolerancePercent: '7' }, { areaTolerancePercent: '50' },
-    { areaTolerancePercent: '1.23456' }, { tradeKinds: [] }, { tradeKinds: ['sale', 'sale'] },
+  for (const conditions of [{}, [], null, { other: '1' }, { areaTolerancePercent: '3' }, { areaTolerancePercent: '5' },
+    { areaTolerancePercent: '0' }, { areaTolerancePercent: 3 }, { areaTolerancePercent: '5.0001' }, { areaTolerancePercent: '7' },
+    { tradeKinds: [] }, { tradeKinds: ['sale', 'sale'] },
     { replacements: [{ complexId: 'a', replaceComplexId: 'a' }] }, { replacements: [{ complexId: 'a' }] },
     { period: { start: '2026-10-20', end: '2026-10-10' } }, { period: { start: '2026-10-10', end: '2026-10-20', extra: 1 } }]) {
     assert.equal((await f.send({ requestId: id, message: '조건 변경', conditions })).status, 400, JSON.stringify(conditions));

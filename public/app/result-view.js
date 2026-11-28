@@ -10,6 +10,8 @@ import {
   errorText,
   rangeLabel,
   supplyLabel,
+  exclusiveAreaClass,
+  comparisonAreaCriterion,
 } from './display.js';
 import { emptyState } from './directory-view.js';
 import { evidence } from './planning-fields.js';
@@ -83,9 +85,15 @@ export function analysisConditionBar(data, input, open, lookup = null, { canEdit
   const scope = scopeLabel(data);
   const c = data?.conditions;
   const period = c?.period?.status === 'confirmed' ? rangeLabel(c.period, false) : '기간 미확인';
+  const criterion = comparisonAreaCriterion(data);
+  const isAreaClass = criterion.basis === 'exclusive_area_class';
   const areaBase = target?.supplyArea?.status === 'confirmed' ? supplyLabel(target.supplyArea.m2) : '면적 미확인';
-  const tol = c?.area?.tolerancePercent != null ? '±' + c.area.tolerancePercent + '%' : null;
-  const areaSummary = areaBase !== '면적 미확인' && tol ? `${areaBase} (${tol})` : areaBase;
+  const tol = !isAreaClass && c?.area?.tolerancePercent != null ? '±' + c.area.tolerancePercent + '%' : null;
+  const areaSummary = isAreaClass
+    ? criterion.full
+    : areaBase !== '면적 미확인' && tol
+      ? `${areaBase} (${tol})`
+      : areaBase;
   const kinds = (c?.tradeKinds ?? []).map(k => tradeNames[k]).filter(Boolean).join(' · ');
   const manualCount = (data?.comparables ?? []).filter(item => item?.selectionReason === 'manual_replacement').length;
   const cell = (label, value, cls = '') => `<span class="condition-item ${cls}"><small>${label}</small><strong>${esc(value)}</strong></span>`;
@@ -98,11 +106,32 @@ export function analysisConditionBar(data, input, open, lookup = null, { canEdit
       <span class="condition-key">${icon('sliders-horizontal')}분석 조건</span>${known}${icon('chevron-down', 'condition-chevron')}</summary>
       <div class="condition-message" role="status">${esc(note)}${lookup?.error && lookup.error.code !== 'comparison_source_restricted' ? '<button type="button" class="text-button" data-action="reload-conditions">조건 다시 조회</button>' : ''}</div></details>`;
   }
+  const detailRows = isAreaClass
+    ? [
+        ['공고 번호', notice || '미확인'],
+        ['주택형', model],
+        ['비교 기준', criterion.full],
+        ['지역', [scope.name, scope.detail].filter(Boolean).join(' · ')],
+        ['계약 기간', period],
+        ['공고 공급면적 (참고)', areaBase],
+        ['거래 유형', kinds || '미확인'],
+        ['단지 선정', manualCount > 0 ? `직접 교체 ${manualCount}건` : '직선거리순 자동 선정'],
+      ]
+    : [
+        ['공고 번호', notice || '미확인'],
+        ['주택형', model],
+        ['지역', [scope.name, scope.detail].filter(Boolean).join(' · ')],
+        ['계약 기간', period],
+        ['공급면적', areaBase],
+        ['면적 허용 범위', tol || '미확인'],
+        ['거래 유형', kinds || '미확인'],
+        ['단지 선정', manualCount > 0 ? `직접 교체 ${manualCount}건` : '자동 선정'],
+      ];
   const bar = `<details class="condition-bar"${open ? ' open' : ''}><summary id="analysis-conditions">
     <span class="condition-key">${icon('sliders-horizontal')}분석 조건</span>
-    ${cell('공고 번호', notice || '미확인', 'condition-notice')}${cell('주택형', model, 'condition-model')}${cell('비교 범위', scope.name + (scope.expanded ? ' · 확대' : scope.pending ? ' · 판정 보류' : ''), 'condition-scope')}${cell('계약 기간', period, 'condition-period')}${cell('공급면적', areaSummary, 'condition-area')}${icon('chevron-down', 'condition-chevron')}</summary>
+    ${cell('공고 번호', notice || '미확인', 'condition-notice')}${cell('주택형', model, 'condition-model')}${cell('비교 범위', scope.name + (scope.expanded ? ' · 확대' : scope.pending ? ' · 판정 보류' : ''), 'condition-scope')}${cell('계약 기간', period, 'condition-period')}${cell(isAreaClass ? '비교 기준' : '공급면적', areaSummary, 'condition-area')}${icon('chevron-down', 'condition-chevron')}</summary>
     <dl class="condition-detail">
-      ${[['공고 번호', notice || '미확인'], ['주택형', model], ['지역', [scope.name, scope.detail].filter(Boolean).join(' · ')], ['계약 기간', period], ['공급면적', areaBase], ['면적 허용 범위', tol || '미확인'], ['거래 유형', kinds || '미확인'], ['단지 선정', manualCount > 0 ? `직접 교체 ${manualCount}건` : '자동 선정']].map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}
+      ${detailRows.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}
     </dl></details>`;
   if (!canEdit) return bar;
   return `<div class="condition-bar-wrap">${bar}<button type="button" class="action secondary compact condition-edit-btn" data-action="edit-conditions" aria-haspopup="dialog">${icon('sliders-horizontal')}<span class="condition-edit-label">조건 변경</span></button></div>`;
@@ -164,6 +193,8 @@ function holdPanel(data) {
   const noun = priceUnitNoun(data.noticePrice);
   const codes = new Set(holds.map(h => h.reasonCode));
   const needed = [];
+  if (codes.has('target_area_class_unverified'))
+    needed.push('선택한 주택형의 전용면적(평형)을 확인할 수 있는 공고 주택형 자료');
   if (codes.has('target_supply_area_unverified') || codes.has('trade_supply_area_unverified'))
     needed.push('해당 주택형의 전용면적과 주거공용면적을 확인할 수 있는 공급면적 자료');
   if (codes.has('no_confirmed_room_subtotal') || codes.has('notice_room_price_unverified'))
@@ -218,6 +249,7 @@ export function comparisonView(data, title, tradeKind = 'sale', conversationHtml
 }
 
 export function sampleHeld(n, m, asOf) {
+  const areaClass = exclusiveAreaClass(m?.houseType);
   return {
     contractVersion: 'comparison/v1',
     dataOrigin: 'synthetic',
@@ -230,9 +262,13 @@ export function sampleHeld(n, m, asOf) {
       edition: n.edition,
       modelNo: m.modelNo,
       houseType: m.houseType,
+      areaClass,
       supplyArea: null,
     },
-    conditions: { asOf },
+    conditions: {
+      asOf,
+      area: areaClass !== null ? { basis: 'exclusive_area_class', class: areaClass } : null,
+    },
     regionDecision: { priority: null, expansion: null },
     noticePrice: {
       status: 'unverified',
@@ -240,7 +276,10 @@ export function sampleHeld(n, m, asOf) {
       confirmedRooms: [],
       heldRooms: [],
     },
-    holds: [{ reasonCode: 'target_supply_area_unverified' }, { reasonCode: 'no_confirmed_room_subtotal' }],
+    holds: [
+      { reasonCode: areaClass === null ? 'target_area_class_unverified' : 'comparison_evidence_unverified' },
+      { reasonCode: 'no_confirmed_room_subtotal' },
+    ],
     exclusions: [],
     comparables: [],
     collections: [],

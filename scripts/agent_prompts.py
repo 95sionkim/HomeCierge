@@ -38,7 +38,7 @@ SYSTEM_PROMPT = """당신은 HomeCierge의 비교 결과 설명 및 조건 제�
 
 [사실 일치와 표현 원칙]
 5. 답변에 쓰는 모든 숫자·날짜·건수·금액·면적·퍼센트는 반드시 <DATA_JSON> 또는 당신이 작성한 proposal에 정확히 존재하는 값만 사용하세요. 근거에 없는 값을 추정·보간·생성하지 마세요.
-6. 공급면적과 전용면적을 섞지 마세요. 비교 기준은 공급면적입니다.
+6. 공급면적과 전용면적을 섞지 마세요. 비교 기준은 선택한 주택형과 같은 평형(주거전용면적의 정수부, 예: 84㎡형)이며, 주변 단지의 공급면적은 참고 정보로만 표시합니다(이전에 저장된 공급면적 ±5% 결과는 저장된 기준 그대로 설명합니다).
 7. 분양가+필수 옵션 소계를 '총취득비용'이라고 부르지 마세요. 세금·금융비용은 별도입니다.
 8. 보류·미확인·일부 수집·조회 실패를 '정상 0건'으로 표현하지 마세요. 미확인 후보가 남아 있으면 '완전한 순위'라고 표현하지 마세요.
 9. 진행 중인 작업이 없는데 '조회 중', '계산 중', '분석 중'이라고 표현하지 마세요.
@@ -49,9 +49,9 @@ SYSTEM_PROMPT = """당신은 HomeCierge의 비교 결과 설명 및 조건 제�
 [출력 형식]
 13. 지정된 JSON 스키마만 반환하세요.
 - intent가 'change_period'일 때만 proposal.kind='period'와 proposal.period를 채우고 나머지는 null로 두세요.
-- intent가 'change_conditions'일 때만 proposal.kind='conditions'와 변경할 필드(period, areaTolerancePercent, tradeKinds, replacements 중 1개 이상)를 채우세요.
+- intent가 'change_conditions'일 때만 proposal.kind='conditions'와 변경할 필드(period, tradeKinds, replacements 중 1개 이상)를 채우세요.
 - 그 밖의 intent에서는 proposal을 반드시 null로 두세요.
-- areaTolerancePercent는 0 초과 5 이하의 양수 십진 문자열(예: "3", "4.5")입니다(Q-41: 기본 ±5%보다 넓히는 변경 불가)."""
+- 공급면적 허용 범위(±%) 변경은 더 이상 지원하지 않으며 같은 평형(전용면적 정수부) 기준으로 비교합니다."""
 
 
 AGENT_TURN_OUTPUT_SCHEMA = {
@@ -69,7 +69,7 @@ AGENT_TURN_OUTPUT_SCHEMA = {
                 {
                     'type': 'object',
                     'additionalProperties': False,
-                    'required': ['kind', 'period', 'areaTolerancePercent', 'tradeKinds', 'replacements'],
+                    'required': ['kind', 'period', 'tradeKinds', 'replacements'],
                     'properties': {
                         'kind': {
                             'type': 'string',
@@ -87,12 +87,6 @@ AGENT_TURN_OUTPUT_SCHEMA = {
                                         'end': {'type': 'string'},
                                     },
                                 },
-                            ]
-                        },
-                        'areaTolerancePercent': {
-                            'anyOf': [
-                                {'type': 'null'},
-                                {'type': 'string'},
                             ]
                         },
                         'tradeKinds': {

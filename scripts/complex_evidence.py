@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""수집본의 주변 실거래에 대해 청약홈 공식 공고·주택형 기준의 단지·공급면적 근거를 자동으로 구성한다(Q-38).
+"""수집본의 주변 실거래에 대해 청약홈 공식 공고·주택형 기준의 단지·참고 공급면적 근거를 자동으로 구성한다(Q-38·Q-52).
 
 규칙:
 - 지역은 공식 법정동코드(mois_legal_region_codes)로 확인한 같은 동·읍·면 우선이며,
   우선 지역이 정상 0개일 때만 확대 지역(구 또는 구 없는 시·군)의 거래 근거를 조회한다.
+- 비교 대상은 대상 주택형과 같은 평형(주거전용면적의 정수부, Q-52)의 거래다. 다른 평형의 거래는 제외하며
+  청약홈·좌표 조회 대상에 넣지 않는다.
 - 거래는 aptSeq(매매) 또는 검증된 동+지번+단지명(권리)으로 묶고, 같은 aptSeq 안의 식별자 충돌은 보류한다.
 - 청약홈 APT·무순위/잔여세대 API에서 후보 공고를 찾되, 이름만으로 연결하지 않고 공고의 공급위치(HSSPLY_ADRES)를
   단지의 소속 시·군·구 + (법정동+지번 본번·부번 또는 도로명+건물번호)와 정규화 대조해 같은 단지로 인정한다.
-- 인정된 모든 공고의 주택형 API에서 주택형 문자열(예: 084.7450D -> 84.7450)의 전용면적이 거래 전용면적과
-  십진수로 정확히 같은 주택형이 하나뿐이고 확인한 모든 공고에서 공급면적(SUPLY_AR)이 같을 때만 대응을 확인한다.
-- 상한 초과·조회 오류·공고 없음·단지 식별 불일치·복수 주택형·공고 간 공급면적 불일치는 정상 0개가 아니라 보류로 구분한다.
+- 인정된 공고의 주택형 API에서 같은 평형(전용면적 정수부)의 주택형을 모아 공급면적(SUPLY_AR)이 하나면 단일값,
+  여럿이면 최소~최대 범위를 참고 표시로만 붙인다. 공고 없음·해당 평형 없음·조회 오류·상한 초과는 참고값 없음으로 두며
+  비교 보류 사유가 아니다.
 """
 import copy
 import csv
@@ -19,23 +21,22 @@ import unicodedata
 import zipfile
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
-from decimal import Context, Decimal, InvalidOperation, localcontext
+from decimal import Decimal, InvalidOperation
 from http.client import HTTPException
 from typing import Callable, Optional
 
 from build_notice_search_index import NOTICE_SOURCES, notice_kind
 from compare_trades import (
-    DEFAULT_TOLERANCE,
     _area,
     _calendar_day,
     _cancellation,
-    _checked_target_area,
     _contract_day,
-    _documents,
     _known_kind,
     _period,
+    _reported_house_type,
     _selected_model,
     _won,
+    parse_exclusive_area_class,
 )
 from complex_coordinates import (
     DEFAULT_KAKAO_CACHE_TTL_DAYS,
@@ -56,7 +57,7 @@ from ingestion_notices import AREA as AREA_PATTERN, AREA_LENGTH
 from ingestion_pages import collect_pages
 from ingestion_trades import IDENTIFIER_FIELDS, SOURCE_KINDS, TRADE_KINDS
 
-DEFAULT_APPLYHOME_REQUEST_LIMIT = 120
+DEFAULT_APPLYHOME_REQUEST_LIMIT = 60
 DEFAULT_APPLYHOME_MAX_PAGES = 5
 DEFAULT_APPLYHOME_PAGE_SIZE = 100
 DEFAULT_APPLYHOME_CACHE_TTL_DAYS = 7
@@ -605,117 +606,84 @@ def _candidate_search_scopes(group: dict) -> list[dict]:
     return scopes
 
 
-def _apply_q38_rules(
-    exclusive_areas: list[tuple[Decimal, str]],
+def _apply_q38_area_class_rules(
+    target_class: int,
     verified_notices: list[dict],
 ) -> dict:
-    """주소로 확인된 공고 목록의 주택형에 Q-38 규칙을 적용한다.
+    """주소로 확인된 공고 목록의 주택형에서 같은 평형(전용면적 정수부)의 참고 공급면적을 구성한다(Q-38·Q-52).
 
-    verified_notices 원소:
-      source, modelSource, houseManageNo, noticeNo, edition, observedAt, models: list[dict]
-    반환 딕셔너리는 정확한 십진수 Decimal을 키로 사용한다(예: 84.745와 84.7450은 같은 키).
+    같은 평형의 공급면적이 하나면 single, 여럿이면 minM2~maxM2 range, 공고·주택형이 없으면 unavailable을 반환한다.
+    참고 표시 전용이며 비교 포함 여부·순위에 쓰지 않는다.
     """
-    # 모든 확인 공고에서 주택형 문자열을 미리 검증한다.
-    parsed_notices = []
+    matching_records = []
+    missing_supply = False
     for notice in verified_notices:
-        parsed_models = []
         for model in notice['models']:
             raw_house_type = model.get('HOUSE_TY')
             parsed_ty = parse_house_type_exclusive(raw_house_type)
-            if parsed_ty is None:
-                # 주택형 문자열을 읽지 못하면 전용면적 일치의 유일성을 증명할 수 없다.
-                return {
-                    excl_dec: {
-                        'status': 'held', 'reasonCode': 'lookup_failed',
-                        'supplyAreaM2': None, 'notices': [],
-                    }
-                    for excl_dec, _ in exclusive_areas
-                }
+            if parsed_ty is None or int(parsed_ty[0]) != target_class:
+                continue
             parsed_supply = parse_supply_area_decimal(model.get('SUPLY_AR'))
-            parsed_models.append({
+            if parsed_supply is None:
+                missing_supply = True
+                continue
+            matching_records.append({
+                'source': notice['source'],
+                'modelSource': notice['modelSource'],
+                'houseManageNo': notice['houseManageNo'],
+                'noticeNo': notice['noticeNo'],
+                'edition': notice.get('edition'),
                 'modelNo': str(model.get('MODEL_NO') or '').strip() or None,
                 'houseType': str(raw_house_type).strip(),
-                'exclusive': parsed_ty[0],
-                'typeSuffix': parsed_ty[1],
-                'supply': parsed_supply[0] if parsed_supply else None,
-                'supplyStr': parsed_supply[1] if parsed_supply else None,
+                'supply': parsed_supply[0],
+                'supplyAreaM2': parsed_supply[1],
+                'observedAt': notice.get('observedAt'),
             })
-        parsed_notices.append((notice, parsed_models))
 
-    outcomes = {}
-    for excl_dec, _ in exclusive_areas:
-        matching_records = []
-        multi_in_notice = False
-        missing_supply = False
-        for notice, models in parsed_notices:
-            hits = [m for m in models if m['exclusive'] == excl_dec]
-            if len(hits) > 1:
-                multi_in_notice = True
-                break
-            if len(hits) == 1:
-                hit = hits[0]
-                if hit['supply'] is None:
-                    missing_supply = True
-                matching_records.append({
-                    'source': notice['source'],
-                    'modelSource': notice['modelSource'],
-                    'houseManageNo': notice['houseManageNo'],
-                    'noticeNo': notice['noticeNo'],
-                    'edition': notice.get('edition'),
-                    'modelNo': hit['modelNo'],
-                    'houseType': hit['houseType'],
-                    'typeKey': (hit['exclusive'], hit['typeSuffix']),
-                    'supply': hit['supply'],
-                    'supplyAreaM2': hit['supplyStr'],
-                    'observedAt': notice.get('observedAt'),
-                })
+    if not matching_records:
+        reason = 'supply_area_unavailable' if missing_supply else 'area_class_not_found'
+        return {
+            'status': 'unavailable',
+            'reasonCode': reason,
+            'm2': None,
+            'minM2': None,
+            'maxM2': None,
+            'notices': [],
+        }
 
-        if multi_in_notice:
-            outcomes[excl_dec] = {
-                'status': 'held', 'reasonCode': 'multiple_housing_types',
-                'supplyAreaM2': None, 'notices': [],
-            }
-            continue
-        if not matching_records:
-            outcomes[excl_dec] = {
-                'status': 'held', 'reasonCode': 'housing_type_not_found',
-                'supplyAreaM2': None, 'notices': [],
-            }
-            continue
-        if missing_supply:
-            outcomes[excl_dec] = {
-                'status': 'held', 'reasonCode': 'lookup_failed',
-                'supplyAreaM2': None, 'notices': [],
-            }
-            continue
-
-        distinct_types = {rec['typeKey'] for rec in matching_records}
-        if len(distinct_types) > 1:
-            outcomes[excl_dec] = {
-                'status': 'held', 'reasonCode': 'multiple_housing_types',
-                'supplyAreaM2': None,
-                'notices': [_public_notice_ref(r) for r in matching_records],
-            }
-            continue
-
-        distinct_supplies = {rec['supply'] for rec in matching_records}
-        if len(distinct_supplies) > 1:
-            outcomes[excl_dec] = {
-                'status': 'held', 'reasonCode': 'supply_area_mismatch_across_notices',
-                'supplyAreaM2': None,
-                'notices': [_public_notice_ref(r) for r in matching_records],
-            }
-            continue
-
-        # Q-38 확정: 유일 주택형 + 확인한 모든 공고의 공급면적 일치
-        canonical_supply = matching_records[0]['supplyAreaM2']
-        outcomes[excl_dec] = {
-            'status': 'confirmed',
-            'reasonCode': None,
-            'supplyAreaM2': canonical_supply,
+    if missing_supply:
+        return {
+            'status': 'unavailable',
+            'reasonCode': 'supply_area_unavailable',
+            'm2': None,
+            'minM2': None,
+            'maxM2': None,
             'notices': [_public_notice_ref(r) for r in matching_records],
         }
-    return outcomes
+
+    distinct_by_dec = {}
+    for rec in matching_records:
+        distinct_by_dec.setdefault(rec['supply'], rec['supplyAreaM2'])
+    ordered_values = sorted(distinct_by_dec.items())
+    public_notices = [_public_notice_ref(r) for r in matching_records]
+    if len(ordered_values) == 1:
+        val_str = ordered_values[0][1]
+        return {
+            'status': 'single',
+            'reasonCode': None,
+            'm2': val_str,
+            'minM2': val_str,
+            'maxM2': val_str,
+            'notices': public_notices,
+        }
+    return {
+        'status': 'range',
+        'reasonCode': None,
+        'm2': None,
+        'minM2': ordered_values[0][1],
+        'maxM2': ordered_values[-1][1],
+        'notices': public_notices,
+    }
 
 
 def _public_notice_ref(record: dict) -> dict:
@@ -772,7 +740,7 @@ def _address_fingerprint(group: dict) -> dict:
     }
 
 
-def prefetch_cache_keys(capture: dict, *, limit: int = 500) -> list[str]:
+def prefetch_cache_keys(capture: dict, *, limit: int = 500, target_area_class: Optional[int] = None) -> list[str]:
     """수집본에서 DB 공유 캐시를 한 번에 조회할 단지·좌표 키 목록을 추출한다."""
     if not isinstance(capture, dict):
         return []
@@ -791,6 +759,12 @@ def prefetch_cache_keys(capture: dict, *, limit: int = 500) -> list[str]:
         if source not in SOURCE_KINDS or not isinstance(req_code, str) or len(req_code) != 5:
             continue
         for trade in batch.get('trades') or []:
+            if target_area_class is not None:
+                excl_obj = trade.get('exclusiveArea') or {}
+                if excl_obj.get('status') == 'parsed' and excl_obj.get('basis') == 'exclusive':
+                    excl_dec = _area(excl_obj.get('m2'))
+                    if excl_dec is not None and excl_dec >= 1 and int(excl_dec) != target_area_class:
+                        continue
             ids = trade.get('identifiers') or {}
             apt_seq = ids.get('aptSeq')
             if isinstance(apt_seq, str) and apt_seq.strip():
@@ -849,8 +823,16 @@ def collect_evidence_sources(evidence: dict, extra_sources=()) -> list[str]:
     return sorted(sources)
 
 
-def _active_trade_rows(capture: dict, period: dict, trade_kinds: list[str], by_code, by_name):
-    """수집본에서 독립 제외(기간 밖·해제·미포함 종류)가 아닌 거래 행과 수집 상태를 추출한다."""
+def _active_trade_rows(
+    capture: dict,
+    period: dict,
+    trade_kinds: list[str],
+    by_code,
+    by_name,
+    *,
+    target_area_class: Optional[int] = None,
+):
+    """수집본에서 독립 제외(기간 밖·해제·미포함 종류·다른 평형)가 아닌 거래 행과 수집 상태를 추출한다."""
     months = set(period['months'])
     request_codes = set(capture['requestRegionCodes'])
     expected_batches = {
@@ -893,6 +875,15 @@ def _active_trade_rows(capture: dict, period: dict, trade_kinds: list[str], by_c
             kind = _known_kind(source, trade)
             if kind is not None and kind not in trade_kinds:
                 continue
+            excl_obj = trade.get('exclusiveArea') or {}
+            exclusive_dec = (
+                _area(excl_obj.get('m2'))
+                if excl_obj.get('status') == 'parsed' and excl_obj.get('basis') == 'exclusive'
+                else None
+            )
+            trade_class = int(exclusive_dec) if exclusive_dec is not None and exclusive_dec >= 1 else None
+            if target_area_class is not None and trade_class is not None and trade_class != target_area_class:
+                continue
             identifiers = trade.get('identifiers') or {}
             locality_code, sub_name = _trade_locality(source, req_code, identifiers, by_code, by_name)
             prov = trade.get('provenance') or {}
@@ -907,8 +898,9 @@ def _active_trade_rows(capture: dict, period: dict, trade_kinds: list[str], by_c
                 'subName': sub_name,
                 'trade': trade,
                 'identifiers': identifiers,
-                'exclusiveRaw': (trade.get('exclusiveArea') or {}).get('m2'),
-                'exclusiveDec': _area((trade.get('exclusiveArea') or {}).get('m2')),
+                'exclusiveRaw': excl_obj.get('m2'),
+                'exclusiveDec': exclusive_dec if trade_class is not None else None,
+                'areaClass': trade_class,
             })
     if seen_batches != expected_batches:
         batches_ok = False
@@ -1245,20 +1237,16 @@ def _target_models_from_capture(capture: dict) -> list[dict]:
     }]
 
 
-def _target_supply_bounds(capture: dict, model_no: Optional[str]) -> Optional[tuple[Decimal, Decimal]]:
+def _target_area_class(capture: dict, model_no: Optional[str]) -> Optional[int]:
+    """선택 주택형의 HOUSE_TY에서 대상 평형(전용면적 정수부)을 추출한다(Q-52)."""
     catalog = capture.get('catalog') or {}
-    target = capture.get('target') or {}
     selection = {'modelNo': model_no} if model_no is not None else {}
     model, _ = _selected_model(catalog, selection)
     if model is None:
         return None
-    documents = _documents(catalog, target)
-    _, amount = _checked_target_area(model, documents)
-    if amount is None:
-        return None
-    with localcontext(Context(prec=len(format(amount, 'f')) + len(format(DEFAULT_TOLERANCE, 'f')) + 4)):
-        delta = amount * DEFAULT_TOLERANCE / Decimal('100')
-        return amount - delta, amount + delta
+    house_type = _reported_house_type(model.get('houseType'))
+    parsed = parse_exclusive_area_class(house_type)
+    return parsed[1] if parsed is not None else None
 
 
 def build_comparison_evidence(
@@ -1370,9 +1358,15 @@ def build_comparison_evidence(
         'regionCatalog': region_catalog,
     }
 
+    target_area_class = _target_area_class(capture, model_no)
+    if target_area_class is None:
+        return held_output('target_area_class_unverified')
+
     by_locality, by_code, by_name = _build_region_index(regions)
     trade_kinds = list(capture.get('tradeKinds') or TRADE_KINDS)
-    all_rows, batches_complete = _active_trade_rows(capture, period, trade_kinds, by_code, by_name)
+    all_rows, batches_complete = _active_trade_rows(
+        capture, period, trade_kinds, by_code, by_name, target_area_class=target_area_class,
+    )
 
     allowed_feeds = tuple(
         feed for feed, ok in (('applyhome_apt', perms['applyhomeApt']),
@@ -1382,7 +1376,6 @@ def build_comparison_evidence(
     memo_list, memo_model = {}, {}
     new_cache_entries = []
     usable_applyhome_cache = applyhome_cache if isinstance(applyhome_cache, dict) else {}
-    target_bounds = _target_supply_bounds(capture, model_no)
 
     complexes_map = {
         target_complex_id: {
@@ -1451,8 +1444,10 @@ def build_comparison_evidence(
                     'scope': role,
                     'localityCode': group['localityCode'],
                     'isTarget': is_target,
+                    'areaClass': target_area_class,
                     'status': 'held',
                     'reasonCode': 'complex_identifier_conflict',
+                    'supplyAreaReference': None,
                     'areas': [],
                 })
                 continue
@@ -1470,7 +1465,27 @@ def build_comparison_evidence(
                     },
                 }
 
-            # 1) 캐시 적중 확인 (청약홈 구조화 자료). 대상 단지 자체 거래도 모든 공고의 Q-38 일치를 확인한다.
+            # 같은 평형 유효 거래가 하나도 없으면(전용면적 파싱 불가 등) 청약홈·좌표 조회를 생략한다.
+            if not excl_pairs:
+                if not is_target:
+                    scope_neighbor_holds += len(group['rows'])
+                    held_complex_count += 1
+                    hold_reason_counts['trade_exclusive_area_binding_unverified'] += len(group['rows'])
+                complex_meta_records.append({
+                    'complexKey': cache_key,
+                    'complexId': cid,
+                    'scope': role,
+                    'localityCode': group['localityCode'],
+                    'isTarget': is_target,
+                    'areaClass': target_area_class,
+                    'status': 'held',
+                    'reasonCode': 'trade_exclusive_area_binding_unverified',
+                    'supplyAreaReference': None,
+                    'areas': [],
+                })
+                continue
+
+            # 1) 캐시 적중 확인 (청약홈 구조화 자료 — 같은 평형 참고 공급면적용, Q-38·Q-52)
             target_capture_notices = _target_models_from_capture(capture) if is_target else []
             verified_notices = []
             lookup_reason = None
@@ -1538,93 +1553,91 @@ def build_comparison_evidence(
                             },
                         })
 
-            # 대상 단지 자체 거래는 전체 공고 조회가 실패·예산초과가 아닐 때 대상 수집 공고 주택형도 합쳐 검증한다.
             if is_target and target_capture_notices and lookup_reason not in ('lookup_failed', 'lookup_budget_exceeded'):
                 existing_pairs = {(n['source'], n['houseManageNo'], n['noticeNo']) for n in verified_notices}
                 for n in target_capture_notices:
                     if (n['source'], n['houseManageNo'], n['noticeNo']) not in existing_pairs:
                         verified_notices.append(n)
 
-            area_outcomes = (
-                _apply_q38_rules(excl_pairs, verified_notices)
+            ref_outcome = (
+                _apply_q38_area_class_rules(target_area_class, verified_notices)
                 if verified_notices else {
-                    excl_dec: {'status': 'held', 'reasonCode': lookup_reason or 'notice_not_found',
-                               'supplyAreaM2': None, 'notices': []}
-                    for excl_dec, _ in excl_pairs
+                    'status': 'unavailable',
+                    'reasonCode': lookup_reason or 'notice_not_found',
+                    'm2': None,
+                    'minM2': None,
+                    'maxM2': None,
+                    'notices': [],
                 }
             )
 
-            group_has_confirmed = False
-            group_has_in_range = False
-            group_has_hold = False
-            area_meta = []
-            for excl_dec, excl_str in excl_pairs:
-                outcome = area_outcomes[excl_dec]
-                area_meta.append({
-                    'exclusiveAreaM2': excl_str,
-                    'status': outcome['status'],
-                    'supplyAreaM2': outcome['supplyAreaM2'],
-                    'reasonCode': outcome['reasonCode'],
-                    'notices': outcome['notices'],
-                })
-                if outcome['status'] == 'confirmed':
-                    group_has_confirmed = True
-                    supply_dec = Decimal(outcome['supplyAreaM2'])
-                    if target_bounds is None or (target_bounds[0] <= supply_dec <= target_bounds[1]):
-                        group_has_in_range = True
-                else:
-                    group_has_hold = True
-                    if not is_target and outcome['reasonCode']:
-                        hold_reason_counts[outcome['reasonCode']] += 1
+            supply_proof = None
+            if ref_outcome['status'] in ('single', 'range'):
+                supply_proof, used_model_sources = _supply_proof(ref_outcome['notices'])
+                extra_sources.update(used_model_sources)
+                complexes_map[cid].setdefault('supplyAreaReferences', {})[str(target_area_class)] = {
+                    'areaClass': target_area_class,
+                    'status': ref_outcome['status'],
+                    'm2': ref_outcome['m2'],
+                    'minM2': ref_outcome['minM2'],
+                    'maxM2': ref_outcome['maxM2'],
+                    'evidence': supply_proof,
+                }
+            else:
+                complexes_map[cid].setdefault('supplyAreaReferences', {})[str(target_area_class)] = {
+                    'areaClass': target_area_class,
+                    'status': 'unavailable',
+                    'm2': None,
+                    'minM2': None,
+                    'maxM2': None,
+                    'reasonCode': ref_outcome['reasonCode'] or 'supply_area_unavailable',
+                }
 
-            # 거래 행별 tradeLinks 구성
+            # 거래 행별 tradeLinks 구성: 공급면적은 참고 표시 전용이며, 미확인이더라도 비교 후보로 연결한다(Q-52).
+            group_has_valid_row = False
+            group_has_row_hold = False
             for item in group['rows']:
                 if item['exclusiveDec'] is None:
+                    group_has_row_hold = True
                     if not is_target:
                         scope_neighbor_holds += 1
+                        hold_reason_counts['trade_exclusive_area_binding_unverified'] += 1
                     continue
-                if not is_target and _row_has_non_area_hold(item):
-                    scope_neighbor_holds += 1
-                outcome = area_outcomes.get(item['exclusiveDec'])
-                if outcome and outcome['status'] == 'confirmed':
-                    proof, used_model_sources = _supply_proof(outcome['notices'])
-                    extra_sources.update(used_model_sources)
-                    trade_links.append({
-                        'recordId': item['recordId'],
-                        'source': item['source'],
-                        'page': item['page'],
-                        'position': item['position'],
-                        'identifiers': copy.deepcopy(item['identifiers']),
-                        'exclusiveAreaM2': item['exclusiveRaw'],
-                        'complexId': cid,
-                        'supplyAreaM2': outcome['supplyAreaM2'],
-                        'evidence': proof,
-                    })
-                else:
-                    # 단지 식별은 확인됐으나 공급면적 대응이 보류된 경우 -> compare_trades에서 trade_supply_area_unverified
+                if _row_has_non_area_hold(item):
+                    group_has_row_hold = True
                     if not is_target:
                         scope_neighbor_holds += 1
-                    trade_links.append({
-                        'recordId': item['recordId'],
-                        'source': item['source'],
-                        'page': item['page'],
-                        'position': item['position'],
-                        'identifiers': copy.deepcopy(item['identifiers']),
-                        'exclusiveAreaM2': item['exclusiveRaw'],
-                        'complexId': cid,
-                        'evidence': {
+                        hold_reason_counts['trade_row_unverified'] += 1
+                else:
+                    group_has_valid_row = True
+
+                link_entry = {
+                    'recordId': item['recordId'],
+                    'source': item['source'],
+                    'page': item['page'],
+                    'position': item['position'],
+                    'identifiers': copy.deepcopy(item['identifiers']),
+                    'exclusiveAreaM2': item['exclusiveRaw'],
+                    'complexId': cid,
+                    'evidence': (
+                        copy.deepcopy(supply_proof)
+                        if ref_outcome['status'] == 'single' and supply_proof is not None
+                        else {
                             'source': item['source'],
-                            'reference': f'{cid}|reason:{(outcome or {}).get("reasonCode") or "unverified"}',
-                        },
-                    })
+                            'reference': f'{cid}|bjd:{group["localityCode"]}',
+                        }
+                    ),
+                }
+                if ref_outcome['status'] == 'single' and ref_outcome['m2'] is not None:
+                    link_entry['supplyAreaM2'] = ref_outcome['m2']
+                trade_links.append(link_entry)
 
             if not is_target:
-                if group_has_confirmed:
+                if group_has_valid_row:
                     scope_confirmed_neighbors += 1
-                    confirmed_complex_count += 1
-                if group_has_in_range:
                     scope_in_range_neighbors += 1
-                    # ±5% 범위 안에 들어온 비교 후보 단지는 대표 좌표를 조회 대상으로 올린다.
+                    confirmed_complex_count += 1
+                    # 같은 평형 비교 후보 단지는 참고 공급면적 유무와 무관하게 대표 좌표를 조회한다.
                     road = group.get('road')
                     coord_requests_by_id[cid] = {
                         'complexId': cid,
@@ -1636,19 +1649,41 @@ def build_comparison_evidence(
                         'roadMain': road['mainNo'] if road else None,
                         'roadSub': road['subNo'] if road else None,
                     }
-                if group_has_hold and not group_has_confirmed:
+                else:
                     held_complex_count += 1
 
+            area_meta = [
+                {
+                    'exclusiveAreaM2': excl_str,
+                    'areaClass': target_area_class,
+                    'status': ref_outcome['status'],
+                    'supplyAreaM2': ref_outcome['m2'],
+                    'minSupplyAreaM2': ref_outcome['minM2'],
+                    'maxSupplyAreaM2': ref_outcome['maxM2'],
+                    'reasonCode': ref_outcome['reasonCode'],
+                    'notices': ref_outcome['notices'],
+                }
+                for _, excl_str in excl_pairs
+            ]
             complex_meta_records.append({
                 'complexKey': cache_key,
                 'complexId': cid,
                 'scope': role,
                 'localityCode': group['localityCode'],
                 'isTarget': is_target,
-                'status': 'confirmed' if group_has_confirmed and not group_has_hold else ('partial' if group_has_confirmed else 'held'),
-                'reasonCode': None if group_has_confirmed and not group_has_hold else (
-                    next((a['reasonCode'] for a in area_meta if a['reasonCode']), lookup_reason)
+                'areaClass': target_area_class,
+                'status': 'confirmed' if (group_has_valid_row and not group_has_row_hold) else ('partial' if group_has_valid_row else 'held'),
+                'reasonCode': None if (group_has_valid_row and not group_has_row_hold) else (
+                    'trade_row_unverified' if group_has_row_hold else None
                 ),
+                'supplyAreaReference': {
+                    'status': ref_outcome['status'],
+                    'm2': ref_outcome['m2'],
+                    'minM2': ref_outcome['minM2'],
+                    'maxM2': ref_outcome['maxM2'],
+                    'reasonCode': ref_outcome['reasonCode'],
+                    'notices': ref_outcome['notices'],
+                },
                 'areas': area_meta,
             })
 

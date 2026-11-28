@@ -266,13 +266,13 @@ class AutoEvidenceCoreTests(unittest.TestCase):
         self.assertEqual((jade_sale['count'], jade_sale['medianWon'], jade_sale['smallSample']),
                          (2, '1300000000', True))
 
-    def test_q38_exact_decimal_and_all_hold_branches(self):
-        """Q-38: 유일 십진 일치, 복수 주택형 보류, 공고 간 공급면적 불일치 보류, 공고 없음 보류, 동명·다른 지번 미연결(A-08), aptSeq 충돌."""
+    def test_q38_area_class_reference_supply_and_identity_conflict_branches(self):
+        """Q-38·Q-52: 평형 단위 참고 공급면적(단일·범위·없음)은 보류가 아니며, 동명·다른 지번 미연결(A-08)·aptSeq 충돌은 유지한다."""
         self.assertEqual(parse_house_type_exclusive('084.7450D'), (Decimal('84.7450'), 'D'))
         self.assertEqual(parse_house_type_exclusive('059.9800'), (Decimal('59.9800'), ''))
         self.assertIsNone(parse_house_type_exclusive('특별형'))
 
-        # 1) 같은 전용면적의 복수 주택형(084.7450A, 084.7450B) -> multiple_housing_types 보류
+        # 1) 같은 평형(84㎡형)의 복수 주택형(084.7450A, 084.7450B) -> 보류가 아니라 참고 공급면적 범위(range)로 표시
         def add_multi_type(directory):
             directory['applyhome_apt_model']['9129020001/9129020001'].append({
                 'HOUSE_MANAGE_NO': '9129020001', 'PBLANC_NO': '9129020001',
@@ -283,12 +283,14 @@ class AutoEvidenceCoreTests(unittest.TestCase):
         cap, api_fetch, _, _, _ = self._capture(applyhome_override=add_multi_type)
         built = build_comparison_evidence(cap, region_catalog=self.catalog, api_fetch=api_fetch, model_no='01', now=fixed_now)
         jade_meta = next(c for c in built['metadata']['complexes'] if c['complexId'] == 'aptseq:91290-102')
-        self.assertEqual((jade_meta['status'], jade_meta['reasonCode']), ('held', 'multiple_housing_types'))
+        self.assertEqual((jade_meta['status'], jade_meta['supplyAreaReference']['status']), ('confirmed', 'range'))
         comp = compare_snapshot(cap, {'modelNo': '01', 'room': '101동 101호'}, built['runtimeEvidence'])
-        self.assertTrue(any(h.get('complexId') == 'aptseq:91290-102' and h.get('reasonCode') == 'trade_supply_area_unverified'
-                            for h in comp['holds']))
+        jade_comp = next(c for c in comp['comparables'] if c['complexId'] == 'aptseq:91290-102')
+        self.assertEqual(jade_comp['supplyAreaReference']['status'], 'range')
+        self.assertEqual((jade_comp['supplyAreaReference']['minM2'], jade_comp['supplyAreaReference']['maxM2']),
+                         ('110.3239', '110.9000'))
 
-        # 2) 공고 간 공급면적 불일치 -> supply_area_mismatch_across_notices 보류
+        # 2) 공고 간 같은 평형 공급면적이 다르면 보류가 아니라 최소~최대 범위(range)로 참고 표시한다.
         def mismatch_supply(directory):
             directory['applyhome_remainder_model']['9129010002/9129010002'][0]['SUPLY_AR'] = '111.0000'
             return directory
@@ -296,19 +298,26 @@ class AutoEvidenceCoreTests(unittest.TestCase):
         cap, api_fetch, _, _, _ = self._capture(applyhome_override=mismatch_supply)
         built = build_comparison_evidence(cap, region_catalog=self.catalog, api_fetch=api_fetch, model_no='01', now=fixed_now)
         bell_meta = next(c for c in built['metadata']['complexes'] if c['complexId'] == 'aptseq:91290-101')
-        self.assertEqual((bell_meta['status'], bell_meta['reasonCode']), ('held', 'supply_area_mismatch_across_notices'))
+        self.assertEqual((bell_meta['status'], bell_meta['supplyAreaReference']['status']), ('confirmed', 'range'))
 
-        # 3) 공고 없음 -> notice_not_found 보류
+        # 3) 공고 없음 -> 비교 포함 유지(confirmed), 참고 공급면적은 unavailable(notice_not_found)
         def remove_jade_notice(directory):
             directory['applyhome_apt'] = [r for r in directory['applyhome_apt'] if r['HOUSE_MANAGE_NO'] != '9129020001']
             return directory
 
-        cap, api_fetch, _, _, _ = self._capture(applyhome_override=remove_jade_notice)
-        built = build_comparison_evidence(cap, region_catalog=self.catalog, api_fetch=api_fetch, model_no='01', now=fixed_now)
+        cap, api_fetch, kakao_fetch, _, _ = self._capture(applyhome_override=remove_jade_notice)
+        built = build_comparison_evidence(cap, region_catalog=self.catalog, api_fetch=api_fetch,
+                                          kakao_fetch=kakao_fetch, model_no='01', now=fixed_now)
         jade_meta = next(c for c in built['metadata']['complexes'] if c['complexId'] == 'aptseq:91290-102')
-        self.assertEqual((jade_meta['status'], jade_meta['reasonCode']), ('held', 'notice_not_found'))
+        self.assertEqual((jade_meta['status'], jade_meta['supplyAreaReference']['status'],
+                          jade_meta['supplyAreaReference']['reasonCode']),
+                         ('confirmed', 'unavailable', 'notice_not_found'))
+        comp = compare_snapshot(cap, {'modelNo': '01', 'room': '101동 101호'}, built['runtimeEvidence'])
+        self.assertEqual(comp['completeness'], 'complete')
+        jade_comp = next(c for c in comp['comparables'] if c['complexId'] == 'aptseq:91290-102')
+        self.assertEqual(jade_comp['supplyAreaReference']['status'], 'unavailable')
 
-        # 4) 이름은 같지만 지번·도로명이 다른 단지 -> 미연결(complex_identity_mismatch, A-08)
+        # 4) 이름은 같지만 지번·도로명이 다른 단지 -> 미연결(complex_identity_mismatch, A-08), 참고값 없음
         def same_name_wrong_jibun(directory):
             for row in directory['applyhome_apt']:
                 if row['HOUSE_MANAGE_NO'] == '9129020001':
@@ -318,20 +327,22 @@ class AutoEvidenceCoreTests(unittest.TestCase):
         cap, api_fetch, _, _, _ = self._capture(applyhome_override=same_name_wrong_jibun)
         built = build_comparison_evidence(cap, region_catalog=self.catalog, api_fetch=api_fetch, model_no='01', now=fixed_now)
         jade_meta = next(c for c in built['metadata']['complexes'] if c['complexId'] == 'aptseq:91290-102')
-        self.assertEqual((jade_meta['status'], jade_meta['reasonCode']), ('held', 'complex_identity_mismatch'))
+        self.assertEqual((jade_meta['status'], jade_meta['supplyAreaReference']['status'],
+                          jade_meta['supplyAreaReference']['reasonCode']),
+                         ('confirmed', 'unavailable', 'complex_identity_mismatch'))
 
-        # 5) 전용면적 반올림·±1㎡ 미적용: 84.75는 084.7450D와 일치하지 않는다.
-        def rounded_exclusive(trades):
+        # 5) Q-52: 전용면적 소수점이 달라도(84.75 vs 084.7450D) 같은 84㎡형이므로 단일 참고 공급면적에 대응한다.
+        def different_decimal_same_class(trades):
             trades['202609'][3]['excluUseAr'] = '84.75'
             trades['202610'][1]['excluUseAr'] = '84.75'
             return trades
 
-        cap, api_fetch, _, _, _ = self._capture(trade_override=rounded_exclusive)
+        cap, api_fetch, _, _, _ = self._capture(trade_override=different_decimal_same_class)
         built = build_comparison_evidence(cap, region_catalog=self.catalog, api_fetch=api_fetch, model_no='01', now=fixed_now)
         jade_meta = next(c for c in built['metadata']['complexes'] if c['complexId'] == 'aptseq:91290-102')
-        self.assertEqual((jade_meta['status'], jade_meta['reasonCode']), ('held', 'housing_type_not_found'))
+        self.assertEqual((jade_meta['status'], jade_meta['supplyAreaReference']['status']), ('confirmed', 'single'))
 
-        # 6) 같은 aptSeq 안의 지번 충돌 -> complex_identifier_conflict -> trade_link_conflict
+        # 6) 같은 aptSeq 안의 지번 충돌 -> complex_identifier_conflict -> trade_link_conflict (보류 유지!)
         def conflicting_aptseq(trades):
             trades['202610'][1]['jibun'] = '832'
             trades['202610'][1]['bonbun'] = '0832'
@@ -466,8 +477,8 @@ class AutoEvidenceCoreTests(unittest.TestCase):
         stripped = strip_kakao_coordinates(built_stored['persistedEvidence'])
         self.assertTrue(all('coordinates' not in c for c in stripped['complexes']))
 
-    def test_lookup_failure_holds_priority_without_expanding_a06(self):
-        """청약홈 근거 조회 실패 시 정상 0개로 처리하지 않고 우선 지역에서 보류하며 확대하지 않는다(A-06)."""
+    def test_lookup_failure_marks_reference_unavailable_without_holding_inclusion(self):
+        """Q-52: 청약홈 참고 공급면적 조회 실패는 참고값 없음으로 두고 비교 포함을 막지 않으며, 식별 충돌은 우선 지역에서 보류한다."""
         def add_expansion_trade(trades):
             trades['202610'].append({
                 'aptSeq': '91290-901', 'aptNm': '합성별양단지', 'sggCd': '91290', 'umdCd': '10200',
@@ -478,7 +489,7 @@ class AutoEvidenceCoreTests(unittest.TestCase):
             })
             return trades
 
-        cap, api_fetch, _, api_calls, _ = self._capture(trade_override=add_expansion_trade)
+        cap, api_fetch, kakao_fetch, _, _ = self._capture(trade_override=add_expansion_trade)
 
         def failing_evidence_api(source, scope, page_no, page_size):
             if source == 'applyhome_apt':
@@ -487,15 +498,18 @@ class AutoEvidenceCoreTests(unittest.TestCase):
             return api_fetch(source, scope, page_no, page_size)
 
         built = build_comparison_evidence(
-            cap, region_catalog=self.catalog, api_fetch=failing_evidence_api,
+            cap, region_catalog=self.catalog, api_fetch=failing_evidence_api, kakao_fetch=kakao_fetch,
             model_no='01', now=fixed_now,
         )
         self.assertEqual(built['metadata']['scopeChecked'], 'priority')
-        self.assertEqual(built['metadata']['complexSummary']['holdReasons'].get('lookup_failed'), 2)
+        self.assertEqual(sum(c['supplyAreaReference']['status'] == 'unavailable' for c in built['metadata']['complexes']), 2)
+        self.assertTrue(all(c['supplyAreaReference']['reasonCode'] == 'lookup_failed' for c in built['metadata']['complexes']))
         comp = compare_snapshot(cap, {'modelNo': '01', 'room': '101동 101호'}, built['runtimeEvidence'])
         self.assertEqual(comp['appliedScope'], 'priority')
         self.assertIsNone(comp['regionDecision']['expansion'])
-        self.assertEqual(comp['regionDecision']['priority']['conclusion'], 'held')
+        self.assertEqual(comp['regionDecision']['priority']['conclusion'], 'candidates_found')
+        self.assertEqual(len(comp['comparables']), 2)
+        self.assertTrue(all(c['supplyAreaReference']['status'] == 'unavailable' for c in comp['comparables']))
 
     def test_priority_normal_zero_expands_automatically_a05(self):
         """우선 지역이 ±5% 밖 확인 거래만 있어 정상 0개이면 같은 시·군 확대 지역 근거를 자동 조회한다(A-05)."""
@@ -544,18 +558,20 @@ class AutoEvidenceCoreTests(unittest.TestCase):
         self.assertEqual(comp['comparables'][0]['tradeStats']['sale']['medianWon'], '1420000000')
 
     def test_call_limits_and_cache_hits_priority(self):
-        """호출 상한 초과 시 정상 0개가 아니라 보류하며, 캐시 적중 시 외부 호출 없이 0회로 재사용한다."""
+        """호출 상한 초과 시 참고 공급면적만 unavailable로 두고 비교 포함은 유지하며, 캐시 적중 시 외부 호출 없이 0회로 재사용한다."""
         cap, api_fetch, kakao_fetch, api_calls, kakao_calls = self._capture()
-        # 1) 청약홈 호출 상한 1회 -> 예산 초과 보류
+        # 1) 청약홈 호출 상한 1회 -> 참고 공급면적 예산 초과(비교 포함은 유지)
         limited = build_comparison_evidence(
             cap, region_catalog=self.catalog, api_fetch=api_fetch, kakao_fetch=kakao_fetch,
             model_no='01', max_applyhome_calls=1, max_kakao_calls=1, now=fixed_now,
         )
         self.assertTrue(limited['metadata']['budgetReached']['applyhome'])
         self.assertEqual(limited['metadata']['calls']['applyhome'], 1)
-        self.assertGreaterEqual(limited['metadata']['complexSummary']['holdReasons'].get('lookup_budget_exceeded', 0), 1)
+        self.assertTrue(any(c['supplyAreaReference']['reasonCode'] == 'lookup_budget_exceeded'
+                            for c in limited['metadata']['complexes']))
         comp_limited = compare_snapshot(cap, {'modelNo': '01', 'room': '101동 101호'}, limited['runtimeEvidence'])
-        self.assertEqual(comp_limited['regionDecision']['priority']['conclusion'], 'held')
+        self.assertEqual(comp_limited['regionDecision']['priority']['conclusion'], 'candidates_found')
+        self.assertEqual(len(comp_limited['comparables']), 2)
 
         # 2) 카카오 호출 상한 1회 -> 대상 1건 후 후보 2건은 coordinate_budget_exceeded 보류
         api_calls.clear()
@@ -701,8 +717,8 @@ class AutoEvidenceCoreTests(unittest.TestCase):
         built_t = build_comparison_evidence(cap_t, region_catalog=self.catalog, api_fetch=api_t,
                                             kakao_fetch=kakao_t, model_no='01', now=fixed_now)
         target_meta = next(c for c in built_t['metadata']['complexes'] if c['isTarget'])
-        self.assertEqual((target_meta['status'], target_meta['reasonCode']),
-                         ('held', 'supply_area_mismatch_across_notices'))
+        self.assertEqual((target_meta['status'], target_meta['supplyAreaReference']['status']),
+                         ('confirmed', 'range'))
 
         # 3) 우선 지역이 범위 밖 거래뿐이어도 월 배치가 하나라도 누락되면 확대 지역 조회로 넘어가지 않는다(A-06).
         def priority_outside_only(trades):

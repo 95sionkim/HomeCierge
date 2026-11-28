@@ -221,6 +221,9 @@ function isNumericValue(value: string): boolean {
   if (/^(?:약\s*)?[0-9]+억(?:\s*[0-9,]+만)?\s*원(?:\s*~\s*(?:[0-9]+억\s*)?[0-9,]+만\s*원)?$/u.test(trimmed)) {
     return true;
   }
+  if (/^[0-9]+(?:\.[0-9]+)?\s*[~–-]\s*[0-9]+(?:\.[0-9]+)?\s*㎡$/u.test(trimmed)) {
+    return true;
+  }
   if (/^[0-9,]+원\s*~\s*[0-9,]+원$/u.test(trimmed)) {
     return true;
   }

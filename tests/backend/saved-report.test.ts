@@ -291,3 +291,43 @@ test('S-07 and conversation copy switch between 호실 and 가격 구간 based o
   const selectedReply = conversationExample('분양가 알려줘', bandRaw.sections.comparison.value);
   assert.equal(selectedReply.answer, '선택한 가격 구간의 분양가와 필수 옵션을 더한 금액은 700,000,000원입니다.');
 });
+
+test('S-07 projects Q-52 area-class criterion and reference supply area, and keeps legacy ±5% reports readable (synthetic)', async () => {
+  const { renderSavedReportPdf } = await import('../../src/server/report-pdf.js');
+  // 1) Q-52 평형 기준 보고서: 단일·범위·없음 참고 공급면적과 ±5% 문구 제거 확인
+  const q52 = raw();
+  q52.sections.comparison.value.comparables[1].supplyAreaReference = {
+    status: 'range',
+    m2: null,
+    minM2: '109.63',
+    maxM2: '111.20',
+    evidence: { source: 'synthetic-area-register', reference: 'comparison-b/84' },
+  };
+  const q52Report = projectSavedReport(q52);
+  const compSec = q52Report.sections.find((s) => s.id === 'comparison')!;
+  assert.ok(compSec.rows.some((r) => r.label === '비교 기준' && r.value === '84㎡형(전용면적 정수부)'));
+  assert.equal(compSec.tables[0].headers[1], '참고 공급면적');
+  assert.ok(compSec.tables[0].rows.some((row) => row[1] === '112.50㎡'));
+  assert.ok(compSec.tables[0].rows.some((row) => row[1] === '109.63 ~ 111.20㎡'));
+  assert.doesNotMatch(JSON.stringify(compSec), /±5%/);
+  const q52Pdf = await renderSavedReportPdf(projectSavedReport(q52, true));
+  assert.equal(Buffer.from(q52Pdf).subarray(0, 5).toString(), '%PDF-');
+
+  // 2) 이전 ±5% 저장 결과 읽기·PDF 호환
+  const legacy = raw();
+  const legacyVal = legacy.sections.comparison.value;
+  legacyVal.conditions.area = { basis: 'supply', tolerancePercent: '5', minM2: '106.78', maxM2: '118.02' };
+  for (const row of legacyVal.comparables) {
+    delete row.supplyAreaReference;
+    delete row.areaClass;
+    row.supplyAreaM2 = '112.50';
+    row.areaDifferenceM2 = '0.10';
+  }
+  const legacyReport = projectSavedReport(legacy);
+  const legacyCompSec = legacyReport.sections.find((s) => s.id === 'comparison')!;
+  assert.ok(legacyCompSec.rows.some((r) => r.label === '공급면적 허용 차이' && r.value === '±5%'));
+  assert.ok(legacyCompSec.rows.some((r) => r.label === '비교 공급면적 범위'));
+  assert.equal(legacyCompSec.tables[0].headers[1], '공급면적');
+  const legacyPdf = await renderSavedReportPdf(projectSavedReport(legacy, true));
+  assert.equal(Buffer.from(legacyPdf).subarray(0, 5).toString(), '%PDF-');
+});

@@ -314,6 +314,26 @@ class SyntheticLayoutTests(unittest.TestCase):
         self.assertEqual((result['status'], result['evidence']), ('held', []))
         self.assertIn('pdf_notice_date_not_found', _codes(result))
 
+    def test_new_sale_first_notice_date_counts_only_when_it_equals_the_api_date(self):
+        # 합성: 신규분양 공고는 '본 주택의 최초 입주자모집공고일은 …'로 공고일을 적기도 한다(2026-11-28 천안 공고 서식).
+        def new_sale(date_text):
+            spec = synthetic_notice_spec()
+            spec['pages'][0]['texts'][0] = (40, 40, '[합성 시험 자료] 합성 가람 아파트 입주자모집공고 - 실제 공고가 아님')
+            spec['pages'][0]['texts'][1] = (40, 70, '■ 본 주택의 최초 입주자모집공고일은 ' + date_text + '입니다.')
+            spec['pages'][0]['texts'][2] = (40, 100, '■ 주택관리번호 : {houseManageNo}')
+            return spec
+        result, _ = _run(new_sale('{noticeDate}'))
+        self.assertEqual((result['status'], result['identity']['noticeDate']), ('checked', ['2026-10-05']))
+        self.assertIn({'page': 1, 'kind': 'first_notice_date_sentence'}, result['identity']['locations'])
+        result, _ = _run(new_sale('2026.09.07.(월)'))  # API 모집공고일과 다르면 쓰지 않는다
+        self.assertEqual((result['status'], result['evidence']), ('held', []))
+        self.assertIn('pdf_notice_date_not_found', _codes(result))
+        resupply = new_sale('{noticeDate}')
+        resupply['pages'][0]['texts'][0] = (40, 40, '[합성 시험 자료] 합성 가람 아파트 재공급 입주자모집공고 - 실제 공고가 아님')
+        result, _ = _run(resupply)  # 재공급 제목이면 '최초'는 예전 회차라 쓰지 않는다
+        self.assertEqual((result['status'], result['evidence']), ('held', []))
+        self.assertIn('pdf_notice_date_not_found', _codes(result))
+
     def test_two_digit_schedule_year_is_only_matched_against_a_reference_date(self):
         result, _ = _run(synthetic_short_schedule_spec())
         self.assertEqual((result['status'], result['identity']['noticeDate']), ('checked', ['2026-10-05']))
@@ -1052,6 +1072,322 @@ class NoticeFormatAndCorrectionTests(unittest.TestCase):
         self.assertEqual(_field(result, 'supply_area')['value'], '112.4000')
         self.assertEqual(_field(result, 'sale_price', '101동·102동 3호 라인 11~15층')['value'], '700000000')
         self.assertEqual(_field(result, 'required_options', '101동·102동 3호 라인 11~15층')['value'], '0')
+
+
+class FullReadAndCheonanFormatTests(unittest.TestCase):
+    """작업 R 합성 경계 검사: 전체 쪽 스캔, 쪼개진 단위, 묶음 소계, 쪽 경계 분할 셀, 부가세 '-', N층 이상, 계약면적 0.0001, 옵션 별도 계약."""
+
+    def _cheonan_band_spec(self):
+        """합성 천안형 가격표(실제 공고가 아님): 쪼개진 단위, 묶음별 공급세대수, 부가세 '-', N층 이상, 약식표기=동번호, 쪽 경계 분할 셀."""
+        area = _table(40, 80, [50, 70, 40, 80, 50, 65, 65, 65, 65, 65, 55], [14, 14, 16, 16], [
+            ['주택구분', '주택관리번호', '모델', '주택형(전용면적기준)', '약식표기', '주택공급면적(㎡)', None, None,
+             '기타공용면적', '계약면적', '총공급세대수'],
+            [None, None, None, None, None, '주거전용면적', '주거공용면적', '소계', None, None, None],
+            ['민영', '{houseManageNo}', '01', '084.0000A', '84A', '84.0000', '28.4000', '112.4000', '50.0000', '162.4000', '10'],
+            ['민영', '{houseManageNo}', '02', '102.0000', '102', '102.0000', '35.0000', '137.0000', '60.0000', '197.0000', '18'],
+        ], [[0, c, 2, 1] for c in (0, 1, 2, 3, 4, 8, 9, 10)] + [[0, 5, 1, 3]])
+        # 2쪽 가격표: 84A 두 묶음(6+4=10, 부가세 '-', 26층 이상) + 102 첫 묶음 앞부분(12세대 중 8세대, 동별라인별이 '104,105동'에서 끊김)
+        p2_band = _table(40, 232, [45, 45, 105, 55, 40, 70, 70, 55, 70, 60, 60, 60], [14, 14] + [16] * 6, [
+            ['약식표기', '공급세대수', '동별 라인별', '층구분', '세대수',
+             '공급금액', None, None, None, '계약금(10%)', '중도금(60%)', '잔금(30%)'],
+            [None, None, None, None, None,
+             '대지비', '건축비', '부가가치세', '계', '계약시', '2027.05.10.', '입주시'],
+            ['84A', '6', '101동 1호', '2~25층', '2',
+             '280,000,000', '320,000,000', '-', '600,000,000', '60,000,000', '360,000,000', '180,000,000'],
+            [None, None, None, '26층 이상', '4',
+             '290,000,000', '330,000,000', '-', '620,000,000', '62,000,000', '372,000,000', '186,000,000'],
+            [None, '4', '106동 4호', '2~25층', '1',
+             '300,000,000', '340,000,000', '-', '640,000,000', '64,000,000', '384,000,000', '192,000,000'],
+            [None, None, None, '26층 이상', '3',
+             '310,000,000', '350,000,000', '-', '660,000,000', '66,000,000', '396,000,000', '198,000,000'],
+            ['102', '12', '101동 1,2호 104,105동', '2층', '4',
+             '300,000,000', '400,000,000', '40,000,000', '740,000,000', '74,000,000', '444,000,000', '222,000,000'],
+            [None, None, None, '3층', '4',
+             '310,000,000', '400,000,000', '40,000,000', '750,000,000', '75,000,000', '450,000,000', '225,000,000'],
+        ], [[0, c, 2, 1] for c in range(5)] + [[0, 5, 1, 4], [2, 0, 4, 1], [2, 1, 2, 1], [2, 2, 2, 1],
+                                               [4, 1, 2, 1], [4, 2, 2, 1], [6, 0, 2, 1], [6, 1, 2, 1], [6, 2, 2, 1]])
+        # 3쪽 머리말 없는 연속 가격표: 102 첫 묶음 나머지('3,4호', 4세대 -> 4+4+4=12) + 102 둘째 묶음('102동 3,4호', 6세대 -> 12+6=18)
+        p3_band = _table(40, 80, [45, 45, 105, 55, 40, 70, 70, 55, 70, 60, 60, 60], [16, 16, 16], [
+            ['', '', '3,4호', '26층 이상', '4',
+             '320,000,000', '400,000,000', '40,000,000', '760,000,000', '76,000,000', '456,000,000', '228,000,000'],
+            ['', '6', '102동 3,4호', '11~20층', '2',
+             '330,000,000', '400,000,000', '40,000,000', '770,000,000', '77,000,000', '462,000,000', '231,000,000'],
+            [None, None, None, '21층 이상', '4',
+             '340,000,000', '400,000,000', '40,000,000', '780,000,000', '78,000,000', '468,000,000', '234,000,000'],
+        ], [[0, 0, 3, 1], [1, 1, 2, 1], [1, 2, 2, 1]])
+        return {
+            'houseManageNo': '9900000001', 'noticeDate': '2026.10.05.(월)', 'labels': True, 'labelOffset': 0,
+            'tables': {'area': area, 'p2_band': p2_band, 'p3_band': p3_band},
+            'pages': [
+                {'texts': [
+                    (40, 40, '[합성 시험 자료] 합성 천안형 신규분양 입주자모집공고'),
+                    (40, 70, '입주자모집공고일 : 2026. 10. 5.(월)'),
+                    (40, 100, '주택관리번호: {houseManageNo}'),
+                ], 'tables': []},
+                {'texts': [
+                    (40, 64, '■ 공급대상'), (690, 76, '[단위: ㎡, 세대]'),
+                    (40, 178, '■ 공급금액 및 납부일정   단위세대원\n(\n: \n, \n)'),
+                ], 'tables': ['area', 'p2_band']},
+                {'texts': [
+                    (40, 180, '※ 발코니 확장 및 추가선택품목은 계약자가 선택하여 별도 계약하는 사항입니다.'),
+                ], 'tables': ['p3_band']},
+            ],
+        }
+
+    def _two_model_catalog(self):
+        target, notice, models, _ = synthetic_catalog_inputs()
+        base = models['observations'][0]['row']
+        models['observations'] = [
+            {'page': 1, 'position': 1, 'row': dict(base, MODEL_NO='01', HOUSE_TY='084.0000A', SUPLY_AR='112.4000', LTTOT_TOP_AMOUNT='70,000')},
+            {'page': 1, 'position': 2, 'row': dict(base, MODEL_NO='02', HOUSE_TY='102.0000 ', SUPLY_AR='137.0000', LTTOT_TOP_AMOUNT='80,000')},
+        ]
+        return target, notice, models, normalize_catalog(notice, models, target=target)
+
+    def test_cheonan_format_split_unit_bundles_vat_open_floor_and_cross_page_location_stitch(self):
+        spec = self._cheonan_band_spec()
+        target, notice, models, catalog = self._two_model_catalog()
+        result = inspect_extracted_pages(synthetic_pages(spec), target=target, catalog=catalog,
+                                         document=synthetic_document())
+        merged = normalize_catalog(notice, models, target=target, evidence=result['evidence'])
+        self.assertEqual(result['status'], 'checked')
+        self.assertEqual(result['summary']['byItem']['sale_price'], {'confirmed': 9, 'unverified': 0, 'conflict': 0})
+        self.assertEqual(result['summary']['byItem']['required_options'], {'confirmed': 9, 'unverified': 0, 'conflict': 0})
+        # 1) N층 이상: 상한 미추정 {from: 26, to: None}, 표시 이름 '… 26층 이상', 확인(보류 아님)
+        open_band = _field(result, 'sale_price', '101동 1호 라인 26층 이상')
+        self.assertEqual(open_band['status'], 'confirmed')
+        self.assertEqual(open_band['unit']['floors'], {'from': 26, 'to': None})
+        self.assertEqual(set(open_band['unit']['floors']), {'from', 'to'})
+        # 2) 약식표기 '102'와 동별 '102동 3,4호' 열 분리
+        same_num = _field(result, 'sale_price', '102동 3호·4호 라인 11~20층')
+        self.assertEqual((same_num['status'], same_num['modelNo'], same_num['value']), ('confirmed', '02', '770000000'))
+        self.assertEqual(same_num['unit']['buildings'], ['102동'])
+        self.assertEqual(same_num['unit']['lines'], ['3호', '4호'])
+        # 3) 쪽 경계 분할 병합 셀 이어붙이기: 2쪽('101동 1,2호 104,105동') + 3쪽('3,4호') → 양쪽 근거 쪽 [2, 3] 기록
+        for floor_lbl, expected_page in (('2층', 2), ('3층', 2), ('26층 이상', 3)):
+            name = f'101동 1호·2호·104동 3호·4호·105동 3호·4호 라인 {floor_lbl}'
+            stitched = _field(result, 'sale_price', name)
+            self.assertEqual((stitched['status'], stitched['page'], stitched['evidencePages']),
+                             ('confirmed', expected_page, [2, 3]))
+            self.assertEqual(stitched['unit']['buildings'], ['101동', '104동', '105동'])
+            self.assertEqual(stitched['unit']['lines'], ['1호', '2호', '3호', '4호'])
+            # evidence와 paymentSchedules, normalize_catalog 모두 2쪽·3쪽 근거를 보존한다.
+            ev_pages = sorted(r['page'] for r in result['evidence'] if r['item'] == 'sale_price' and r['room'] == name)
+            self.assertEqual(ev_pages, [2, 3])
+            sched = next(s for s in result['paymentSchedules'] if s['item'] == 'sale_price' and s['room'] == name)
+            self.assertEqual([e['page'] for e in sched['evidence']], [2, 3])
+            room_cat = _room(merged, name)
+            self.assertEqual(room_cat['subtotal']['status'], 'confirmed')
+            self.assertEqual(sorted(e['page'] for e in room_cat['salePrice']['evidence']), [2, 3])
+        # 모든 evidence 행이 ingestion_notices 계약을 통과한다.
+        for row in result['evidence']:
+            self.assertIsNone(_record_problem(row))
+
+    def test_split_unit_note_distinguishes_won_cheonwon_manwon_and_blocks_unsupported_units(self):
+        # 1) 쪼개진 천원·만원은 각각 1000·10000으로 환산한다(원으로 오인 금지).
+        for label, unit_text, scale in (
+            ('split_cheonwon', '■ 공급금액 및 납부일정   단위세대천원\n(\n: \n, \n)', 1000),
+            ('split_manwon', '■ 공급금액 및 납부일정   단위세대만원\n(\n: \n, \n)', 10000),
+        ):
+            with self.subTest(label=label):
+                spec = _synthetic_band_spec(include_optional_statement=True)
+                spec['pages'][1]['texts'][3] = (40, 188, unit_text)
+                for row in spec['tables']['band']['cells'][2:]:
+                    for idx in range(6, 12):
+                        row[idx] = f'{int(row[idx].replace(",", "")) // scale:,}'
+                result, _ = _run(spec)
+                sale = _field(result, 'sale_price', '101동·102동 3호 라인 11~15층')
+                self.assertEqual((sale['status'], sale['value']), ('confirmed', '700000000'))
+
+        # 2) 미지원 단위(백만원·억원)·혼합(원+천원)·일반 문구(지원금)는 오인하지 않고 보류한다.
+        for text, expected_code in (
+            ('■ 공급금액   단위세대백만원\n(\n: \n, \n)', 'amount_unit_unverified'),
+            ('[단위: 세대, 백만원]', 'amount_unit_unverified'),
+            ('■ 공급금액   단위세대억원\n(\n: \n, \n)', 'amount_unit_unverified'),
+            ('■ 공급금액   단위원천원\n(\n: \n, \n)', 'amount_unit_ambiguous'),
+            ('■ 공급금액   단위: 세대, 지원금', 'amount_unit_unverified'),
+        ):
+            with self.subTest(text=text):
+                spec = _synthetic_band_spec(include_optional_statement=True)
+                spec['pages'][1]['texts'][3] = (40, 188, text)
+                result, _ = _run(spec)
+                sale = _field(result, 'sale_price', '101동·102동 3호 라인 11~15층')
+                self.assertEqual((sale['status'], sale['value']), ('unverified', None))
+                self.assertIn(expected_code, sale['reasons'])
+
+    def test_bundle_subtotal_mismatches_and_repeated_type_total_boundaries(self):
+        target, _, _, catalog = self._two_model_catalog()
+        # 1) 묶음 내부 합 불일치(전체 합은 10으로 같더라도 묶음1 2+3=5 != 6, 묶음2 2+3=5 != 4) → 보류
+        bad_inner = self._cheonan_band_spec()
+        bad_inner['tables']['p2_band']['cells'][3][4] = '3'  # 묶음1: 2+3=5 (표기 6)
+        bad_inner['tables']['p2_band']['cells'][4][4] = '2'  # 묶음2: 2+3=5 (표기 4)
+        res_inner = inspect_extracted_pages(synthetic_pages(bad_inner), target=target, catalog=catalog,
+                                            document=synthetic_document())
+        self.assertIn('band_household_count_mismatch', _field(res_inner, 'sale_price', '101동 1호 라인 2~25층')['reasons'])
+        # 다른 모델(102)은 영향 없이 확인 유지
+        self.assertEqual(_field(res_inner, 'sale_price', '102동 3호·4호 라인 11~20층')['status'], 'confirmed')
+
+        # 2) 묶음 소계 합(10) != 공급대상 표 총공급세대수(12) → 보류
+        bad_area = self._cheonan_band_spec()
+        bad_area['tables']['area']['cells'][2][10] = '12'
+        res_area = inspect_extracted_pages(synthetic_pages(bad_area), target=target, catalog=catalog,
+                                           document=synthetic_document())
+        self.assertIn('band_household_count_mismatch', _field(res_area, 'sale_price', '101동 1호 라인 2~25층')['reasons'])
+
+        # 3) 기존 서식: 주택형 전체 공급세대수('5')가 다음 쪽 머리말 표에 반복된 경우에도 계속 확인된다.
+        rep = _synthetic_band_spec(include_optional_statement=True, multi_page=True)
+        head = rep['tables']['band1']['cells'][:2]
+        row2 = copy.deepcopy(rep['tables']['band2']['cells'][0])
+        row2[0], row2[1], row2[2] = '084.0000A', '84A', '5'
+        rep['tables']['band2'] = _table(
+            40, 80, [65, 45, 45, 110, 55, 45, 70, 70, 70, 65, 65, 65], [14, 14, 16],
+            head + [row2], [[0, c, 2, 1] for c in range(6)] + [[0, 6, 1, 3]],
+        )
+        res_rep, _ = _run(rep)
+        self.assertEqual(_field(res_rep, 'sale_price', '101동·102동 3호 라인 11~15층')['status'], 'confirmed')
+        self.assertEqual(_field(res_rep, 'sale_price', '101동·102동 3호 라인 6~10층')['status'], 'confirmed')
+
+    def test_ambiguous_cross_page_location_fragment_is_not_stitched(self):
+        # 앞 쪽 마지막 동·라인 셀이 이미 완성('101동 1,2호')되어 있으면 다음 쪽의 '3,4호'를 임의로 이어 붙이지 않고 보류한다.
+        spec = self._cheonan_band_spec()
+        spec['tables']['p2_band']['cells'][6][2] = '101동 1,2호'
+        target, _, _, catalog = self._two_model_catalog()
+        result = inspect_extracted_pages(synthetic_pages(spec), target=target, catalog=catalog,
+                                         document=synthetic_document())
+        orphan = _field(result, 'sale_price', '102 26층 이상')
+        self.assertEqual((orphan['status'], orphan['value']), ('unverified', None))
+        self.assertIn('band_location_unreadable', orphan['reasons'])
+        self.assertNotIn('evidencePages', orphan)
+
+    def test_vat_dash_and_open_floor_overlap_boundaries(self):
+        # 1) 부가가치세 '-'는 대지비+건축비=계일 때만 0으로 확인하고, 어긋나거나 판독 불가 문자열이면 보류한다.
+        spec = self._cheonan_band_spec()
+        spec['tables']['p2_band']['cells'][2][6] = '320,000,001'  # 280M + 320M+1 != 600M
+        spec['tables']['p2_band']['cells'][3][7] = '미정'
+        target, _, _, catalog = self._two_model_catalog()
+        res = inspect_extracted_pages(synthetic_pages(spec), target=target, catalog=catalog,
+                                      document=synthetic_document())
+        for name in ('101동 1호 라인 2~25층', '101동 1호 라인 26층 이상'):
+            f = _field(res, 'sale_price', name)
+            self.assertEqual((f['status'], f['value']), ('conflict', None))
+            self.assertIn('sale_price_component_mismatch', f['reasons'])
+
+        # 2) N층 이상 겹침 경계: 2~26층과 26층 이상은 26층에서 겹쳐 band_floor_overlap(conflict)로 보류한다.
+        overlap = self._cheonan_band_spec()
+        overlap['tables']['p2_band']['cells'][2][3] = '2~26층'
+        res_ov = inspect_extracted_pages(synthetic_pages(overlap), target=target, catalog=catalog,
+                                         document=synthetic_document())
+        for name in ('101동 1호 라인 2~26층', '101동 1호 라인 26층 이상'):
+            f = _field(res_ov, 'sale_price', name)
+            self.assertEqual(f['status'], 'conflict')
+            self.assertIn('band_floor_overlap', f['reasons'])
+
+    def test_contract_area_0001_rounding_keeps_supply_area_confirmed_while_larger_or_supply_error_holds(self):
+        # 1) 공급면적(전용+주거공용=소계)은 맞고 계약면적만 ±0.0001㎡ 어긋나면 공급면적 확인 + rounding_note
+        for contract_val in ('162.3999', '162.4001'):
+            with self.subTest(contract_val=contract_val):
+                spec = synthetic_notice_spec()
+                _cells(spec, 'area')[2][9] = contract_val
+                result, merged = _run(spec)
+                area = _field(result, 'supply_area')
+                self.assertEqual((area['status'], area['value']), ('confirmed', '112.4000'))
+                self.assertEqual(area['checks']['contract_equals_supply_plus_other'], 'rounding_note')
+                self.assertNotIn('contract_area_sum_mismatch', _codes(result))
+                self.assertEqual(merged['housingTypes'][0]['checkedSupplyArea']['status'], 'confirmed')
+
+        # 2) 계약면적이 0.0002㎡ 이상 어긋나면 지금처럼 보류(conflict)
+        big = synthetic_notice_spec()
+        _cells(big, 'area')[2][9] = '162.3998'
+        res_big, _ = _run(big)
+        area_big = _field(res_big, 'supply_area')
+        self.assertEqual((area_big['status'], area_big['value']), ('conflict', None))
+        self.assertIn('contract_area_sum_mismatch', area_big['reasons'])
+
+        # 3) 공급면적 자체가 0.0001㎡ 어긋나면 절대 확인하지 않고 보류(conflict)
+        bad_supply = synthetic_notice_spec()
+        _cells(bad_supply, 'area')[2][6] = '28.3999'
+        _cells(bad_supply, 'area')[2][9] = '162.3999'
+        res_sup, _ = _run(bad_supply)
+        area_sup = _field(res_sup, 'supply_area')
+        self.assertEqual((area_sup['status'], area_sup['value']), ('conflict', None))
+        self.assertIn('supply_area_sum_mismatch', area_sup['reasons'])
+
+    def test_separate_contract_option_policy_and_no_mention_hold(self):
+        # 1) '공급금액 미포함'·'별도 계약'·'별도 납부계좌' 문구만 있고 필수·승계 문구가 없으면 필수 옵션 0원 + 근거 쪽 기록
+        for label, statement in (
+            ('excluded', '※ 상기 공급금액에는 발코니 확장비용, 추가선택품목(유상옵션)이 포함되어 있지 않습니다.'),
+            ('separate_contract', '※ 발코니 확장공사계약은 아파트 공급계약과 별도로 계약을 진행합니다.'),
+            ('separate_account', '※ 분양대금 계약금 납부계좌는 발코니확장 공사대금 및 추가선택품목(유상옵션) 납부계좌와 상이합니다.'),
+        ):
+            with self.subTest(label=label):
+                spec = _synthetic_band_spec(include_optional_statement=False)
+                spec['pages'][1]['texts'].append((40, 290, statement))
+                # 무관한 기반시설 점용계약 승계 문구는 옵션 필수 승계로 오인하지 않는다.
+                spec['pages'][1]['texts'].append(
+                    (40, 310, '※ 도시가스 정압기 설치를 위한 부지 점용계약은 계약자가 승계하여야 합니다.'))
+                result, merged = _run(spec)
+                opt = _field(result, 'required_options', '101동·102동 3호 라인 11~15층')
+                self.assertEqual((opt['status'], opt['value'], opt['classification'], opt['page']),
+                                 ('confirmed', '0', 'optional_only', 2))
+                self.assertEqual(_room(merged, '101동·102동 3호 라인 11~15층')['subtotal']['won'], '700000000')
+
+        # 2) 미포함·별도 문구가 있더라도 필수·승계 문구가 함께 있으면 보류 유지
+        for mandatory in (
+            '※ 기존 계약을 승계하는 조건으로 발코니 확장 변경이 불가합니다.',
+            '※ 발코니 확장은 필수 선택 사항입니다.',
+        ):
+            with self.subTest(mandatory=mandatory):
+                spec = _synthetic_band_spec(include_optional_statement=False)
+                spec['pages'][1]['texts'].append(
+                    (40, 290, '※ 상기 공급금액에는 발코니 확장비용이 미포함되어 있습니다.'))
+                spec['pages'][1]['texts'].append((40, 310, mandatory))
+                result, _ = _run(spec)
+                opt = _field(result, 'required_options', '101동·102동 3호 라인 11~15층')
+                self.assertEqual((opt['status'], opt['value']), ('unverified', None))
+                self.assertIn('options_table_not_found', opt['reasons'])
+
+        # 3) 옵션·발코니 언급이 전혀 없는 공고는 필수 옵션 미확인(보류) 유지
+        no_mention = _synthetic_band_spec(include_optional_statement=False)
+        res_none, merged_none = _run(no_mention)
+        opt_none = _field(res_none, 'required_options', '101동·102동 3호 라인 11~15층')
+        self.assertEqual((opt_none['status'], opt_none['value']), ('unverified', None))
+        self.assertIn('options_table_not_found', opt_none['reasons'])
+        self.assertIsNone(_room(merged_none, '101동·102동 3호 라인 11~15층')['subtotal']['won'])
+
+    @unittest.skipUnless(HAS_FITZ, 'PyMuPDF를 설치한 문서 작업자에서 실행')
+    def test_full_document_scan_reads_tables_past_page_40_and_cheonan_pdf_bytes(self):
+        # 1) 45쪽 합성 PDF에서 42쪽 옵션 표가 MAX_TABLE_PAGES 잘림 없이 읽히는지 검증한다.
+        spec = synthetic_notice_spec()
+        options_page = spec['pages'].pop(2)  # 원래 3쪽(옵션 표)을 42쪽으로 이동
+        for idx in range(39):
+            spec['pages'].append({
+                'texts': [(40, 40, f'합성 안내 본문 {idx + 1}: 주택형 및 추가선택품목 안내와 입주자모집공고일 기준 일반공급 자격 설명입니다.')],
+                'tables': [],
+            })
+        spec['pages'].append(options_page)  # 42쪽
+        for idx in range(3):
+            spec['pages'].append({'texts': [(40, 40, f'합성 부록 쪽 {idx + 1}: 일반 유의사항입니다.')], 'tables': []})
+        pdf_45 = build_synthetic_notice_pdf(spec)
+        target, _, _, catalog = _catalog()
+        res_45 = inspect_notice_pdf(pdf_45, target=target, catalog=catalog, document=synthetic_document())
+        self.assertEqual(res_45['source']['pageCount'], 45)
+        self.assertEqual(res_45['pages']['tableScan']['skipped_limit'], [])
+        self.assertNotIn('table_scan_incomplete', _codes(res_45))
+        self.assertIn(42, res_45['pages']['tableScan']['scanned'])
+        opt = _field(res_45, 'required_options', '101동 101호')
+        self.assertEqual((opt['status'], opt['value'], opt['page']), ('confirmed', '10000000', 42))
+
+        # 2) 천안형 합성 PDF 바이트(쪼개진 단위, 묶음 소계, 102형=102동, 부가세 '-', N층 이상, 쪽 경계 분할 셀)
+        ch_spec = self._cheonan_band_spec()
+        ch_pdf = build_synthetic_notice_pdf(ch_spec)
+        ch_target, _, _, ch_catalog = self._two_model_catalog()
+        res_ch = inspect_notice_pdf(ch_pdf, target=ch_target, catalog=ch_catalog, document=synthetic_document())
+        self.assertEqual(res_ch['status'], 'checked')
+        self.assertEqual(res_ch['summary']['byItem']['sale_price'], {'confirmed': 9, 'unverified': 0, 'conflict': 0})
+        self.assertEqual(res_ch['summary']['byItem']['required_options'], {'confirmed': 9, 'unverified': 0, 'conflict': 0})
+        self.assertEqual(_field(res_ch, 'sale_price', '102동 3호·4호 라인 11~20층')['value'], '770000000')
+        stitched = _field(res_ch, 'sale_price', '101동 1호·2호·104동 3호·4호·105동 3호·4호 라인 26층 이상')
+        self.assertEqual((stitched['status'], stitched['evidencePages'], stitched['unit']['floors']),
+                         ('confirmed', [2, 3], {'from': 26, 'to': None}))
 
 
 if __name__ == '__main__':

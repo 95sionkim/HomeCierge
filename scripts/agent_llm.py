@@ -493,7 +493,6 @@ def _synthetic_default_turn(input_items):
             proposal = {
                 'kind': 'conditions',
                 'period': existing_proposal.get('proposed', {}).get('period'),
-                'areaTolerancePercent': existing_proposal.get('proposed', {}).get('areaTolerancePercent'),
                 'tradeKinds': existing_proposal.get('proposed', {}).get('tradeKinds'),
                 'replacements': existing_proposal.get('proposed', {}).get('replacements'),
             }
@@ -504,7 +503,6 @@ def _synthetic_default_turn(input_items):
             proposal = {
                 'kind': 'period',
                 'period': {'start': existing_proposal['start'], 'end': existing_proposal['end']},
-                'areaTolerancePercent': None,
                 'tradeKinds': None,
                 'replacements': None,
             }
@@ -584,7 +582,9 @@ def _synthetic_default_turn(input_items):
             parts.append('적용 범위에서 조건을 충족한 주변 단지가 0개로 확인됐습니다.')
         else:
             parts.append('현재 비교표에 표시된 주변 단지는 없으며, 미확인 사항이 남아 0건으로 확정하지 않았습니다.')
-    if area.get('basis') == 'supply' and area.get('tolerancePercent'):
+    if area.get('basis') == 'exclusive_area_class' and type(area.get('class')) is int:
+        parts.append(f"비교 기준은 {area['class']}㎡형(전용면적 정수부)입니다.")
+    elif area.get('basis') == 'supply' and area.get('tolerancePercent'):
         parts.append(f"공급면적 허용 범위는 ±{area['tolerancePercent']}%입니다.")
     if period.get('status') == 'confirmed' and period.get('start') and period.get('end'):
         parts.append(f"계약 기간은 {period['start']}부터 {period['end']}까지입니다.")

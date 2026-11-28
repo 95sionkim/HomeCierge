@@ -34,7 +34,7 @@ from replay_ingestion import ingest
 KST = timezone(timedelta(hours=9))
 MAX_ALLOWED_APPLYHOME_CALLS = 120
 MAX_ALLOWED_KAKAO_CALLS = 30
-DEFAULT_LIVE_APPLYHOME_CALLS = 40
+DEFAULT_LIVE_APPLYHOME_CALLS = 30
 DEFAULT_LIVE_KAKAO_CALLS = 15
 DEFAULT_TARGET = {
     'noticeSource': 'applyhome_remainder',
@@ -127,8 +127,9 @@ def summarize_verification(capture: dict, built: dict, comparison: Optional[dict
             comparables_summary.append({
                 'complexId': comp.get('complexId'),
                 'rank': comp.get('rank'),
+                'areaClass': comp.get('areaClass'),
                 'supplyAreaM2': comp.get('supplyAreaM2'),
-                'areaDifferenceM2': comp.get('areaDifferenceM2'),
+                'supplyAreaReference': comp.get('supplyAreaReference'),
                 'distanceStatus': dist.get('status'),
                 'distanceMeters': round(dist['meters'], 1) if isinstance(dist.get('meters'), (int, float)) else None,
                 'selectionReason': comp.get('selectionReason'),
@@ -140,15 +141,20 @@ def summarize_verification(capture: dict, built: dict, comparison: Optional[dict
             'complexId': c.get('complexId'),
             'scope': c.get('scope'),
             'isTarget': c.get('isTarget'),
+            'areaClass': c.get('areaClass'),
             'status': c.get('status'),
             'reasonCode': c.get('reasonCode'),
+            'supplyAreaReference': c.get('supplyAreaReference'),
             'coordinateStatus': c.get('coordinateStatus', 'not_queried'),
             'coordinateReasonCode': c.get('coordinateReasonCode'),
             'areas': [
                 {
                     'exclusiveAreaM2': a.get('exclusiveAreaM2'),
+                    'areaClass': a.get('areaClass'),
                     'status': a.get('status'),
                     'supplyAreaM2': a.get('supplyAreaM2'),
+                    'minSupplyAreaM2': a.get('minSupplyAreaM2'),
+                    'maxSupplyAreaM2': a.get('maxSupplyAreaM2'),
                     'reasonCode': a.get('reasonCode'),
                     'noticePairs': [
                         f'{n["houseManageNo"]}/{n["noticeNo"]}:{n["houseType"]}'

@@ -11,8 +11,11 @@ from ingestion_pages import loads_source_json
 from ingestion_trades import trade_period
 from notice_run_capture import NoticeTransports
 from replay_ingestion import replay
-from run_analysis_worker import FIXTURE, run_once
-from worker_rpc import WorkerRpc, WorkerRpcError, WorkerRpcResponseTooLarge
+from run_analysis_worker import FINISH_RPC_TIMEOUT_SECONDS, FIXTURE, SAVE_RETRY_DELAYS, run_once
+from worker_rpc import (
+    WorkerRpc, WorkerRpcError, WorkerRpcResponseTooLarge,
+    is_transient_save_error, save_error_reason,
+)
 
 
 class AnalysisWorkerTests(TestCase):
@@ -92,11 +95,229 @@ class AnalysisWorkerTests(TestCase):
                 self.assertEqual(self.client.post.call_count, len(replies) + 1)
 
     def test_uncertain_finish_never_rewrites_or_declares_failure(self):
-        for error in (WorkerRpcError(), WorkerRpcError(503), WorkerRpcResponseTooLarge()):
-            self.client.post.side_effect = [self.job, self.work, {'status': 'running'}, error]
-            with self.assertRaises(WorkerRpcError):
-                run_once(self.client)
-            self.assertEqual(self.client.post.call_args.args[0], 'finish_analysis_comparison')
+        # 응답 크기 초과는 재시도나 실패 기록 없이 종료한다.
+        self.client.post.side_effect = [self.job, self.work, {'status': 'running'}, WorkerRpcResponseTooLarge()]
+        with patch('run_analysis_worker.time.sleep') as sleep, self.assertRaises(WorkerRpcError):
+            run_once(self.client)
+        self.assertEqual([call.args[0] for call in self.client.post.call_args_list], [
+            'claim_analysis_run', 'read_comparison_work', 'renew_analysis_run', 'finish_analysis_comparison',
+        ])
+        sleep.assert_not_called()
+
+        # 응답 유실(status=None) 뒤 상태 확인도 계속 미확인이면 무작정 다시 쓰거나 fail_analysis_run을 호출하지 않는다.
+        self.client.reset_mock()
+        self.client.post.side_effect = [
+            self.job, self.work, {'status': 'running'},
+            WorkerRpcError(),
+            WorkerRpcError(), WorkerRpcError(), WorkerRpcError(), WorkerRpcError(),
+        ]
+        with patch('run_analysis_worker.time.sleep') as sleep, self.assertRaises(WorkerRpcError) as raised:
+            run_once(self.client)
+        names = [call.args[0] for call in self.client.post.call_args_list]
+        self.assertEqual(names.count('finish_analysis_comparison'), 1)
+        self.assertEqual(names.count('read_analysis_run_status'), 4)
+        self.assertNotIn('fail_analysis_run', names)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], list(SAVE_RETRY_DELAYS))
+        self.assertEqual(raised.exception.save_retries, 3)
+        self.assertEqual(raised.exception.save_retry_reasons, ('response_unconfirmed',) * 3)
+
+    def test_worker_rpc_parses_statement_timeout_57014_and_classifies_save_errors(self):
+        opener = Mock()
+        env = {'SUPABASE_URL': 'http://127.0.0.1', 'SUPABASE_WORKER_KEY': 'sb_secret_synthetic'}
+        client = WorkerRpc(env, opener)
+        detail = json.dumps({'code': '57014', 'message': 'canceling statement due to statement timeout'}).encode()
+        opener.open.side_effect = HTTPError('http://localhost', 500, '', {}, io.BytesIO(detail))
+        with self.assertRaises(WorkerRpcError) as raised:
+            client.post('finish_analysis_comparison', {}, timeout=FINISH_RPC_TIMEOUT_SECONDS)
+        self.assertEqual((raised.exception.status, raised.exception.code), (500, '57014'))
+        self.assertNotIn('canceling statement', str(raised.exception))
+        self.assertEqual(opener.open.call_args.kwargs['timeout'], FINISH_RPC_TIMEOUT_SECONDS)
+
+        self.assertTrue(is_transient_save_error(raised.exception))
+        self.assertEqual(save_error_reason(raised.exception), 'statement_timeout')
+        self.assertTrue(is_transient_save_error(WorkerRpcError()))
+        self.assertEqual(save_error_reason(WorkerRpcError()), 'response_unconfirmed')
+        self.assertTrue(is_transient_save_error(WorkerRpcError(503)))
+        self.assertEqual(save_error_reason(WorkerRpcError(503)), 'http_503')
+        for non_transient in (
+            WorkerRpcError(401), WorkerRpcError(403, '42501'), WorkerRpcError(403, 'PT403'),
+            WorkerRpcError(400, '22023'), WorkerRpcError(409, 'PT409'), WorkerRpcError(413),
+            WorkerRpcError(422, 'PT422'), WorkerRpcError(429), WorkerRpcResponseTooLarge(),
+        ):
+            self.assertFalse(is_transient_save_error(non_transient))
+
+    def test_transient_save_errors_retry_with_same_capture_and_lease_renewal(self):
+        self.client.post.side_effect = [
+            self.job, self.work, {'status': 'running'},
+            WorkerRpcError(500, '57014'),
+            {'status': 'running', 'runId': self.run_id, 'attempt': 2},
+            WorkerRpcError(502),
+            {'status': 'running', 'runId': self.run_id, 'attempt': 2},
+            WorkerRpcError(503),
+            {'status': 'running', 'runId': self.run_id, 'attempt': 2},
+            self.finished,
+        ]
+        with patch('run_analysis_worker.time.sleep') as sleep, \
+                patch('run_analysis_worker.replay', wraps=replay) as replay_spy:
+            outcome = run_once(self.client)
+        self.assertEqual(outcome, {
+            **self.finished,
+            'saveRetries': 3,
+            'saveRetryReasons': ['statement_timeout', 'http_502', 'http_503'],
+        })
+        self.assertEqual(replay_spy.call_count, 1)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [2, 5, 10])
+        names = [call.args[0] for call in self.client.post.call_args_list]
+        self.assertEqual(names, [
+            'claim_analysis_run', 'read_comparison_work', 'renew_analysis_run',
+            'finish_analysis_comparison', 'renew_analysis_run',
+            'finish_analysis_comparison', 'renew_analysis_run',
+            'finish_analysis_comparison', 'renew_analysis_run',
+            'finish_analysis_comparison',
+        ])
+        finish_calls = [c for c in self.client.post.call_args_list if c.args[0] == 'finish_analysis_comparison']
+        self.assertTrue(all(c.kwargs.get('timeout') == FINISH_RPC_TIMEOUT_SECONDS for c in finish_calls))
+        for call in finish_calls[1:]:
+            self.assertEqual(call.args[1], finish_calls[0].args[1])
+
+    def test_transient_save_exhausting_three_retries_raises_without_declaring_failure(self):
+        self.client.post.side_effect = [
+            self.job, self.work, {'status': 'running'},
+            WorkerRpcError(500, '57014'),
+            {'status': 'running', 'runId': self.run_id, 'attempt': 2},
+            WorkerRpcError(503),
+            {'status': 'running', 'runId': self.run_id, 'attempt': 2},
+            WorkerRpcError(500),
+            {'status': 'running', 'runId': self.run_id, 'attempt': 2},
+            WorkerRpcError(504),
+        ]
+        with patch('run_analysis_worker.time.sleep') as sleep, self.assertRaises(WorkerRpcError) as raised:
+            run_once(self.client)
+        self.assertEqual(raised.exception.status, 504)
+        self.assertEqual(raised.exception.save_retries, 3)
+        self.assertEqual(raised.exception.save_retry_reasons, ('statement_timeout', 'http_503', 'http_500'))
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [2, 5, 10])
+        names = [call.args[0] for call in self.client.post.call_args_list]
+        self.assertEqual(names.count('finish_analysis_comparison'), 4)
+        self.assertEqual(names.count('renew_analysis_run'), 4)
+        self.assertNotIn('fail_analysis_run', names)
+
+    def test_uncertain_finish_checks_run_status_for_already_finished_retry_and_lease_lost(self):
+        # 1) 응답은 못 받았지만 DB에 이미 완료된 경우 재전송 없이 완료를 반환한다.
+        self.client.post.side_effect = [
+            self.job, self.work, {'status': 'running'},
+            WorkerRpcError(),
+            {'runId': self.run_id, 'status': 'finished', 'attempt': 2,
+             'snapshotId': self.snapshot_id, 'leaseActive': False},
+        ]
+        with patch('run_analysis_worker.time.sleep') as sleep:
+            self.assertEqual(run_once(self.client), self.finished)
+        sleep.assert_not_called()
+        self.assertEqual([call.args[0] for call in self.client.post.call_args_list], [
+            'claim_analysis_run', 'read_comparison_work', 'renew_analysis_run',
+            'finish_analysis_comparison', 'read_analysis_run_status',
+        ])
+
+        # 2) 아직 running이고 현재 임대가 살아 있으면 갱신 후 같은 수집본으로 저장만 재시도한다.
+        self.client.reset_mock()
+        self.client.post.side_effect = [
+            self.job, self.work, {'status': 'running'},
+            WorkerRpcError(),
+            {'runId': self.run_id, 'status': 'running', 'attempt': 2, 'leaseActive': True},
+            {'runId': self.run_id, 'status': 'running', 'attempt': 2},
+            self.finished,
+        ]
+        with patch('run_analysis_worker.time.sleep') as sleep:
+            outcome = run_once(self.client)
+        self.assertEqual(outcome, {
+            **self.finished, 'saveRetries': 1, 'saveRetryReasons': ['response_unconfirmed'],
+        })
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [2])
+        self.assertEqual([call.args[0] for call in self.client.post.call_args_list], [
+            'claim_analysis_run', 'read_comparison_work', 'renew_analysis_run',
+            'finish_analysis_comparison', 'read_analysis_run_status',
+            'renew_analysis_run', 'finish_analysis_comparison',
+        ])
+
+        # 3) 취소되었거나 세대·임대가 이미 넘어갔으면 다시 쓰지 않고 lease_lost로 멈춘다.
+        for probe in (
+            {'runId': self.run_id, 'status': 'cancelled', 'attempt': 2, 'leaseActive': False},
+            {'runId': self.run_id, 'status': 'running', 'attempt': 2, 'leaseActive': False},
+            {'runId': self.run_id, 'status': 'running', 'attempt': 3, 'leaseActive': False},
+            {'runId': self.run_id, 'status': 'finished', 'attempt': 3,
+             'snapshotId': self.snapshot_id, 'leaseActive': False},
+        ):
+            with self.subTest(probe=probe):
+                self.client.reset_mock()
+                self.client.post.side_effect = [
+                    self.job, self.work, {'status': 'running'},
+                    WorkerRpcError(),
+                    probe,
+                ]
+                with patch('run_analysis_worker.time.sleep') as sleep:
+                    self.assertEqual(run_once(self.client), {'status': 'lease_lost', 'runId': self.run_id})
+                sleep.assert_not_called()
+                names = [call.args[0] for call in self.client.post.call_args_list]
+                self.assertEqual(names.count('finish_analysis_comparison'), 1)
+                self.assertNotIn('fail_analysis_run', names)
+
+        # 4) 상태 조회 자체가 일시 오류로 실패한 뒤 다음 조회에서 완료를 확인하면 재전송 없이 완료한다.
+        self.client.reset_mock()
+        self.client.post.side_effect = [
+            self.job, self.work, {'status': 'running'},
+            WorkerRpcError(),
+            WorkerRpcError(503),
+            {'runId': self.run_id, 'status': 'finished', 'attempt': 2,
+             'snapshotId': self.snapshot_id, 'leaseActive': False},
+        ]
+        with patch('run_analysis_worker.time.sleep') as sleep:
+            outcome = run_once(self.client)
+        self.assertEqual(outcome, {**self.finished, 'saveRetries': 1, 'saveRetryReasons': ['http_503']})
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [2])
+        self.assertEqual([call.args[0] for call in self.client.post.call_args_list].count('finish_analysis_comparison'), 1)
+
+    def test_non_retryable_save_errors_and_renewal_loss_do_not_retry(self):
+        # 401/403 인증 거절과 4xx 업무 오류는 저장 재시도를 하지 않는다.
+        for error, expected_outcome in (
+            (WorkerRpcError(401), 'raise'),
+            (WorkerRpcError(403), 'raise'),
+            (WorkerRpcError(403, '42501'), 'failed'),
+            (WorkerRpcError(400, '22023'), 'failed'),
+            (WorkerRpcError(422, 'PT422'), 'failed'),
+            (WorkerRpcError(409, 'PT409'), 'lease_lost'),
+            (WorkerRpcError(429), 'retry_wait'),
+        ):
+            with self.subTest(status=error.status, code=error.code):
+                self.client.reset_mock()
+                replies = [self.job, self.work, {'status': 'running'}, error]
+                if expected_outcome in ('failed', 'retry_wait'):
+                    replies.append({'runId': self.run_id, 'status': expected_outcome})
+                self.client.post.side_effect = replies
+                with patch('run_analysis_worker.time.sleep') as sleep:
+                    if expected_outcome == 'raise':
+                        with self.assertRaises(WorkerRpcError):
+                            run_once(self.client)
+                    else:
+                        self.assertEqual(run_once(self.client)['status'], expected_outcome)
+                sleep.assert_not_called()
+                names = [call.args[0] for call in self.client.post.call_args_list]
+                self.assertEqual(names.count('finish_analysis_comparison'), 1)
+                self.assertEqual(names.count('renew_analysis_run'), 1)
+
+        # 재시도 직전 임대 갱신이 PT409로 거절되면 추가 저장 없이 lease_lost로 끝낸다.
+        self.client.reset_mock()
+        self.client.post.side_effect = [
+            self.job, self.work, {'status': 'running'},
+            WorkerRpcError(503),
+            WorkerRpcError(409, 'PT409'),
+        ]
+        with patch('run_analysis_worker.time.sleep') as sleep:
+            self.assertEqual(
+                run_once(self.client),
+                {'status': 'lease_lost', 'runId': self.run_id, 'saveRetries': 1, 'saveRetryReasons': ['http_503']},
+            )
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [2])
+        self.assertEqual([call.args[0] for call in self.client.post.call_args_list].count('finish_analysis_comparison'), 1)
 
     def test_only_explicit_failures_are_reported_with_retry_intent(self):
         for error, retryable in ((WorkerRpcError(429), True), (WorkerRpcError(400, '22023'), False)):
@@ -336,14 +557,13 @@ class AnalysisWorkerTests(TestCase):
             'comparisonPeriod': {'start': '2026-10-15', 'end': '2026-10-25'},
             'comparisonConditions': {
                 'period': {'start': '2026-10-15', 'end': '2026-10-25'},
-                'areaTolerancePercent': '3.5',
                 'tradeKinds': ['sale'],
             },
         }
         self.client.post.side_effect = [self.job, cond_work, {'status': 'running'}, self.finished]
         self.assertEqual(run_once(self.client), self.finished)
         comparison = self.client.post.call_args.args[1]['p_comparison']
-        self.assertEqual(comparison['conditions']['area']['tolerancePercent'], '3.5')
+        self.assertEqual(comparison['conditions']['area'], {'basis': 'exclusive_area_class', 'class': 84})
         self.assertEqual(comparison['conditions']['tradeKinds'], ['sale'])
         self.assertEqual(comparison['conditions']['period']['start'], '2026-10-15')
         self.assertEqual(comparison['conditions']['period']['end'], '2026-10-25')
@@ -356,7 +576,7 @@ class AnalysisWorkerTests(TestCase):
         self.client.reset_mock()
         self.client.post.side_effect = [
             self.job,
-            {**self.work, 'comparisonConditions': {'areaTolerancePercent': '3'}},
+            {**self.work, 'comparisonConditions': {'tradeKinds': ['sale']}},
             {'runId': self.run_id, 'status': 'failed'},
         ]
         with patch('run_analysis_worker.FIXTURE') as fixture:
@@ -375,7 +595,7 @@ class AnalysisWorkerTests(TestCase):
                            'comparison': {'modelNo': '01'}},
             'ingestion': None, 'evidence': None, 'useSyntheticFixture': False, 'selectionBindingIssue': None,
             'noticeCapture': {'asOf': '2026-11-10', 'requestRegionCodes': ['99999'], 'allowOfficialPdf': False},
-            'comparisonConditions': {'areaTolerancePercent': '3'},
+            'comparisonConditions': {'tradeKinds': ['sale']},
         }
         api, pdf = Mock(), Mock()
         self.client.reset_mock()
@@ -385,13 +605,14 @@ class AnalysisWorkerTests(TestCase):
         api.assert_not_called()
         pdf.assert_not_called()
 
-        # 충돌하는 기간·잘못된 허용 범위(5% 초과 포함)·잘못된 형식의 comparisonConditions는 쓰기 없이 실패한다.
+        # Q-52: 공급면적 허용 범위(areaTolerancePercent)·충돌하는 기간·잘못된 형식의 comparisonConditions는 쓰기 없이 실패한다.
         self.job['input'] = {'kind': 'snapshot', 'snapshotId': self.snapshot_id}
         for bad in [
             None,
             {},
+            {'areaTolerancePercent': '3'},
+            {'areaTolerancePercent': '5'},
             {'areaTolerancePercent': '0'},
-            {'areaTolerancePercent': '5.0001'},
             {'areaTolerancePercent': '7'},
             {'tradeKinds': []},
             {'replacements': [{'complexId': 'a', 'replaceComplexId': 'a'}]},

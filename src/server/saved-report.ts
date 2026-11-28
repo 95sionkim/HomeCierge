@@ -65,7 +65,9 @@ const reasons: Record<string, string> = {
   subtotal_out_of_range: '합산할 수 있는 금액 범위 초과',
   cancelled_trade: '해제 거래 제외',
   outside_contract_period: '계약 기간 밖의 거래 제외',
+  outside_area_class: '다른 평형의 거래 제외',
   outside_supply_area: '공급면적 범위 밖의 거래 제외',
+  target_area_class_unverified: '선택 주택형의 평형 확인 필요',
   target_complex_trade: '대상 단지 자체 거래 분리',
   version_unverified: '공고일에 시행된 법령 판본 확인 필요',
   synthetic_input: '합성 자료에서는 실제 법령 판본을 조회하지 않습니다.',
@@ -102,6 +104,17 @@ function sourceName(value: unknown) {
 const number = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 function area(value: unknown) {
   return typeof value === 'string' && /^\d{1,12}(?:\.\d{1,20})?$/.test(value) ? value + '㎡' : '미확인';
+}
+function supplyAreaRefText(cplx: Obj) {
+  const ref = obj(cplx.supplyAreaReference);
+  if (ref.status === 'single') return area(ref.m2);
+  if (ref.status === 'range') {
+    const low = area(ref.minM2);
+    const high = area(ref.maxM2);
+    return low !== '미확인' && high !== '미확인' ? low.replace(/㎡$/, '') + ' ~ ' + high : '미확인';
+  }
+  if (ref.status === 'unavailable') return '없음';
+  return area(cplx.supplyAreaM2);
 }
 function section(id: Id, state: State, exportAllowed = true): ReportSection {
   return { id, title: titles[id], state, exportAllowed, rows: [], tables: [], notes: [] };
@@ -188,6 +201,9 @@ function comparisonSections(c: Comparison, p: Part) {
   if (isDate(identity.noticeDate)) field(notice, '모집공고일', identity.noticeDate);
   field(notice, '주택형', label(target.houseType));
   field(notice, '모델 번호', token(target.modelNo));
+  if (number(target.areaClass) && target.areaClass >= 1) {
+    field(notice, '평형 기준', target.areaClass + '㎡형(전용면적 정수부)');
+  }
   field(notice, unitNoun, label(price.room) ?? (price.scope === 'confirmed_rooms' ? `${unitNoun} 미지정` : '선택 미확인'));
   field(notice, '공급면적', supply.status === 'confirmed' ? area(supply.m2) : null);
   const range = noticeRange(price);
@@ -245,14 +261,14 @@ function comparisonSections(c: Comparison, p: Part) {
       : null,
   );
   const bounds = obj(conditions.area);
-  if (bounds.basis === 'supply')
+  const isAreaClass = bounds.basis === 'exclusive_area_class' && number(bounds.class) && bounds.class >= 1;
+  if (isAreaClass) {
+    field(market, '비교 기준', bounds.class + '㎡형(전용면적 정수부)');
+  } else if (bounds.basis === 'supply') {
     field(market, '비교 공급면적 범위', area(bounds.minM2) + ' ~ ' + area(bounds.maxM2));
-  if (
-    bounds.basis === 'supply' &&
-    typeof bounds.tolerancePercent === 'string' &&
-    /^\d+(\.\d+)?$/.test(bounds.tolerancePercent)
-  )
-    field(market, '공급면적 허용 차이', '±' + bounds.tolerancePercent + '%');
+    if (typeof bounds.tolerancePercent === 'string' && /^\d+(\.\d+)?$/.test(bounds.tolerancePercent))
+      field(market, '공급면적 허용 차이', '±' + bounds.tolerancePercent + '%');
+  }
   const kinds = array(conditions.tradeKinds).filter(
     (k): k is string => typeof k === 'string' && Object.hasOwn(trades, k),
   );
@@ -275,7 +291,7 @@ function comparisonSections(c: Comparison, p: Part) {
         return [
           [
             kind + ' · ' + (label(cplx.name) ?? '단지명 미확인'),
-            area(cplx.supplyAreaM2),
+            isAreaClass ? supplyAreaRefText(cplx) : area(cplx.supplyAreaM2),
             trades[k],
             r ? String(stat.count) + '건' : '미확인',
             r ? won(r.min) : '—',
@@ -292,18 +308,18 @@ function comparisonSections(c: Comparison, p: Part) {
     });
   table(
     market,
-    ['단지', '공급면적', '거래', '건수', '최저', '중위', '최고', '상태'],
+    ['단지', isAreaClass ? '참고 공급면적' : '공급면적', '거래', '건수', '최저', '중위', '최고', '상태'],
     [...stats(c.comparables, '주변'), ...stats(c.targetReferences, '자체 거래')],
   );
   table(
     market,
-    ['비교 단지', '공급면적 차이', '대상과의 직선거리', '선정 순위'],
+    ['비교 단지', isAreaClass ? '참고 공급면적' : '공급면적 차이', '대상과의 직선거리', '선정 순위'],
     c.comparables.map((value) => {
       const candidate = obj(value),
         distance = obj(candidate.distance);
       return [
         label(candidate.name) ?? '단지명 미확인',
-        area(candidate.areaDifferenceM2),
+        isAreaClass ? supplyAreaRefText(candidate) : area(candidate.areaDifferenceM2),
         distance.status === 'confirmed' &&
         typeof distance.meters === 'number' &&
         Number.isFinite(distance.meters) &&

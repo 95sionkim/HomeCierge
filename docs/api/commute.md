@@ -71,6 +71,8 @@
 2. 발급된 URI(웹) 플랫폼 키를 서버 환경변수 `ODSAY_WEB_API_KEY`에 설정한다(로컬 `.secrets/backend.env` 또는 Vercel Preview·Production 서버 환경). 키가 URL 인코딩된 형태로 복사돼도 서버가 한 번 정규화해 전달하고 브라우저가 `encodeURIComponent`로 전송한다.
 3. 기존 서버 플랫폼 키 `ODSAY_API_KEY`는 출퇴근 API 서버에서 사용하지 않는다.
 
+2026-11-27 운영 키로 확인한 결과, ODsay URI 키는 요청의 `Referer` 헤더로 인증한다. 운영 도메인을 `Referer`로 보내면(끝 슬래시·경로 유무와 무관) 경로를 반환했고, `Origin`만 있거나 헤더가 없으면 `[ApiKeyAuthFailed]`였다. 실제 Chrome에서 운영 도메인을 열고 앱과 같은 옵션(`referrerPolicy: strict-origin-when-cross-origin`)으로 호출하면 `Referer: https://homecierge-api.vercel.app/`가 붙어 성공했다. 화면에 "제공자가 이 환경의 요청을 승인하지 않았습니다"가 나오면 서버 환경변수의 키가 URI 플랫폼 키인지, 브라우저 확장이나 개인정보 설정이 `Referer`를 지우는지 확인한다.
+
 ## 검수 범위
 
 2026-11-22 개발 기기에서 서울시청과 강남구청의 공개 주소를 조회해 카카오 주소 일치와 자동차 시간·거리 응답을 확인했다. 같은 요청에서 ODsay 서버 키는 인증 오류를 반환했다. 출발지 추출·미리보기·사용자 입력 출발지·카카오 구조 비교·`client_query`/`transitQuery` 위임·브라우저 ODsay 직접 조회와 상태 해석·좌표 미저장·타 계정 접근·공유 목적지 저장과 취소는 합성 단위·DB(PGlite)·브라우저 검사로 검증하며, Python `complex_coordinates.py`와 TypeScript 추출 규칙의 일치는 공유 합성 사례표(`tests/fixtures/commute-origin-cases.json`)로 함께 확인한다. 이번 변경(Q-45·Q-47)에 대한 실제 카카오·ODsay URI(웹) 키 실호출 검수는 별도 단계다. [카카오 로컬 주소 검색](https://developers.kakao.com/docs/ko/local/dev-guide) · [카카오모빌리티 자동차 길찾기](https://developers.kakaomobility.com/guide/navi-api/directions.html) · [ODsay 경로 문서](https://lab.odsay.com/guide/releaseReference) · [ODsay 플랫폼·상표 가이드](https://lab.odsay.com/guide/guide?platform=web) · [ODsay 플랫폼별 인증 안내](https://lab.odsay.com/community/boardView?seq=597)

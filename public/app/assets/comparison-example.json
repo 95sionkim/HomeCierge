@@ -8,8 +8,19 @@
       "complexId": "comparison-a",
       "name": "합성 비교 A",
       "localityCode": "9999900100",
+      "areaClass": 84,
       "supplyAreaM2": "112.50",
-      "areaDifferenceM2": "0.100",
+      "supplyAreaReference": {
+        "status": "single",
+        "m2": "112.50",
+        "minM2": "112.50",
+        "maxM2": "112.50",
+        "evidence": {
+          "source": "synthetic-area-register",
+          "reference": "comparison-a/84.00"
+        }
+      },
+      "areaDifferenceM2": null,
       "identityEvidence": {
         "source": "synthetic-complex-register",
         "reference": "comparison-a"
@@ -21,7 +32,7 @@
       "distance": {
         "kind": "straight_line",
         "status": "confirmed",
-        "meters": 1111.9508023353292,
+        "meters": 222.39016046706584,
         "evidence": [
           {
             "source": "synthetic-coordinate-register",
@@ -64,14 +75,25 @@
         }
       },
       "characteristics": [],
-      "selectionReason": "area_difference_then_straight_line"
+      "selectionReason": "straight_line_distance"
     },
     {
       "complexId": "comparison-b",
       "name": "합성 비교 B",
       "localityCode": "9999900100",
+      "areaClass": 84,
       "supplyAreaM2": "110.00",
-      "areaDifferenceM2": "2.400",
+      "supplyAreaReference": {
+        "status": "single",
+        "m2": "110.00",
+        "minM2": "110.00",
+        "maxM2": "110.00",
+        "evidence": {
+          "source": "synthetic-area-register",
+          "reference": "comparison-b/84.50"
+        }
+      },
+      "areaDifferenceM2": null,
       "identityEvidence": {
         "source": "synthetic-complex-register",
         "reference": "comparison-b"
@@ -112,13 +134,13 @@
               "page": 1,
               "position": 1,
               "contractDate": "2026-10-24",
-              "exclusiveAreaM2": "82.50",
+              "exclusiveAreaM2": "84.50",
               "floor": "5",
               "buildYear": null,
               "collectedAt": "2026-11-10T01:00:01Z",
               "evidence": {
                 "source": "synthetic-area-register",
-                "reference": "comparison-b/82.50"
+                "reference": "comparison-b/84.50"
               },
               "won": "405000000"
             }
@@ -139,13 +161,13 @@
               "page": 1,
               "position": 2,
               "contractDate": "2026-10-26",
-              "exclusiveAreaM2": "82.50",
+              "exclusiveAreaM2": "84.50",
               "floor": "5",
               "buildYear": null,
               "collectedAt": "2026-11-10T01:00:01Z",
               "evidence": {
                 "source": "synthetic-area-register",
-                "reference": "comparison-b/82.50"
+                "reference": "comparison-b/84.50"
               },
               "won": "486000000"
             }
@@ -153,10 +175,65 @@
         }
       },
       "characteristics": [],
-      "selectionReason": "area_difference_then_straight_line"
+      "selectionReason": "straight_line_distance"
     }
   ],
   "targetReferences": [],
+  "candidatePool": [
+    {
+      "complexId": "comparison-a",
+      "name": "합성 비교 A",
+      "localityCode": "9999900100",
+      "localityName": "가람동",
+      "eligible": true,
+      "selected": true,
+      "areaClass": 84,
+      "supplyAreaM2": "112.50",
+      "supplyAreaReference": {
+        "status": "single",
+        "m2": "112.50",
+        "minM2": "112.50",
+        "maxM2": "112.50",
+        "evidence": {
+          "source": "synthetic-area-register",
+          "reference": "comparison-a/84.00"
+        }
+      },
+      "areaDifferenceM2": null,
+      "distanceMeters": 222.39016046706584,
+      "tradeKinds": [
+        "sale"
+      ],
+      "reasonCode": null
+    },
+    {
+      "complexId": "comparison-b",
+      "name": "합성 비교 B",
+      "localityCode": "9999900100",
+      "localityName": "가람동",
+      "eligible": true,
+      "selected": true,
+      "areaClass": 84,
+      "supplyAreaM2": "110.00",
+      "supplyAreaReference": {
+        "status": "single",
+        "m2": "110.00",
+        "minM2": "110.00",
+        "maxM2": "110.00",
+        "evidence": {
+          "source": "synthetic-area-register",
+          "reference": "comparison-b/84.50"
+        }
+      },
+      "areaDifferenceM2": null,
+      "distanceMeters": 555.9754011676646,
+      "tradeKinds": [
+        "presale_right",
+        "occupancy_right"
+      ],
+      "reasonCode": null
+    }
+  ],
   "holds": [],
   "exclusions": [
     {
@@ -195,6 +272,8 @@
     "name": "합성 가람 아파트",
     "modelNo": "01",
     "houseType": "084.0000A",
+    "exclusiveAreaM2": "84.0000",
+    "areaClass": 84,
     "supplyArea": {
       "status": "confirmed",
       "basis": "supply",
@@ -334,10 +413,8 @@
       "decision": null
     },
     "area": {
-      "basis": "supply",
-      "tolerancePercent": "5",
-      "minM2": "106.780",
-      "maxM2": "118.020"
+      "basis": "exclusive_area_class",
+      "class": 84
     },
     "tradeKinds": [
       "sale",

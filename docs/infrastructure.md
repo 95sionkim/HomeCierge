@@ -170,6 +170,8 @@ BE-11에서 서울 개발 DB에 [오늘 공고 목록](../supabase/migrations/20
 
 PR #2를 `main`에 병합해(`64b3ebc`) Vercel Production 배포가 `READY`가 됐다. `https://homecierge-api.vercel.app`에서 `/api/health` 200, `/api/v1/client-config`가 운영 프로젝트 주소를 반환하고, 로그인 필요 경로는 토큰 없이 401(환경 불일치 503 아님)이었다. 운영 계정으로 로그인한 흐름과 실제 카카오·ODsay 경로는 아직 검수하지 않았다.
 
+이어서 작업자 저장 경로의 문장 실행 제한(`20261127140000_worker_statement_timeout.sql`, `service_role` 60초) 위에 [집합 연산 저장 검증·상태 조회 마이그레이션](../supabase/migrations/20261127150000_set_based_save_validation.sql)을 추가했다. `public.read_analysis_run_status`는 `FOR SHARE` 잠금에 닿으므로 `VOLATILE`·`SECURITY INVOKER`·`service_role` 전용으로 선언하고 [Database 타입](../src/db/database.types.ts)에 반영했다. PGlite 합성 검사로 기존 규칙 동등성과 대용량 합성 수집본 저장을 확인했으며, 원격 개발·운영 DB 적용과 실환경 소요 시간 재검수는 별도 배포 단계에서 수행한다. [실행 API·저장 재시도](api/analysis-runs.md) · [개발 Mac 작업 운영](api/notice-operations.md)
+
 ## 6. 연결할 환경변수를 구분한다
 
 | 이름을 확인한다 | 설정 위치를 정한다 | 사용 목적을 설명한다 |

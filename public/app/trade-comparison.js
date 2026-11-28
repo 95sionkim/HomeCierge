@@ -1,4 +1,4 @@
-import { badge, dateText, esc, icon, supplyLabel, todayKst, won } from './display.js';
+import { badge, comparisonAreaCriterion, dateText, esc, icon, supplyAreaRefLabel, supplyLabel, todayKst, won } from './display.js';
 import { halfWon, noticeRange, priceLabel, tradeRange } from './comparison-values.js';
 export { noticeRange, priceLabel } from './comparison-values.js';
 
@@ -43,27 +43,27 @@ function observationSource(stat, records) {
   }).join('')}</ul></details>`;
 }
 
-function statsTable(rows, records, name, price) {
+function statsTable(rows, records, name, price, isAreaClass) {
   return `<div class="trade-scroll" role="region" tabindex="0" aria-label="${esc(name)}"><table role="table" class="data-table trade-table comparison-table">
-    <caption class="sr-only">${esc(name)}. 가격 단위는 만 원입니다.</caption><thead><tr><th scope="col">단지 · 공급면적</th><th scope="col">확인 상태</th><th scope="col">건수</th><th scope="col">최저</th><th scope="col">중위</th><th scope="col">최고</th></tr></thead>
+    <caption class="sr-only">${esc(name)}. 가격 단위는 만 원입니다.</caption><thead><tr><th scope="col">${isAreaClass ? '단지 · 참고 공급면적' : '단지 · 공급면적'}</th><th scope="col">확인 상태</th><th scope="col">건수</th><th scope="col">최저</th><th scope="col">중위</th><th scope="col">최고</th></tr></thead>
     <tbody>${price ? `<tr class="notice-price-row"><th scope="row">공고 소계</th><td colspan="5">분양가 + 필수 옵션 <strong>${esc(priceLabel(price))}</strong></td></tr>` : ''}
-    ${rows.map(({ complexId, role, name, area, stat, range, manual }) => `<tr><th scope="row">${
+    ${rows.map(({ complexId, role, name, areaText, stat, range, manual }) => `<tr><th scope="row">${
       complexId
         ? `<button type="button" class="complex-row-trigger" data-open-complex="${esc(complexId)}" data-complex-role="${esc(role)}"><span>${esc(name)}</span><span class="complex-row-hint">상세</span></button>`
         : esc(name)
-    }${manual ? '<span class="manual-replace-tag">직접 교체</span>' : ''}<small>공급 ${esc(supplyLabel(area))}</small></th>
+    }${manual ? '<span class="manual-replace-tag">직접 교체</span>' : ''}<small>${esc(areaText)}</small></th>
       <td>${!range ? badge('unknown', 'circle-help', '미확인') : stat.status === 'provisional' ? badge('partial', 'circle-pause', '잠정') : badge('verified', 'circle-check', '확정')}${range ? observationSource(stat, records) : ''}</td>
       <td><span class="mobile-column-label" aria-hidden="true">건수</span>${range ? stat.count + '건' : '—'}${range && stat.smallSample ? '<small>소표본</small>' : ''}</td>
       ${['min', 'mid', 'max'].map((k, index) => `<td${range ? ' title="' + esc(won(range[k])) + '"' : ''}><span class="mobile-column-label" aria-hidden="true">${['최저', '중위', '최고'][index]}</span>${range ? manwon(range[k]) : '—'}</td>`).join('')}</tr>`).join('')}
     </tbody></table></div>`;
 }
 
-function rowsFor(candidates, kind, role) {
+function rowsFor(candidates, kind, role, isAreaClass) {
   return (candidates ?? []).map(c => ({
     complexId: typeof c.complexId === 'string' && c.complexId ? c.complexId : null,
     role,
     name: c.name || '단지명 미확인',
-    area: c.supplyAreaM2,
+    areaText: isAreaClass ? supplyAreaRefLabel(c) : '공급 ' + supplyLabel(c.supplyAreaM2),
     stat: c.tradeStats?.[kind],
     range: tradeRange(c.tradeStats?.[kind]),
     manual: c.selectionReason === 'manual_replacement',
@@ -71,11 +71,13 @@ function rowsFor(candidates, kind, role) {
 }
 
 export function marketView(data, kind) {
+  const criterion = comparisonAreaCriterion(data);
+  const isAreaClass = criterion.basis === 'exclusive_area_class';
   const configured = Array.isArray(data.conditions?.tradeKinds) ? data.conditions.tradeKinds : Object.keys(tradeNames);
   const kinds = Object.keys(tradeNames).filter(key => configured.includes(key));
   const active = kinds.includes(kind) ? kind : kinds[0];
-  const rows = rowsFor(data.comparables, active, 'comparable');
-  const own = rowsFor(data.targetReferences, active, 'target');
+  const rows = rowsFor(data.comparables, active, 'comparable', isAreaClass);
+  const own = rowsFor(data.targetReferences, active, 'target', isAreaClass);
   const price = noticeRange(data.noticePrice);
   const records = new Map((data.collections ?? []).map(r => [r.recordId, r]));
   const verifiedZero = kinds.filter(k => {
@@ -92,9 +94,9 @@ export function marketView(data, kind) {
     ${rangeChart(price, rows)}
     ${rows.some(r => r.range && r.stat.status === 'provisional') ? `<p class="scope-note">${icon('circle-pause')}잠정 통계에는 근거를 확인한 거래만 포함합니다. 추가 확인에 따라 값과 순위가 달라질 수 있습니다.</p>` : ''}
     ${!hasStats ? `<p class="market-empty">${icon(verifiedZero.includes(active) ? 'circle-minus' : 'circle-pause')}${esc(emptyText)}</p>` : ''}
-    ${rows.length ? `<div class="table-heading"><h3>단지별 거래 통계</h3><span>단위 만 원</span></div>${statsTable(rows, records, name + ' 단지별 통계', price)}` : ''}
+    ${rows.length ? `<div class="table-heading"><h3>단지별 거래 통계</h3><span>단위 만 원</span></div>${statsTable(rows, records, name + ' 단지별 통계', price, isAreaClass)}` : ''}
     ${verifiedZero.length ? `<div class="trade-summary">${verifiedZero.map(k => badge('zero', 'circle-minus', tradeNames[k] + ' · 해당 범위 0건')).join('')}</div>` : ''}
     ${(rows.length || own.length) && active ? `<p class="trade-note">${active === 'sale' ? '매매는 실제 신고된 거래가격입니다.' : '권리는 신고된 거래금액입니다.'} 거래가 1~2건이면 소표본으로 표시합니다.</p>` : ''}
-    ${own.length ? `<div class="own-trades"><div class="table-heading"><h3>대상 단지 자체 거래</h3><span>단위 만 원</span></div>${statsTable(own, records, '대상 단지 자체 거래 통계', null)}</div>` : ''}
+    ${own.length ? `<div class="own-trades"><div class="table-heading"><h3>대상 단지 자체 거래</h3><span>단위 만 원</span></div>${statsTable(own, records, '대상 단지 자체 거래 통계', null, isAreaClass)}</div>` : ''}
     </section>`;
 }

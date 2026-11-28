@@ -9,6 +9,7 @@ import {
   rangeLabel,
   dateText,
   reasonText,
+  groupModelsByAreaClass,
 } from './display.js';
 import { noticeName } from './directory-view.js';
 
@@ -24,20 +25,43 @@ export function authDialog(register = false) {
     `<form id="auth-form" data-mode="${register ? 'signup' : 'signin'}"><label class="form-field" for="auth-email">이메일<input type="email" name="email" id="auth-email" autocomplete="username" required placeholder="name@example.com"></label><label class="form-field" for="auth-password">비밀번호<input type="password" name="password" id="auth-password" autocomplete="${register ? 'new-password' : 'current-password'}" required${register ? ' minlength="6"' : ''}></label><p class="form-message" id="form-message" role="status"></p><div class="form-actions"><button type="submit" class="action primary">${register ? '가입하기' : '로그인'}</button></div></form><button class="text-button auth-switch" type="button" data-action="${register ? 'auth' : 'signup'}">${register ? '이미 계정이 있으신가요? 로그인' : '새 계정 만들기'}</button><p><a href="#privacy" data-action="open-privacy">삭제 접수 조회</a></p>`,
   );
 }
-export function noticeDialog(n, synthetic) {
+export function noticeDialog(n, synthetic, selectedModelNo = null) {
   const models = n.models ?? [],
-    ranges = rangesFor(n);
-  const modelList = models
-    .map((m) => {
-      const allowed = Boolean(m.analysisInput) && !m.selectionBlockers?.length;
-      return `<label class="model-option${allowed ? '' : ' unavailable'}"><input name="model" type="radio" value="${esc(m.modelNo)}"${allowed ? '' : ' disabled'}><span><strong class="code">${esc(m.houseType ?? '—')}</strong>${!allowed ? `<span class="model-reason">${esc((m.selectionBlockers ?? []).map(reasonText).filter(Boolean).join(' ') || '분석 선택 근거를 확인 중입니다.')}</span>` : ''}</span><small>모델 <span class="code">${esc(m.modelNo)}</span></small></label>`;
-    })
-    .join('');
+    ranges = rangesFor(n),
+    groups = groupModelsByAreaClass(models);
+  const isSelectable = (m) => Boolean(m?.analysisInput) && !m?.selectionBlockers?.length;
+  const activeGroup =
+    (selectedModelNo
+      ? groups.find((g) => g.models.some(({ model }) => model.modelNo === selectedModelNo))
+      : null) ??
+    groups.find((g) => g.models.some(({ model }) => isSelectable(model))) ??
+    groups[0] ??
+    null;
+  const renderModel = (m) => {
+    const allowed = isSelectable(m);
+    return `<label class="model-option${allowed ? '' : ' unavailable'}"><input name="model" type="radio" value="${esc(m.modelNo)}"${allowed ? '' : ' disabled'}><span><strong class="code">${esc(m.houseType ?? '—')}</strong>${!allowed ? `<span class="model-reason">${esc((m.selectionBlockers ?? []).map(reasonText).filter(Boolean).join(' ') || '분석 선택 근거를 확인 중입니다.')}</span>` : ''}</span><small>모델 <span class="code">${esc(m.modelNo)}</span></small></label>`;
+  };
+  const classTabs = groups.length
+    ? `<div class="area-class-tabs" role="group" aria-label="평형 선택">${groups
+        .map((g) => {
+          const active = activeGroup?.key === g.key;
+          return `<button type="button" class="area-class-tab${active ? ' is-active' : ''}" data-area-class-tab="${esc(g.key)}" aria-pressed="${active}"><span>${esc(g.label)}</span><small>${g.models.length}</small></button>`;
+        })
+        .join('')}</div>`
+    : '';
+  const groupedModels = groups.length
+    ? `<div class="model-groups" role="radiogroup" aria-labelledby="model-heading">${groups
+        .map((g) => {
+          const active = activeGroup?.key === g.key;
+          return `<div class="model-class-group" data-area-class-group="${esc(g.key)}"${active ? '' : ' hidden'}><p class="model-class-heading">${esc(g.label)} · 주택형 ${g.models.length}개</p><div class="model-list">${g.models.map(({ model }) => renderModel(model)).join('')}</div></div>`;
+        })
+        .join('')}</div>`
+    : '';
   return frame(
     noticeName(n),
     null,
     `<div class="tag-row detail-tags">${scheduleBadge(n.applicationStatus)}${badge('closed', synthetic ? 'layers' : 'database', synthetic ? '합성 자료' : '청약홈')}</div><ul class="detail-list"><li><span>공급 유형</span><strong>${esc(kinds[n.kind] ?? '미확인')}</strong></li><li><span>소재지</span><strong>${esc(n.regionName ?? '미확인')}</strong></li><li><span>공고일</span><strong>${esc(publicationText(n))}</strong></li><li><span>공고 번호</span><strong class="code">${esc(n.noticeNo)}</strong></li></ul><section class="detail-block"><h3>접수 일정</h3>${ranges.length ? `<ul class="source-list">${ranges.map((r) => `<li>${esc(rangeLabel(r, false))}</li>`).join('')}</ul>` : '<p class="dialog-sub">공식 접수 구간을 확인할 수 없습니다.</p>'}${n.applicationStatus === 'unknown' && ranges.length > 0 ? '<p class="dialog-sub">기준일의 접수 여부는 확인이 필요합니다.</p>' : ''}</section>
-  <section class="detail-block"><h3 id="model-heading">분석할 주택형</h3>${modelList ? `<div class="model-list" role="radiogroup" aria-labelledby="model-heading">${modelList}</div>` : `<div class="state-box">${icon('circle-pause')}<div><strong>주택형 확인 필요</strong><p>공고와 연결된 모델 정보를 확인한 뒤 분석을 시작할 수 있습니다.</p></div></div>`}</section>
+  <section class="detail-block"><h3 id="model-heading">분석할 주택형</h3>${groupedModels ? `${classTabs}<p class="dialog-sub area-class-note">평형(전용면적 정수부)을 먼저 고른 뒤 분양가가 다른 주택형을 선택하세요.</p>${groupedModels}` : `<div class="state-box">${icon('circle-pause')}<div><strong>주택형 확인 필요</strong><p>공고와 연결된 모델 정보를 확인한 뒤 분석을 시작할 수 있습니다.</p></div></div>`}</section>
   <p role="status" id="form-message" class="form-message"></p><div class="form-actions"><a class="text-button" href="https://www.applyhome.co.kr/" target="_blank" rel="noopener noreferrer">청약홈 ${icon('external-link')}</a><button class="action primary" data-action="start" type="button" disabled>${synthetic ? '예시 결과 보기' : '분석 시작'} ${icon('arrow-right')}</button></div>`,
   );
 }
