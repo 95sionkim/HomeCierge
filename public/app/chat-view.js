@@ -12,6 +12,7 @@ import {
   dateText,
   errorText,
   won,
+  groupModelsByAreaClass,
 } from './display.js';
 
 const AGENT_POLL_MS = 2500;
@@ -179,11 +180,15 @@ function lookupCardMarkup(notice, selectedKey) {
   const ranges = rangesFor(notice);
   const scheduleSummary = ranges.length ? ranges.map((r) => rangeLabel(r, false)).join(', ') : '접수일 미확인';
   const verifiedModels = (notice.models ?? []).filter((m) => m.analysisInput && !m.selectionBlockers?.length).length;
+  const classLabels = groupModelsByAreaClass(notice.models)
+    .filter((g) => g.areaClass !== null)
+    .map((g) => g.label);
+  const classPrefix = classLabels.length ? `${classLabels.join(' · ')} · ` : '';
   const modelNote = !notice.models?.length
     ? '주택형 확인 필요'
     : verifiedModels === notice.models.length
-      ? `주택형 ${notice.models.length}개 확인`
-      : `주택형 ${notice.models.length}개 (선택 가능 ${verifiedModels}개)`;
+      ? `${classPrefix}주택형 ${notice.models.length}개 확인`
+      : `${classPrefix}주택형 ${notice.models.length}개 (선택 가능 ${verifiedModels}개)`;
   return `<label class="lookup-edition-card${checked ? ' selected' : ''}">
     <input type="radio" name="lookup-edition" value="${esc(key)}"${checked ? ' checked' : ''}>
     <span class="lookup-edition-body">

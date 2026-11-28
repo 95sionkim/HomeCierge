@@ -2,6 +2,7 @@
 
 실제 외부 OpenAI API 호출과 .secrets/ 접근은 수행하지 않으며 모든 자료는 합성이다.
 """
+import copy
 import io
 import json
 import os
@@ -267,13 +268,13 @@ class AgentOrchestratorAndValidationTests(unittest.TestCase):
             'period': {'start': '2026-10-10', 'end': '2026-10-31', 'asOf': '2026-11-10'},
             'tradeKinds': ['sale', 'presale_right', 'occupancy_right'],
             'areaToleranceMax': '5',
-            'areaEditable': True,
+            'areaEditable': False,
             'replacementsEditable': True,
         }
         self.context = {'comparison': self.comparison, 'conditionBounds': self.bounds}
 
     def test_stub_provider_normal_turn_and_tool_call_loop(self):
-        # 1) 기본 StubProvider 합성 실행
+        # 1) 기본 StubProvider 합성 실행 (Q-52 평형 기준)
         provider = agent_llm.StubProvider(model='gpt-6.2-sol')
         result = agent_orchestrator.run_turn('왜 이 거래만 포함됐어?', self.context, provider)
         self.assertEqual(result['status'], 'answered')
@@ -282,8 +283,9 @@ class AgentOrchestratorAndValidationTests(unittest.TestCase):
         self.assertIsNone(result['proposal'])
         self.assertTrue(result['usage']['synthetic'])
         self.assertIn('2곳', result['answer'])
+        self.assertIn('84㎡형', result['answer'])
 
-        # 2) 도구 호출 후 최종 JSON 응답 루프 검증
+        # 2) 도구 호출 후 최종 JSON 응답 루프 검증 (거래 종류·단지 교체 제안, 공급면적 범위 없음)
         tool_turn = {
             'status': 'completed',
             'output': [{
@@ -292,7 +294,6 @@ class AgentOrchestratorAndValidationTests(unittest.TestCase):
                 'name': 'propose_condition_change',
                 'arguments': json.dumps({
                     'period': None,
-                    'areaTolerancePercent': '3',
                     'tradeKinds': ['sale'],
                     'replacements': [{'complexId': 'comparison-c', 'replaceComplexId': 'comparison-a'}],
                 }),
@@ -304,21 +305,19 @@ class AgentOrchestratorAndValidationTests(unittest.TestCase):
             'proposal': {
                 'kind': 'conditions',
                 'period': None,
-                'areaTolerancePercent': '3',
                 'tradeKinds': ['sale'],
                 'replacements': [{'complexId': 'comparison-c', 'replaceComplexId': 'comparison-a'}],
             },
-            'answer': '공급면적 허용 범위를 ±3%로, 거래 종류를 매매로, 합성 비교 A를 합성 비교 C로 교체하는 변경을 제안합니다. 승인하시면 같은 수집본으로 다시 계산하며 공유 프로필은 바뀌지 않습니다.',
-            'citations': [{'kind': 'condition', 'reference': 'areaTolerancePercent', 'label': '공급면적 ±3%'}],
+            'answer': '거래 종류를 매매로 바꾸고 합성 비교 A를 합성 비교 C로 교체하는 변경을 제안합니다. 승인하시면 같은 수집본으로 다시 계산하며 공유 프로필은 바뀌지 않습니다.',
+            'citations': [{'kind': 'condition', 'reference': 'tradeKinds', 'label': '거래 종류 매매'}],
         }
         scripted = agent_llm.StubProvider(model='gpt-6.1-terra', scripted=[tool_turn, final_turn])
-        out = agent_orchestrator.run_turn('공급면적 ±3%에 매매만 비교하고 A를 C로 바꿔줘', self.context, scripted)
-        self.assertEqual(out['status'], 'answered')
+        out = agent_orchestrator.run_turn('매매만 비교하고 A를 C로 바꿔줘', self.context, scripted)
+        self.assertEqual(out['status'], 'answered', out['validation'])
         self.assertEqual(out['toolCalls'], [{'name': 'propose_condition_change', 'ok': True}])
         self.assertEqual(out['proposal'], {
             'kind': 'conditions',
             'conditions': {
-                'areaTolerancePercent': '3',
                 'tradeKinds': ['sale'],
                 'replacements': [{'complexId': 'comparison-c', 'replaceComplexId': 'comparison-a'}],
             },
@@ -419,22 +418,23 @@ class AgentOrchestratorAndValidationTests(unittest.TestCase):
         self.assertEqual(res['status'], 'rejected')
         self.assertIn('invalid_intent', res['validation']['reasons'])
 
-        # Q-41 상한(±5%)을 넘는 공급면적 허용치(±7%) 제안 거부
-        bad_area = agent_llm.StubProvider(scripted=[{
-            'intent': 'change_conditions',
-            'proposal': {
-                'kind': 'conditions',
-                'period': None,
-                'areaTolerancePercent': '7',
-                'tradeKinds': None,
-                'replacements': None,
-            },
-            'answer': '공급면적 허용 범위를 변경하는 제안을 준비했습니다.',
-            'citations': [],
-        }])
-        res2 = agent_orchestrator.run_turn('공급면적 ±7%로 넓혀줘', self.context, bad_area)
-        self.assertEqual(res2['status'], 'rejected')
-        self.assertIn('invalid_proposal_area_tolerance', res2['validation']['reasons'])
+        # Q-52: 공급면적 허용 범위 변경 제안은 모두 거부한다(proposal_area_not_supported).
+        for bad_tol in ('3', '7'):
+            bad_area = agent_llm.StubProvider(scripted=[{
+                'intent': 'change_conditions',
+                'proposal': {
+                    'kind': 'conditions',
+                    'period': None,
+                    'areaTolerancePercent': bad_tol,
+                    'tradeKinds': None,
+                    'replacements': None,
+                },
+                'answer': '공급면적 허용 범위를 변경하는 제안을 준비했습니다.',
+                'citations': [],
+            }])
+            res2 = agent_orchestrator.run_turn(f'공급면적 ±{bad_tol}%로 바꿔줘', self.context, bad_area)
+            self.assertEqual(res2['status'], 'rejected')
+            self.assertIn('proposal_area_not_supported', res2['validation']['reasons'])
 
         # 부적격 단지 교체 제안 거부
         bad_rep = agent_llm.StubProvider(scripted=[{
@@ -442,7 +442,6 @@ class AgentOrchestratorAndValidationTests(unittest.TestCase):
             'proposal': {
                 'kind': 'conditions',
                 'period': None,
-                'areaTolerancePercent': None,
                 'tradeKinds': None,
                 'replacements': [{'complexId': 'comparison-d', 'replaceComplexId': 'comparison-a'}],
             },
@@ -452,6 +451,56 @@ class AgentOrchestratorAndValidationTests(unittest.TestCase):
         res3 = agent_orchestrator.run_turn('A를 D로 바꿔줘', self.context, bad_rep)
         self.assertEqual(res3['status'], 'rejected')
         self.assertIn('proposal_replacement_ineligible', res3['validation']['reasons'])
+
+    def test_area_class_grounding_and_legacy_supply_read_compatibility(self):
+        # 1) Q-52 평형 기준(84㎡형)과 참고 공급면적 범위가 검증기를 통과하고, PDF 제한 시에도 평형 조건은 유지된다.
+        comp = load_synthetic_comparison()
+        comp['comparables'][0]['supplyAreaReference'] = {
+            'status': 'range',
+            'm2': None,
+            'minM2': '109.63',
+            'maxM2': '111.20',
+            'evidence': {'source': 'synthetic-area-register', 'reference': 'comparison-a/84'},
+        }
+        provider = agent_llm.StubProvider(scripted=[{
+            'intent': 'inclusion',
+            'proposal': None,
+            'answer': '비교 기준은 84㎡형(전용면적 정수부)이며 합성 비교 A의 참고 공급면적은 109.63㎡~111.20㎡입니다.',
+            'citations': [{'kind': 'comparison', 'reference': 'conditions.area', 'label': '84㎡형 기준'}],
+        }])
+        res = agent_orchestrator.run_turn('비교 기준이 뭐야?', {'comparison': comp}, provider)
+        self.assertEqual(res['status'], 'answered', res['validation'])
+
+        # PDF가 제한되어도 exclusive_area_class 기준은 유지되고, 제한된 참고 공급면적 출처만 가려진다.
+        comp_collected = copy.deepcopy(comp)
+        comp_collected['dataOrigin'] = 'collected'
+        perms = {
+            'applyhome_apt': 'allowed',
+            'apt_trade': 'allowed',
+            'apt_rights': 'allowed',
+            'applyhome_notice_pdf': 'unknown',
+            'synthetic-area-register': 'unknown',
+            'synthetic-complex-register': 'allowed',
+            'synthetic-coordinate-register': 'allowed',
+            'synthetic-region-register': 'allowed',
+        }
+        filtered, _ = agent_tools.filter_comparison_for_llm(comp_collected, perms)
+        self.assertEqual(filtered['conditions']['area'], {'basis': 'exclusive_area_class', 'class': 84})
+        # synthetic-area-register가 미허용이므로 comparison-a의 supplyAreaReference만 가려지거나 관측 근거가 제한된다.
+        self.assertEqual(filtered['target']['supplyArea']['status'], 'restricted_for_llm')
+
+        # 2) 이전에 저장된 공급면적 ±5% 결과도 에이전트에서 계속 읽고 답변할 수 있다(읽기 호환).
+        legacy = load_synthetic_comparison()
+        legacy['conditions']['area'] = {'basis': 'supply', 'tolerancePercent': '5', 'minM2': '106.78', 'maxM2': '118.02'}
+        for row in legacy['comparables']:
+            row.pop('supplyAreaReference', None)
+            row.pop('areaClass', None)
+            row['supplyAreaM2'] = '112.50'
+            row['areaDifferenceM2'] = '0.10'
+            row['selectionReason'] = 'area_difference_then_straight_line'
+        legacy_out = agent_orchestrator.run_turn('왜 이 거래만 포함됐어?', {'comparison': legacy}, agent_llm.StubProvider())
+        self.assertEqual(legacy_out['status'], 'answered', legacy_out['validation'])
+        self.assertIn('±5%', legacy_out['answer'])
 
     def test_source_llm_permission_filters_restricted_values_and_blocks_news(self):
         collected = load_synthetic_comparison()

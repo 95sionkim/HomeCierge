@@ -87,6 +87,9 @@ class NoticeAnalysisWorkerTests(TestCase):
             if self.fail_finish is not None:
                 raise self.fail_finish
             return self.finished
+        if name == 'read_auto_evidence_permissions':
+            return {'applyhomeApt': False, 'applyhomeRemainder': False, 'moisRegions': False,
+                    'kakaoRuntime': False, 'kakaoStorage': False}
         if name == 'fail_notice_analysis_run':
             return {'status': 'retry_wait' if params['p_retryable'] else 'failed', 'runId': self.job['runId']}
         if name == 'fail_analysis_run':

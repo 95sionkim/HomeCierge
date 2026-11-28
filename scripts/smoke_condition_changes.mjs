@@ -1,4 +1,4 @@
-// 실제 로그인한 두 임시 계정과 합성 6단지 수집본으로 비교 조건 변경(Q-41 면적 ±5% 이내 축소·거래 종류·단지 교체)을 검수한다.
+// 실제 로그인한 두 임시 계정과 합성 6단지 수집본으로 비교 조건 변경(Q-52 평형 고정 + 거래 종류·단지 교체)을 검수한다.
 // 외부 API는 호출하지 않으며, 승인 시 새 실행 1건·중복 승인 1건·위조 결과 거부·거절/취소 유지·공유 프로필 불변·타 계정 404를 확인한다.
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -46,12 +46,12 @@ for item in t.bundle['evidence']:
 scope = {'LAWD_CD': '99999', 'DEAL_YMD': '202610'}
 original = [item for page in t.bundle['pages'] if (page['source'], page['scope']) == (SALE, scope)
             for item in page['body']['response']['body']['items']['item']]
-extra = [('near-1', '112.2'), ('near-2', '112.7'), ('near-3', '113.0'), ('near-4', '113.4')]
-t.rows(SALE, original + [t.sale_row(name) for name, _ in extra])
-for name, _ in extra:
-    t.complex(name)
+extra = [('near-1', '112.2', '37.5025'), ('near-2', '112.7', '37.5030'), ('near-3', '113.0', '37.5035'), ('near-4', '113.4', '37.5040')]
+t.rows(SALE, original + [t.sale_row(name) for name, _, _ in extra])
+for name, _, lat in extra:
+    t.complex(name, latitude=lat)
 ingestion = replay(t.bundle)
-t.link_sales(ingestion, {(f'합성 {name}', '84.00'): (name, area) for name, area in extra})
+t.link_sales(ingestion, {(f'합성 {name}', '84.00'): (name, area) for name, area, _ in extra})
 ingestion['dataOrigin'] = 'collected'
 evidence = copy.deepcopy(t.evidence)
 evidence['dataOrigin'] = 'collected'
@@ -197,7 +197,7 @@ export async function checkConditionChanges({ config, accounts, admin, requestAp
       check(
         opened.conditionBounds?.editable === true
           && opened.conditionBounds.areaToleranceMax === '5'
-          && opened.conditionBounds.areaEditable === true
+          && opened.conditionBounds.areaEditable === false
           && opened.conditionBounds.replacementsEditable === true,
         'cond_bounds',
       );
@@ -206,32 +206,32 @@ export async function checkConditionChanges({ config, accounts, admin, requestAp
         (await requestJson(requestApi, convPath(r1), {
           token: peer.accessToken,
           method: 'POST',
-          body: { requestId: randomUUID(), message: '면적 3%로', conditions: { areaTolerancePercent: '3' } },
+          body: { requestId: randomUUID(), message: '매매만 비교해줘', conditions: { tradeKinds: ['sale'] } },
         })).status === 404,
         'cond_peer_submit_404',
       );
 
-      // 2) Q-41 상한(±5%) 초과 및 0% 차단
-      for (const badTol of ['7', '5.0001', '0']) {
+      // 2) Q-52: 공급면적 허용 범위(areaTolerancePercent) 요청 차단 및 자연어 안내
+      for (const badTol of ['3', '5', '7', '0']) {
         const badReply = await requestJson(requestApi, convPath(r1), {
           token: owner.accessToken,
           method: 'POST',
           body: { requestId: randomUUID(), message: `공급면적 ±${badTol}%`, conditions: { areaTolerancePercent: badTol } },
         });
-        check(badReply.status === 400, `cond_q41_reject_${badTol.replace('.', '_')}`);
+        check(badReply.status === 400, `cond_q52_reject_${badTol.replace('.', '_')}`);
         await badReply.body?.cancel();
       }
-      const nlWiden = await expectJson(
+      const nlArea = await expectJson(
         await requestJson(requestApi, convPath(r1), {
           token: owner.accessToken,
           method: 'POST',
-          body: { requestId: randomUUID(), message: '공급면적 허용 범위를 ±7%로 넓혀줘' },
+          body: { requestId: randomUUID(), message: '공급면적 허용 범위를 ±3%로 좁혀줘' },
         }),
         200,
         check,
-        'cond_q41_nl_guidance',
+        'cond_q52_nl_guidance',
       );
-      check(nlWiden.turns.at(-1)?.intent === 'help' && nlWiden.turns.at(-1)?.proposal === null, 'cond_q41_nl_no_proposal');
+      check(nlArea.turns.at(-1)?.intent === 'help' && nlArea.turns.at(-1)?.proposal === null, 'cond_q52_nl_no_proposal');
 
       // 3) 거절·취소 시 새 실행이 만들어지지 않고 기존 조건이 유지된다.
       const rejectSubmitted = await expectJson(
@@ -296,40 +296,40 @@ export async function checkConditionChanges({ config, accounts, admin, requestAp
       );
       check(stillR1.latest_run_id === r1, 'cond_no_run_on_reject_cancel');
 
-      // 4) 공급면적 범위 ±3% 좁히기 제안 → 중복 승인도 새 실행 하나(r2) → 작업자 재계산 및 위조 결과 거부
-      const areaReqId = randomUUID();
-      const areaSubmitted = await expectJson(
+      // 4) 거래 종류(매매·분양권) 변경 제안 → 중복 승인도 새 실행 하나(r2) → 작업자 재계산 및 위조 결과 거부
+      const kindsReqId = randomUUID();
+      const kindsSubmitted = await expectJson(
         await requestJson(requestApi, convPath(r1), {
           token: owner.accessToken,
           method: 'POST',
-          body: { requestId: areaReqId, message: '공급면적 범위를 ±3%로 좁혀줘', conditions: { areaTolerancePercent: '3.0' } },
+          body: { requestId: kindsReqId, message: '입주권을 빼고 매매·분양권만 비교해줘', conditions: { tradeKinds: ['presale_right', 'sale'] } },
         }),
         200,
         check,
-        'cond_area_submit',
+        'cond_kinds_submit',
       );
-      const areaTurn = areaSubmitted.turns.at(-1);
+      const kindsTurn = kindsSubmitted.turns.at(-1);
       check(
-        areaTurn?.proposal?.kind === 'conditions'
-          && areaTurn.proposal.proposed?.areaTolerancePercent === '3'
-          && areaTurn.proposal.status === 'pending'
-          && areaTurn.proposal.resultRunId === null,
-        'cond_area_pending',
+        kindsTurn?.proposal?.kind === 'conditions'
+          && isDeepStrictEqual(kindsTurn.proposal.proposed?.tradeKinds, ['sale', 'presale_right'])
+          && kindsTurn.proposal.status === 'pending'
+          && kindsTurn.proposal.resultRunId === null,
+        'cond_kinds_pending',
       );
-      const areaReplayed = await expectJson(
+      const kindsReplayed = await expectJson(
         await requestJson(requestApi, convPath(r1), {
           token: owner.accessToken,
           method: 'POST',
-          body: { requestId: areaReqId, message: '공급면적 범위를 ±3%로 좁혀줘', conditions: { areaTolerancePercent: '3' } },
+          body: { requestId: kindsReqId, message: '입주권을 빼고 매매·분양권만 비교해줘', conditions: { tradeKinds: ['sale', 'presale_right'] } },
         }),
         200,
         check,
-        'cond_area_replay',
+        'cond_kinds_replay',
       );
-      check(isDeepStrictEqual(areaReplayed, areaSubmitted), 'cond_area_idempotent');
+      check(isDeepStrictEqual(kindsReplayed, kindsSubmitted), 'cond_kinds_idempotent');
 
       check(
-        (await requestJson(requestApi, `${convPath(r1)}/${areaTurn.id}/decision`, {
+        (await requestJson(requestApi, `${convPath(r1)}/${kindsTurn.id}/decision`, {
           token: peer.accessToken,
           method: 'POST',
           body: { decision: 'approve' },
@@ -338,22 +338,22 @@ export async function checkConditionChanges({ config, accounts, admin, requestAp
       );
 
       const [approveA, approveB] = await Promise.all([
-        requestJson(requestApi, `${convPath(r1)}/${areaTurn.id}/decision`, {
+        requestJson(requestApi, `${convPath(r1)}/${kindsTurn.id}/decision`, {
           token: owner.accessToken,
           method: 'POST',
           body: { decision: 'approve' },
         }),
-        requestJson(requestApi, `${convPath(r1)}/${areaTurn.id}/decision`, {
+        requestJson(requestApi, `${convPath(r1)}/${kindsTurn.id}/decision`, {
           token: owner.accessToken,
           method: 'POST',
           body: { decision: 'approve' },
         }),
       ]);
       const [approvedA, approvedB] = await Promise.all([
-        expectJson(approveA, 200, check, 'cond_area_approve_a'),
-        expectJson(approveB, 200, check, 'cond_area_approve_b'),
+        expectJson(approveA, 200, check, 'cond_kinds_approve_a'),
+        expectJson(approveB, 200, check, 'cond_kinds_approve_b'),
       ]);
-      const r2 = approvedA.turns.find(t => t.id === areaTurn.id)?.proposal?.resultRunId;
+      const r2 = approvedA.turns.find(t => t.id === kindsTurn.id)?.proposal?.resultRunId;
       check(UUID.test(r2) && r2 !== r1 && isDeepStrictEqual(approvedA, approvedB), 'cond_duplicate_approve_one_run');
 
       const job2 = result(
@@ -368,20 +368,18 @@ export async function checkConditionChanges({ config, accounts, admin, requestAp
         }),
         'cond_r2_work',
       );
-      check(work2.comparisonConditions?.areaTolerancePercent === '3', 'cond_r2_work_conditions');
+      check(isDeepStrictEqual(work2.comparisonConditions?.tradeKinds, ['sale', 'presale_right']), 'cond_r2_work_conditions');
       const prepared2 = await prepareWorkerComparison(job2.input, work2, check, 'cond_r2_prepare');
       check(
-        prepared2.conditions?.area?.tolerancePercent === '3'
-          && prepared2.conditions.area.minM2 === '109.028'
-          && prepared2.conditions.area.maxM2 === '115.772',
-        'cond_r2_exact_bounds',
+        isDeepStrictEqual(prepared2.conditions?.area, { basis: 'exclusive_area_class', class: 84 })
+          && isDeepStrictEqual(prepared2.conditions?.tradeKinds, ['sale', 'presale_right']),
+        'cond_r2_exact_area_class',
       );
 
-      // 승인과 다른 면적 기준·경계·거래 종류·선정 이유 결과는 DB가 거부한다(22023).
+      // 승인과 다른 평형·거래 종류 결과는 DB가 거부한다(22023).
       const forgedR2 = [
         rich.comparison,
-        { ...prepared2, conditions: { ...prepared2.conditions, area: { ...prepared2.conditions.area, minM2: '109.02' } } },
-        { ...prepared2, conditions: { ...prepared2.conditions, area: { ...prepared2.conditions.area, tolerancePercent: '3.5' } } },
+        { ...prepared2, conditions: { ...prepared2.conditions, area: { basis: 'exclusive_area_class', class: 59 } } },
         { ...prepared2, conditions: { ...prepared2.conditions, tradeKinds: ['sale'] } },
       ];
       for (let i = 0; i < forgedR2.length; i++) {
@@ -417,7 +415,7 @@ export async function checkConditionChanges({ config, accounts, admin, requestAp
         check,
         'cond_r2_result',
       );
-      check(r2Result.snapshotId === snapshotId && r2Result.result.conditions.area.tolerancePercent === '3', 'cond_r2_saved');
+      check(r2Result.snapshotId === snapshotId && isDeepStrictEqual(r2Result.result.conditions.area, { basis: 'exclusive_area_class', class: 84 }), 'cond_r2_saved');
 
       // 5) 단지 교체(near-4 → comparison-b) 제안·승인(r3)·재계산·위조 거부
       const replaceSubmitted = await expectJson(
@@ -436,7 +434,7 @@ export async function checkConditionChanges({ config, accounts, admin, requestAp
       );
       const replaceTurn = replaceSubmitted.turns.at(-1);
       check(
-        replaceTurn?.proposal?.effective?.areaTolerancePercent === '3'
+        isDeepStrictEqual(replaceTurn?.proposal?.effective?.tradeKinds, ['sale', 'presale_right'])
           && isDeepStrictEqual(replaceTurn.proposal.effective.replacements, [{ complexId: 'comparison-b', replaceComplexId: 'near-4' }]),
         'cond_replace_effective',
       );
@@ -581,7 +579,7 @@ export async function checkConditionChanges({ config, accounts, admin, requestAp
       );
       check(
         r4Restored.snapshotId === snapshotId
-          && r4Restored.result.conditions.area.tolerancePercent === '3'
+          && isDeepStrictEqual(r4Restored.result.conditions.area, { basis: 'exclusive_area_class', class: 84 })
           && isDeepStrictEqual(r4Restored.result.conditions.tradeKinds, ['sale']),
         'cond_r4_reopen_values',
       );

@@ -1,4 +1,17 @@
-import { badge, dateText, errorText, esc, icon, supplyLabel, todayKst, won } from './display.js';
+import {
+  areaClassLabel,
+  badge,
+  comparisonAreaCriterion,
+  dateText,
+  errorText,
+  esc,
+  exclusiveAreaClass,
+  icon,
+  supplyAreaRefLabel,
+  supplyLabel,
+  todayKst,
+  won,
+} from './display.js';
 import { halfWon, noticeRange, priceLabel, tradeRange } from './comparison-values.js';
 import { evidenceReasonLabel, formatAreaDiff, formatMeters } from './comparison-scope.js';
 
@@ -241,7 +254,7 @@ function collectComplexTrades(comparison, complex, evidenceDetail) {
       bucket: 'excluded',
       kind: ex.tradeKind ?? snapObs?.tradeKind ?? null,
       contractDate: snapObs?.contractDate ?? null,
-      exclusiveAreaM2: snapObs?.exclusiveAreaM2 ?? null,
+      exclusiveAreaM2: snapObs?.exclusiveAreaM2 ?? ex.exclusiveAreaM2 ?? null,
       supplyAreaM2: ex.supplyAreaM2 ?? null,
       floor: snapObs?.floor ?? null,
       won: snapObs?.amountWon ?? null,
@@ -300,13 +313,21 @@ function renderIdentifierValues(values, emptyLabel = '미제공') {
   return `<div class="sheet-inline-list"><span class="code">${esc(values.join(' · '))}</span> ${badge('conflict', 'link-2-off', '출처 충돌')}</div>`;
 }
 
-function renderTradeRow(row) {
+function renderTradeRow(row, isAreaClass) {
   const kindLabel = row.kind ? tradeShortNames[row.kind] ?? '미확인' : '미확인';
-  const areaHtml = row.supplyAreaM2
-    ? `공급 ${esc(supplyLabel(row.supplyAreaM2))}${row.exclusiveAreaM2 ? `<small class="hc-cell-sub">전용 ${esc(supplyLabel(row.exclusiveAreaM2))}</small>` : ''}`
-    : row.exclusiveAreaM2
-      ? `전용 ${esc(supplyLabel(row.exclusiveAreaM2))}<small class="hc-cell-sub">공급 미확인</small>`
+  let areaHtml;
+  if (isAreaClass) {
+    const cls = exclusiveAreaClass(row.exclusiveAreaM2);
+    areaHtml = row.exclusiveAreaM2
+      ? `전용 ${esc(supplyLabel(row.exclusiveAreaM2))}${cls !== null ? `<small class="hc-cell-sub">${esc(areaClassLabel(cls))}</small>` : ''}`
       : '<span class="hc-cell-empty" aria-label="값 없음">—</span>';
+  } else {
+    areaHtml = row.supplyAreaM2
+      ? `공급 ${esc(supplyLabel(row.supplyAreaM2))}${row.exclusiveAreaM2 ? `<small class="hc-cell-sub">전용 ${esc(supplyLabel(row.exclusiveAreaM2))}</small>` : ''}`
+      : row.exclusiveAreaM2
+        ? `전용 ${esc(supplyLabel(row.exclusiveAreaM2))}<small class="hc-cell-sub">공급 미확인</small>`
+        : '<span class="hc-cell-empty" aria-label="값 없음">—</span>';
+  }
   const amountText = row.won ? manwon(row.won) : '—';
   const amountHtml =
     row.cancelled && row.won
@@ -408,8 +429,12 @@ export function createComplexDetailSheet({ sheet, announce, loadEvidence }) {
 
     const targetArea = comparison.target?.supplyArea;
     const areaCond = comparison.conditions?.area;
+    const criterion = comparisonAreaCriterion(comparison);
+    const isAreaClass = criterion.basis === 'exclusive_area_class';
     const selectionReasonText =
       {
+        straight_line_distance: '같은 평형 · 확인 좌표 간 직선거리순',
+        straight_line_rank_pending: '동률 또는 좌표 미확인으로 직선거리 순위 보류 (D-03)',
         area_difference_then_straight_line: '공급면적 차이 우선 · 동률 시 직선거리순',
         area_difference_rank_pending: '동률 또는 좌표 미확인으로 순위 보류 (D-03)',
         manual_replacement: complex.replacesComplexId
@@ -457,11 +482,18 @@ export function createComplexDetailSheet({ sheet, announce, loadEvidence }) {
         ? `<span class="scope-rank-chip">${complex.rank}순위</span>`
         : badge('partial', 'circle-pause', '순위 보류');
 
-    const subtitleParts = [
-      umdNames.length ? umdNames.join('·') : complex.localityCode ? `지역코드 ${complex.localityCode}` : null,
-      `공급 ${supplyLabel(complex.supplyAreaM2)}`,
-      `유효 거래 ${totalIncluded}건`,
-    ].filter(Boolean);
+    const subtitleParts = isAreaClass
+      ? [
+          umdNames.length ? umdNames.join('·') : complex.localityCode ? `지역코드 ${complex.localityCode}` : null,
+          areaClassLabel(complex.areaClass ?? criterion.areaClass),
+          supplyAreaRefLabel(complex),
+          `유효 거래 ${totalIncluded}건`,
+        ].filter(Boolean)
+      : [
+          umdNames.length ? umdNames.join('·') : complex.localityCode ? `지역코드 ${complex.localityCode}` : null,
+          `공급 ${supplyLabel(complex.supplyAreaM2)}`,
+          `유효 거래 ${totalIncluded}건`,
+        ].filter(Boolean);
 
     sheet.dataset.sheet = 'complex';
     sheet.innerHTML = `<div class="hc-sheet-shell">
@@ -495,12 +527,17 @@ export function createComplexDetailSheet({ sheet, announce, loadEvidence }) {
           ${renderPriceRange(stat, notice, displayKind)}
         </section>
 
-        <section class="sheet-section" aria-label="선정 면적과 기준 대비 차이">
-          <h3>선정 면적과 비교 기준</h3>
+        <section class="sheet-section" aria-label="비교 기준과 참고 공급면적">
+          <h3>${isAreaClass ? '비교 기준과 참고 공급면적' : '선정 면적과 비교 기준'}</h3>
           <dl class="hc-detail-dl">
-            <div><dt>선정 면적</dt><dd><strong>공급 ${esc(supplyLabel(complex.supplyAreaM2))}</strong> <span class="code muted">(${esc(complex.supplyAreaM2 || '—')}㎡)</span></dd></div>
-            <div><dt>공고 기준</dt><dd>${targetArea?.status === 'confirmed' ? `공급 ${esc(supplyLabel(targetArea.m2))}${areaCond?.tolerancePercent != null ? ` <small class="muted">(±${esc(areaCond.tolerancePercent)}% · ${esc(supplyLabel(areaCond.minM2))}–${esc(supplyLabel(areaCond.maxM2))})</small>` : ''}` : emptyCell('면적 미확인')}</dd></div>
-            <div><dt>기준 대비 차이</dt><dd class="num">${complex.areaDifferenceM2 != null ? `<strong>${esc(formatAreaDiff(complex.areaDifferenceM2))}</strong> <span class="code muted">(${esc(complex.areaDifferenceM2)}㎡)</span>` : emptyCell('미확인')}</dd></div>
+            ${
+              isAreaClass
+                ? `<div><dt>비교 기준</dt><dd><strong>${esc(criterion.full)}</strong></dd></div>
+                   <div><dt>참고 공급면적</dt><dd><strong>${esc(supplyAreaRefLabel(complex).replace(/^참고 공급 /, ''))}</strong> <small class="muted">참고 표시 전용 · 비교 포함 여부와 순위에 사용하지 않습니다.</small></dd></div>`
+                : `<div><dt>선정 면적</dt><dd><strong>공급 ${esc(supplyLabel(complex.supplyAreaM2))}</strong> <span class="code muted">(${esc(complex.supplyAreaM2 || '—')}㎡)</span></dd></div>
+                   <div><dt>공고 기준</dt><dd>${targetArea?.status === 'confirmed' ? `공급 ${esc(supplyLabel(targetArea.m2))}${areaCond?.tolerancePercent != null ? ` <small class="muted">(±${esc(areaCond.tolerancePercent)}% · ${esc(supplyLabel(areaCond.minM2))}–${esc(supplyLabel(areaCond.maxM2))})</small>` : ''}` : emptyCell('면적 미확인')}</dd></div>
+                   <div><dt>기준 대비 차이</dt><dd class="num">${complex.areaDifferenceM2 != null ? `<strong>${esc(formatAreaDiff(complex.areaDifferenceM2))}</strong> <span class="code muted">(${esc(complex.areaDifferenceM2)}㎡)</span>` : emptyCell('미확인')}</dd></div>`
+            }
             ${isTarget ? '' : `<div><dt>직선거리</dt><dd>${distDisplay}</dd></div>`}
             <div><dt>선정 근거</dt><dd>${esc(selectionReasonText)}</dd></div>
           </dl>
@@ -555,7 +592,7 @@ export function createComplexDetailSheet({ sheet, announce, loadEvidence }) {
                     <th scope="col" class="is-right">금액(만 원)</th>
                     <th scope="col">포함 · 제외 사유</th>
                   </tr></thead>
-                  <tbody>${filteredRows.map(renderTradeRow).join('')}</tbody>
+                  <tbody>${filteredRows.map((row) => renderTradeRow(row, isAreaClass)).join('')}</tbody>
                 </table></div>`
               : `<p class="sheet-empty-list">선택한 구분에 해당하는 거래 관측이 없습니다.</p>`
           }

@@ -49,6 +49,7 @@ export function reasonText(code) {
     edition_unverified: '공고 회차를 확인할 수 없습니다.',
     house_type_unverified: '주택형 표기를 확인할 수 없습니다.',
     model_unverified: '공식 주택형 자료를 확인할 수 없습니다.',
+    target_area_class_unverified: '선택한 주택형의 평형(전용면적 정수부) 근거를 확인할 수 없습니다.',
     target_supply_area_unverified: '선택한 주택형의 공급면적 근거가 부족합니다.',
     comparison_evidence_unverified: '주변 거래를 단지와 주택형에 연결하는 근거가 부족합니다.',
     no_confirmed_room_subtotal: '분양가와 필수 옵션을 함께 확인한 호실이 없습니다.',
@@ -161,4 +162,95 @@ export function priceUnitNoun(price) {
   const items = [...(price?.confirmedRooms ?? []), ...(price?.heldRooms ?? [])];
   if (items.length && items.every(item => item?.unit?.kind === 'band')) return '가격 구간';
   return '호실';
+}
+
+const HOUSE_TYPE_AREA_RE =
+  /^\s*0*([1-9][0-9]*(?:\.[0-9]+)?|0\.[0-9]*[1-9][0-9]*)\s*(?:[A-Za-z][A-Za-z0-9_-]*|\([A-Za-z0-9_-]+\))?\s*$/;
+
+// Q-52: 평형은 주거전용면적의 정수부(소수점 버림)다. 84.9800 -> 84, 102.7700 -> 102, 59.9926 -> 59.
+export function exclusiveAreaClass(value) {
+  if (typeof value !== 'string' || value.length > 64) return null;
+  const match = value.match(HOUSE_TYPE_AREA_RE);
+  if (!match || match[1].length > 24) return null;
+  const whole = Number(match[1].split('.')[0]);
+  return Number.isSafeInteger(whole) && whole >= 1 ? whole : null;
+}
+
+export function areaClassLabel(areaClass) {
+  return Number.isSafeInteger(areaClass) && areaClass >= 1 ? `${areaClass}㎡형` : '평형 미확인';
+}
+
+export function groupModelsByAreaClass(models) {
+  const groups = new Map();
+  (models ?? []).forEach((model, index) => {
+    const areaClass = exclusiveAreaClass(model?.houseType);
+    const key = areaClass !== null ? String(areaClass) : 'unknown';
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        areaClass,
+        label: areaClass !== null ? `${areaClass}㎡형` : '평형 미확인',
+        models: [],
+      });
+    }
+    groups.get(key).models.push({ model, index });
+  });
+  return [...groups.values()].sort((a, b) => {
+    if (a.areaClass === null && b.areaClass === null) return 0;
+    if (a.areaClass === null) return 1;
+    if (b.areaClass === null) return -1;
+    return a.areaClass - b.areaClass;
+  });
+}
+
+export function comparisonAreaCriterion(data) {
+  const area = data?.conditions?.area;
+  if (area?.basis === 'exclusive_area_class' && Number.isSafeInteger(area.class) && area.class >= 1) {
+    const short = `${area.class}㎡형`;
+    const full = `${area.class}㎡형(전용면적 정수부)`;
+    return {
+      basis: 'exclusive_area_class',
+      areaClass: area.class,
+      short,
+      full,
+      banner: `비교 기준: ${full}`,
+    };
+  }
+  if (area?.basis === 'supply') {
+    const tol = typeof area.tolerancePercent === 'string' && /^\d+(?:\.\d+)?$/.test(area.tolerancePercent)
+      ? `±${area.tolerancePercent}%`
+      : null;
+    const short = tol ? `공급면적 ${tol}` : '공급면적 기준';
+    return {
+      basis: 'supply',
+      areaClass: null,
+      tolerancePercent: area.tolerancePercent ?? null,
+      minM2: area.minM2 ?? null,
+      maxM2: area.maxM2 ?? null,
+      short,
+      full: short,
+      banner: `비교 기준: ${short}`,
+    };
+  }
+  const targetClass = Number.isSafeInteger(data?.target?.areaClass) && data.target.areaClass >= 1
+    ? data.target.areaClass
+    : exclusiveAreaClass(data?.target?.houseType);
+  if (targetClass !== null) {
+    const short = `${targetClass}㎡형`;
+    const full = `${targetClass}㎡형(전용면적 정수부)`;
+    return {
+      basis: 'exclusive_area_class',
+      areaClass: targetClass,
+      short,
+      full,
+      banner: `비교 기준: ${full}`,
+    };
+  }
+  return {
+    basis: 'unknown',
+    areaClass: null,
+    short: '기준 미확인',
+    full: '기준 미확인',
+    banner: '비교 기준: 미확인',
+  };
 }

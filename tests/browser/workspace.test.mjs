@@ -361,7 +361,8 @@ test('a completed run opens each source independently, binds its snapshot and re
     await p.getByRole('button', { name: '조건 다시 조회' }).waitFor();
     conditionStatus = 200;
     await p.getByRole('button', { name: '조건 다시 조회' }).click();
-    await p.locator('.condition-detail').getByText('±5%', { exact: true }).waitFor();
+    await p.locator('.condition-detail').getByText('84㎡형(전용면적 정수부)', { exact: true }).waitFor();
+    assert.equal(await p.locator('.condition-detail').getByText('±5%').count(), 0);
     await p.locator('#analysis-conditions').click();
     conditionStatus = 403;
     await p.getByRole('button', { name: '지역 뉴스 보기' }).click();
@@ -547,7 +548,8 @@ for (const width of [1440, 390]) {
         await p.getByRole('button', { name: '메뉴 접기', exact: true }).click();
       }
       await conditions.click();
-      await p.locator('.condition-detail').getByText('±5%', { exact: true }).waitFor();
+      await p.locator('.condition-detail').getByText('84㎡형(전용면적 정수부)', { exact: true }).waitFor();
+      assert.equal(await p.locator('.condition-detail').getByText('±5%').count(), 0);
       await conditions.click();
       const sale = p.getByRole('region', { name: '아파트 매매 단지별 통계' });
       await sale.getByRole('cell', { name: '51,500.00005', exact: true }).waitFor();
@@ -998,6 +1000,85 @@ test('band-format notice switches copy to 가격 구간 in comparison, funding, 
     await page.getByRole('heading', { name: '가격 구간별 자금표' }).waitFor();
     await page.getByLabel('납부 일정을 볼 가격 구간').waitFor();
     assert.equal(await page.locator('#fund-room').inputValue(), bandName);
+  } finally {
+    await context.close();
+  }
+});
+
+test('Q-52 groups housing types by area class in notice dialog, displays criterion & reference supply area, and reads legacy ±5% results (synthetic)', async () => {
+  const directory = JSON.parse(await readFile(new URL('../../public/app/assets/directory-example.json', import.meta.url), 'utf8'));
+  const baseModel = directory.notices[0].models[0];
+  directory.notices[0].models = [
+    { ...baseModel, modelNo: '01', houseType: '059.9926A', analysisInput: { ...baseModel.analysisInput, modelNo: '01' } },
+    { ...baseModel, modelNo: '02', houseType: '084.9800A', analysisInput: { ...baseModel.analysisInput, modelNo: '02' } },
+    { ...baseModel, modelNo: '03', houseType: '084.9912B', analysisInput: { ...baseModel.analysisInput, modelNo: '03' } },
+  ];
+  const comparison = JSON.parse(await readFile(new URL('../../public/app/assets/comparison-example.json', import.meta.url), 'utf8'));
+  comparison.comparables[1].supplyAreaReference = {
+    status: 'range', m2: null, minM2: '109.63', maxM2: '111.20',
+    evidence: { source: 'synthetic-area-register', reference: 'comparison-b/84' },
+  };
+  let mode = 'q52';
+  const legacyComparison = structuredClone(comparison);
+  legacyComparison.conditions.area = { basis: 'supply', tolerancePercent: '5', minM2: '106.78', maxM2: '118.02' };
+  for (const row of legacyComparison.comparables) {
+    delete row.supplyAreaReference;
+    delete row.areaClass;
+    row.supplyAreaM2 = '112.50';
+    row.areaDifferenceM2 = '0.10';
+  }
+
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await context.route('**/*', (route) => {
+    const url = new URL(route.request().url());
+    if (url.origin !== origin) return route.abort();
+    if (url.pathname === '/app/assets/directory-example.json') return route.fulfill({ json: directory });
+    if (url.pathname === '/app/assets/comparison-example.json') {
+      return route.fulfill({ json: mode === 'legacy' ? legacyComparison : comparison });
+    }
+    return route.continue();
+  });
+  try {
+    const page = await context.newPage();
+    page.setDefaultTimeout(7000);
+    const errors = [];
+    page.on('pageerror', (err) => errors.push(err.message));
+
+    // 1) 공고 상세 주택형 선택: 평형별 탭(59㎡형 · 84㎡형)으로 묶이고 평형 선택 후 세부 주택형을 고른다.
+    await page.goto(origin + '/#notices');
+    await page.locator('button.notice-card').first().click();
+    const dialog = page.getByRole('dialog');
+    await dialog.waitFor();
+    const tab59 = dialog.locator('[data-area-class-tab="59"]');
+    const tab84 = dialog.locator('[data-area-class-tab="84"]');
+    await tab59.waitFor();
+    await tab84.waitFor();
+    assert.equal(await tab59.getAttribute('aria-pressed'), 'true');
+    assert.equal(await dialog.locator('[data-area-class-group="59"]').isVisible(), true);
+    assert.equal(await dialog.locator('[data-area-class-group="84"]').isVisible(), false);
+    await tab84.click();
+    assert.equal(await tab84.getAttribute('aria-pressed'), 'true');
+    assert.equal(await dialog.locator('[data-area-class-group="84"]').isVisible(), true);
+    assert.equal(await dialog.locator('[data-area-class-group="59"]').isVisible(), false);
+    assert.equal(await dialog.locator('[data-area-class-group="84"] input[type="radio"]').count(), 2);
+    await dialog.locator('[data-area-class-group="84"] input[type="radio"]').nth(1).check();
+    assert.equal(await dialog.locator('[data-action="start"]').isDisabled(), false);
+    await page.keyboard.press('Escape');
+
+    // 2) 비교 결과 화면: "비교 기준: 84㎡형(전용면적 정수부)" 표시, ±5% 문구 제거, 참고 공급면적(단일·범위) 표시
+    await page.goto(origin + '/#sample/saved');
+    await page.locator('[data-comparison-criterion]').getByText('비교 기준: 84㎡형(전용면적 정수부)', { exact: true }).waitFor();
+    await page.locator('.comparison-table').getByText('참고 공급 112.50㎡').waitFor();
+    await page.getByRole('button', { name: '분양권', exact: true }).click();
+    await page.locator('.comparison-table').getByText('참고 공급 109.63–111.20㎡').waitFor();
+    assert.equal(await page.locator('.scope-panel').getByText('±5%').count(), 0);
+
+    // 3) 이전 ±5% 저장 결과도 화면에서 깨짐 없이 계속 읽힌다(읽기 호환).
+    mode = 'legacy';
+    await page.reload();
+    await page.locator('#analysis-conditions').click();
+    await page.locator('.condition-detail').getByText('±5%', { exact: true }).waitFor();
+    assert.deepEqual(errors, []);
   } finally {
     await context.close();
   }

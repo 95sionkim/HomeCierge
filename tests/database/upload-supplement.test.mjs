@@ -781,19 +781,26 @@ test('approved condition changes on upload-supplement snapshots accept matching 
   await as('authenticated', owner);
   const conv1 = await rpc('read_analysis_conversation', analysisId, done1.runId);
   assert.equal(conv1.conditionBounds.editable, true);
-  assert.equal(conv1.conditionBounds.areaEditable, true);
+  assert.equal(conv1.conditionBounds.areaEditable, false);
   assert.equal(conv1.conditionBounds.replacementsEditable, true);
+
+  // Q-52: 공급면적 허용 범위(areaTolerancePercent) 제출은 22023으로 거부한다.
+  await assert.rejects(
+    rpc('submit_analysis_condition_turn', analysisId, done1.runId, randomUUID(),
+      '공급면적 ±3%로 좁혀줘', json({ areaTolerancePercent: '3' })),
+    { code: '22023' },
+  );
 
   const submitted = await rpc(
     'submit_analysis_condition_turn',
     analysisId, done1.runId, randomUUID(),
-    '공급면적 ±3%로 좁히고 매매만 비교해줘',
-    json({ areaTolerancePercent: '3', tradeKinds: ['sale'] }),
+    '매매만 비교해줘',
+    json({ tradeKinds: ['sale'] }),
   );
   const turn = submitted.turns.at(-1);
   assert.equal(turn.intent, 'change_conditions');
   assert.equal(turn.proposal.status, 'pending');
-  assert.deepEqual(turn.proposal.effective, { areaTolerancePercent: '3', tradeKinds: ['sale'] });
+  assert.deepEqual(turn.proposal.effective, { tradeKinds: ['sale'] });
 
   const approved = await rpc('decide_analysis_chat_turn', analysisId, done1.runId, turn.id, 'approve');
   const r2 = approved.turns.find(t => t.id === turn.id).proposal.resultRunId;
@@ -802,19 +809,19 @@ test('approved condition changes on upload-supplement snapshots accept matching 
   await as('service_role');
   const job2 = await rpc('claim_analysis_run', 300, r2);
   const work2 = await rpc('read_comparison_work', job2.runId, job2.generation, job2.leaseToken);
-  assert.deepEqual(work2.comparisonConditions, { areaTolerancePercent: '3', tradeKinds: ['sale'] });
+  assert.deepEqual(work2.comparisonConditions, { tradeKinds: ['sale'] });
   assert.ok(work2.evidence !== null);
 
   const prepared2 = runWorkerPrepare(job2.input, work2).comparison;
-  assert.equal(prepared2.conditions.area.tolerancePercent, '3');
+  assert.deepEqual(prepared2.conditions.area, { basis: 'exclusive_area_class', class: 84 });
   assert.deepEqual(prepared2.conditions.tradeKinds, ['sale']);
   assert.equal(Array.isArray(prepared2.candidatePool), true);
   assert.equal(prepared2.target.supplyArea.evidence[0].document, `upload:${upload.id}`);
 
-  // 승인 조건과 다르거나 candidatePool 형식이 잘못된 결과는 저장을 거부한다.
+  // 승인 조건과 다르거나 평형 기준·candidatePool 형식이 잘못된 결과는 저장을 거부한다.
   for (const badComparison of [
     cap1.comparison,
-    { ...prepared2, conditions: { ...prepared2.conditions, area: { ...prepared2.conditions.area, tolerancePercent: '4' } } },
+    { ...prepared2, conditions: { ...prepared2.conditions, area: { basis: 'exclusive_area_class', class: 59 } } },
     { ...prepared2, conditions: { ...prepared2.conditions, tradeKinds: ['sale', 'presale_right', 'occupancy_right'] } },
     { ...prepared2, candidatePool: { invalid: true } },
   ]) {
@@ -834,7 +841,7 @@ test('approved condition changes on upload-supplement snapshots accept matching 
 
   await as('authenticated', owner);
   const comp2 = await rpc('get_analysis_comparison', analysisId, r2);
-  assert.equal(comp2.result.conditions.area.tolerancePercent, '3');
+  assert.deepEqual(comp2.result.conditions.area, { basis: 'exclusive_area_class', class: 84 });
   assert.deepEqual(comp2.result.conditions.tradeKinds, ['sale']);
   assert.equal(Array.isArray(comp2.result.candidatePool), true);
   assert.equal(comp2.result.target.supplyArea.evidence[0].document, `upload:${upload.id}`);

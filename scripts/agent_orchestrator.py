@@ -244,14 +244,7 @@ def _validate_and_normalize_proposal(intent, raw_proposal, context):
         patch['period'] = period
 
     if raw_proposal.get('areaTolerancePercent') is not None:
-        tol = normalize_area_tolerance(raw_proposal['areaTolerancePercent'])
-        if tol is None:
-            return None, ['invalid_proposal_area_tolerance']
-        if current['areaTolerancePercent'] is None:
-            return None, ['proposal_area_unavailable']
-        if Decimal(tol) == Decimal(current['areaTolerancePercent']):
-            return None, ['proposal_unchanged_area']
-        patch['areaTolerancePercent'] = tol
+        return None, ['proposal_area_not_supported']
 
     if raw_proposal.get('tradeKinds') is not None:
         kinds = normalize_trade_kinds(raw_proposal['tradeKinds'])
@@ -371,6 +364,9 @@ def _collect_grounding_sets(context, proposal):
         if isinstance(m, str) and re.fullmatch(r'[0-9]{6}', m):
             months.add(f'{m[:4]}-{m[4:]}')
     area = conds.get('area') if isinstance(conds.get('area'), dict) else {}
+    if area.get('basis') == 'exclusive_area_class' and type(area.get('class')) is int and area['class'] >= 1:
+        add_area(area['class'])
+        identifiers.add(f"{area['class']}㎡형")
     if area.get('tolerancePercent') is not None:
         dec = _to_decimal(area.get('tolerancePercent'))
         if dec is not None:
@@ -384,6 +380,10 @@ def _collect_grounding_sets(context, proposal):
     target = comp.get('target') if isinstance(comp.get('target'), dict) else {}
     for k in ('houseManageNo', 'noticeNo', 'edition', 'modelNo', 'houseType', 'complexId', 'name'):
         add_ident(target.get(k))
+    add_area(target.get('exclusiveAreaM2'))
+    if type(target.get('areaClass')) is int and target['areaClass'] >= 1:
+        add_area(target['areaClass'])
+        identifiers.add(f"{target['areaClass']}㎡형")
     sa = target.get('supplyArea') if isinstance(target.get('supplyArea'), dict) else {}
     add_area(sa.get('m2'))
     for ev in sa.get('evidence') or []:
@@ -455,8 +455,16 @@ def _collect_grounding_sets(context, proposal):
             add_ident(item.get('complexId'))
             add_ident(item.get('name'))
             add_ident(item.get('localityCode'))
+            if type(item.get('areaClass')) is int and item['areaClass'] >= 1:
+                add_area(item['areaClass'])
+                identifiers.add(f"{item['areaClass']}㎡형")
             add_area(item.get('supplyAreaM2'))
             add_area(item.get('areaDifferenceM2'))
+            sref = item.get('supplyAreaReference')
+            if isinstance(sref, dict):
+                add_area(sref.get('m2'))
+                add_area(sref.get('minM2'))
+                add_area(sref.get('maxM2'))
             if type(item.get('rank')) is int:
                 ranks.add(item['rank'])
             dist = item.get('distance')
@@ -529,8 +537,16 @@ def _collect_grounding_sets(context, proposal):
         add_ident(entry.get('complexId'))
         add_ident(entry.get('name'))
         add_ident(entry.get('localityCode'))
+        if type(entry.get('areaClass')) is int and entry['areaClass'] >= 1:
+            add_area(entry['areaClass'])
+            identifiers.add(f"{entry['areaClass']}㎡형")
         add_area(entry.get('supplyAreaM2'))
         add_area(entry.get('areaDifferenceM2'))
+        sref = entry.get('supplyAreaReference')
+        if isinstance(sref, dict):
+            add_area(sref.get('m2'))
+            add_area(sref.get('minM2'))
+            add_area(sref.get('maxM2'))
 
     # 6) conditionBounds, existingProposal, validated proposal
     pb = bounds.get('period') if isinstance(bounds.get('period'), dict) else None

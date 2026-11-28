@@ -27,10 +27,10 @@ from worker_rpc import (
 
 FIXTURE = Path(__file__).resolve().parents[1] / 'tests/fixtures/ingestion-v0.json'
 # ingestion-v0로 접수된 실행은 재시작 이후에도 같은 예시를 사용한다.
-FIXTURE_SHA256 = '0e7b2f2204c76ceb33d281a36c7569017216cfece81da23e385a1f9ee900a8a2'
+FIXTURE_SHA256 = '2a6d508480244f1ffcbef0e0f6841635579f4c2dff61afe73f5d8d33d2a655be'
 EVIDENCE_FIXTURE = FIXTURE.with_name('comparison-evidence-v1.json')
 # comparison/v1에서 사용한 합성 근거와 수집본 버전을 함께 고정한다.
-EVIDENCE_SHA256 = '4773237d773f7437aa476d2dfe6d16de4408481b348c311b2a6980abc67591df'
+EVIDENCE_SHA256 = '8cd914884a051e94e8d14d904122e8d1860cce0d254db8d79d47d438762add11'
 MAX_COMPARISON_INPUT_BYTES = 32 * 1024 * 1024
 # 저장 RPC 일시 오류(HTTP 5xx, 57014, 응답 미확인) 시 같은 수집본으로 최대 3회 재시도한다.
 SAVE_RETRY_DELAYS = (2, 5, 10)
@@ -86,9 +86,6 @@ def _approved_comparison_conditions(selection, work, comparison_period):
             raise ValueError('승인된 비교 조건의 기간 형식이 올바르지 않습니다.')
         if comparison_period is not None and comparison_period != period:
             raise ValueError('승인된 비교 기간과 비교 조건의 기간이 일치하지 않습니다.')
-    if 'areaTolerancePercent' in conditions:
-        if not isinstance(conditions['areaTolerancePercent'], str):
-            raise ValueError('승인된 공급면적 허용 범위는 문자열이어야 합니다.')
     if 'tradeKinds' in conditions:
         kinds = conditions['tradeKinds']
         if (not isinstance(kinds, list) or not kinds

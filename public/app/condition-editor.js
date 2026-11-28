@@ -1,8 +1,19 @@
-import { badge, dateText, esc, icon, isoDate, rangeLabel, reasonText, supplyLabel } from './display.js';
+import {
+  areaClassLabel,
+  badge,
+  comparisonAreaCriterion,
+  dateText,
+  esc,
+  icon,
+  isoDate,
+  rangeLabel,
+  reasonText,
+  supplyAreaRefLabel,
+  supplyLabel,
+} from './display.js';
 import { tradeNames } from './trade-comparison.js';
 
 const TRADE_ORDER = ['sale', 'presale_right', 'occupancy_right'];
-const AREA_PRESETS = ['1', '2', '3', '5'];
 
 function parseDecimal(str) {
   if (typeof str !== 'string' || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(str)) return null;
@@ -92,16 +103,13 @@ function deriveFallbackBounds(comparison) {
   const kinds = Array.isArray(comparison?.conditions?.tradeKinds)
     ? TRADE_ORDER.filter((k) => comparison.conditions.tradeKinds.includes(k))
     : [];
-  const areaConfirmed =
-    comparison?.target?.supplyArea?.status === 'confirmed' &&
-    comparison?.conditions?.area?.basis === 'supply';
   const scopeOk = ['priority', 'expansion'].includes(comparison?.appliedScope);
   return {
     editable: true,
     period: hasPeriod && asOf ? { start: p.start, end: p.end, asOf } : null,
     tradeKinds: kinds,
     areaToleranceMax: '5',
-    areaEditable: Boolean(hasPeriod && areaConfirmed),
+    areaEditable: false,
     replacementsEditable: Boolean(hasPeriod && scopeOk),
   };
 }
@@ -129,6 +137,7 @@ function complexName(comparison, id) {
 function ineligibleReasonText(reasonCode) {
   const local = {
     outside_applied_region: '현재 적용 지역 밖의 단지입니다.',
+    outside_area_class: '대상 주택형과 다른 평형의 단지입니다.',
     outside_supply_area: '허용 공급면적 범위 밖의 단지입니다.',
     outside_contract_period: '현재 계약 기간 안의 거래가 없습니다.',
     trade_kind_not_included: '선택한 거래 종류의 거래가 없습니다.',
@@ -141,6 +150,7 @@ function ineligibleReasonText(reasonCode) {
 
 function ineligibleBadge(reasonCode) {
   if (reasonCode === 'outside_applied_region') return badge('zero', 'map-pin', '적용 지역 밖');
+  if (reasonCode === 'outside_area_class') return badge('zero', 'sliders-horizontal', '다른 평형');
   if (reasonCode === 'outside_supply_area') return badge('zero', 'sliders-horizontal', '공급면적 범위 밖');
   if (
     reasonCode === 'outside_contract_period' ||
@@ -173,8 +183,6 @@ export function createConditionEditor({ dialog, announce, onSubmit }) {
         : effectiveBounds.period
           ? { start: effectiveBounds.period.start, end: effectiveBounds.period.end }
           : { start: '', end: '' };
-    const areaTolerance =
-      normalizeToleranceInput(comparison?.conditions?.area?.tolerancePercent, effectiveBounds.areaToleranceMax) ?? '5';
     const tradeKinds = Array.isArray(comparison?.conditions?.tradeKinds)
       ? TRADE_ORDER.filter((k) => comparison.conditions.tradeKinds.includes(k))
       : [...effectiveBounds.tradeKinds];
@@ -190,14 +198,12 @@ export function createConditionEditor({ dialog, announce, onSubmit }) {
       submitError: '',
       initial: {
         period: { ...period },
-        areaTolerance,
         tradeKinds: [...tradeKinds],
         replacements,
       },
       draft: {
         periodStart: period.start,
         periodEnd: period.end,
-        areaInput: areaTolerance,
         tradeKinds: [...tradeKinds],
         scopeMode: replacements.length > 0 ? 'manual' : 'auto',
         slotOverrides,
@@ -260,25 +266,7 @@ export function createConditionEditor({ dialog, announce, onSubmit }) {
       }
     }
 
-    // 3) 공급면적 허용 범위
-    if (bounds.areaEditable) {
-      const normalized = normalizeToleranceInput(draft.areaInput, bounds.areaToleranceMax);
-      if (!normalized) {
-        errors.push(`공급면적 허용 범위는 0% 초과 ${bounds.areaToleranceMax}% 이하의 양수(소수 4자리 이하)로 좁혀서 입력하세요. 기본 ±${bounds.areaToleranceMax}%보다 넓힐 수 없습니다.`);
-      } else if (normalized !== initial.areaTolerance) {
-        patch.areaTolerancePercent = normalized;
-        const targetM2 = comparison?.target?.supplyArea?.m2;
-        const nextBounds = computeAreaBounds(targetM2, normalized);
-        const suffix = nextBounds ? ` (${nextBounds.minM2} – ${nextBounds.maxM2}㎡)` : '';
-        diffRows.push({
-          label: '공급면적 범위',
-          from: `±${initial.areaTolerance}%`,
-          to: `±${normalized}%${suffix}`,
-        });
-      }
-    }
-
-    // 4) 단지 직접 교체
+    // 3) 단지 직접 교체
     if (bounds.replacementsEditable) {
       const nextReps = currentDraftReplacements();
       if (!sameReplacements(nextReps, initial.replacements)) {
@@ -299,22 +287,6 @@ export function createConditionEditor({ dialog, announce, onSubmit }) {
     const hasChanges = Object.keys(patch).length > 0;
     const valid = canEdit && hasChanges && errors.length === 0;
     return { patch, diffRows, errors, valid, hasChanges };
-  }
-
-  function renderAreaPreviewHtml() {
-    if (!state) return '';
-    const { comparison, bounds, draft } = state;
-    const targetM2 = comparison?.target?.supplyArea?.m2;
-    if (!bounds.areaEditable || !targetM2) {
-      return '<p class="cond-hint">대상 주택형의 공급면적이 확인되지 않아 허용 범위를 변경할 수 없습니다.</p>';
-    }
-    const normalized = normalizeToleranceInput(draft.areaInput, bounds.areaToleranceMax);
-    if (!normalized) {
-      return `<p class="cond-field-error" role="status">기본 ±${esc(bounds.areaToleranceMax)}%보다 넓힐 수 없습니다. 0 초과 ${esc(bounds.areaToleranceMax)} 이하의 양수(소수 4자리 이하)로 입력하세요.</p>`;
-    }
-    const calc = computeAreaBounds(targetM2, normalized);
-    if (!calc) return '';
-    return `<p class="cond-area-preview">대상 공급면적 <strong class="num">${esc(supplyLabel(targetM2))}</strong> 기준 · <strong class="num">${esc(calc.minM2)}㎡ – ${esc(calc.maxM2)}㎡</strong> <small>(양 끝 포함 · 반올림 없음)</small></p>`;
   }
 
   function renderFooterHtml() {
@@ -358,11 +330,16 @@ export function createConditionEditor({ dialog, announce, onSubmit }) {
     const pool = comparison?.candidatePool ?? [];
     const eligiblePool = pool.filter((p) => p?.eligible === true);
     const ineligiblePool = pool.filter((p) => p?.eligible === false);
+    const criterion = comparisonAreaCriterion(comparison);
+    const isAreaClass = criterion.basis === 'exclusive_area_class';
+    const slotAreaText = (item) =>
+      isAreaClass ? supplyAreaRefLabel(item) : `공급 ${supplyLabel(item.supplyAreaM2)}`;
     const baseSlots = comparables.map((c) => ({
       slotId: c.replacesComplexId || c.complexId,
       displayedId: c.complexId,
       displayedName: c.name || c.complexId,
       supplyAreaM2: c.supplyAreaM2,
+      supplyAreaReference: c.supplyAreaReference,
       wasManual: c.selectionReason === 'manual_replacement',
       autoName: complexName(comparison, c.replacesComplexId || c.complexId),
     }));
@@ -390,14 +367,14 @@ export function createConditionEditor({ dialog, announce, onSubmit }) {
         return `<div class="cond-slot-row">
           <label for="cond-slot-${idx}" class="cond-slot-label">
             <strong>비교 단지 ${idx + 1}</strong>
-            <span>${esc(slot.displayedName)} · 공급 ${esc(supplyLabel(slot.supplyAreaM2))}</span>
+            <span>${esc(slot.displayedName)} · ${esc(slotAreaText(slot))}</span>
           </label>
           <select id="cond-slot-${idx}" class="cond-select" data-cond-slot="${esc(slot.slotId)}"${!bounds.editable ? ' disabled' : ''}>
             <option value="">${esc(defaultLabel)}</option>
             ${options
               .map(
                 (opt) =>
-                  `<option value="${esc(opt.complexId)}"${selectedVal === opt.complexId ? ' selected' : ''}>${esc(opt.name)} · 공급 ${esc(supplyLabel(opt.supplyAreaM2))}</option>`,
+                  `<option value="${esc(opt.complexId)}"${selectedVal === opt.complexId ? ' selected' : ''}>${esc(opt.name)} · ${esc(slotAreaText(opt))}</option>`,
               )
               .join('')}
           </select>
@@ -417,7 +394,7 @@ export function createConditionEditor({ dialog, announce, onSubmit }) {
                     <strong>${esc(item.name || item.complexId)}</strong>
                     ${ineligibleBadge(item.reasonCode)}
                   </div>
-                  <small>${esc([item.localityName, item.supplyAreaM2 ? '공급 ' + supplyLabel(item.supplyAreaM2) : '', ineligibleReasonText(item.reasonCode)].filter(Boolean).join(' · '))}</small>
+                  <small>${esc([item.localityName, item.areaClass ? areaClassLabel(item.areaClass) : item.supplyAreaM2 ? '공급 ' + supplyLabel(item.supplyAreaM2) : '', ineligibleReasonText(item.reasonCode)].filter(Boolean).join(' · '))}</small>
                 </li>`,
             )
             .join('')}</ul>
@@ -456,7 +433,7 @@ export function createConditionEditor({ dialog, announce, onSubmit }) {
           }),
         ]
       : [];
-    const currentTolNorm = normalizeToleranceInput(draft.areaInput, bounds.areaToleranceMax);
+    const criterion = comparisonAreaCriterion(comparison);
     const manualAllowed = bounds.replacementsEditable && (comparison?.comparables?.length ?? 0) > 0;
 
     dialog.innerHTML = `<div class="cond-shell">
@@ -521,42 +498,20 @@ export function createConditionEditor({ dialog, announce, onSubmit }) {
         </fieldset>
 
         <fieldset class="cond-section">
-          <legend>공급면적 허용 범위</legend>
-          <div class="cond-preset-row">
-            ${AREA_PRESETS.map(
-              (pct) =>
-                `<button type="button" class="cond-preset${currentTolNorm === pct ? ' is-active' : ''}" data-cond-area="${pct}"${disabledAll || !bounds.areaEditable ? ' disabled' : ''}>±${pct}%${pct === '5' ? ' (기본)' : ''}</button>`,
-            ).join('')}
-          </div>
-          <div class="cond-area-input-row">
-            <label for="cond-area-input" class="cond-field">
-              <span>직접 입력 (±%)</span>
-              <div class="cond-input-unit">
-                <span aria-hidden="true">±</span>
-                <input type="text" id="cond-area-input" inputmode="decimal" autocomplete="off" value="${esc(draft.areaInput)}"${disabledAll || !bounds.areaEditable ? ' disabled' : ''} />
-                <span aria-hidden="true">%</span>
-              </div>
-            </label>
-          </div>
-          <div id="cond-area-preview">${renderAreaPreviewHtml()}</div>
-          <p class="cond-hint">전용면적이 아니라 공급면적 기준으로만 비교합니다. 기본 ±${esc(bounds.areaToleranceMax)}%가 상한이며, 0% 초과 ${esc(bounds.areaToleranceMax)}% 이하로 좁혀서 지정할 수 있습니다.</p>
-        </fieldset>
-
-        <fieldset class="cond-section">
           <legend>비교 범위 · 단지 지정</legend>
           <div class="cond-radio-grid">
             <label class="cond-radio-card${draft.scopeMode === 'auto' ? ' is-selected' : ''}">
               <input type="radio" name="scopeMode" value="auto"${draft.scopeMode === 'auto' ? ' checked' : ''}${disabledAll ? ' disabled' : ''} />
               <div>
                 <strong>자동 선정 · 같은 동(읍·면) 우선</strong>
-                <span>공급면적 최근접과 직선거리 순으로 주변 단지를 자동 선정합니다.</span>
+                <span>같은 평형(전용면적 정수부)의 주변 단지를 확인 좌표 간 직선거리순으로 자동 선정합니다.</span>
               </div>
             </label>
             <label class="cond-radio-card${draft.scopeMode === 'manual' ? ' is-selected' : ''}${!manualAllowed ? ' is-disabled' : ''}">
               <input type="radio" name="scopeMode" value="manual"${draft.scopeMode === 'manual' ? ' checked' : ''}${disabledAll || !manualAllowed ? ' disabled' : ''} />
               <div>
                 <strong>단지 직접 지정 · 교체</strong>
-                <span>적용 지역과 비교 기준을 통과한 후보로 기존 비교 단지를 교체합니다.</span>
+                <span>적용 지역과 같은 평형 기준을 통과한 후보로 기존 비교 단지를 교체합니다.</span>
               </div>
             </label>
           </div>
@@ -564,7 +519,8 @@ export function createConditionEditor({ dialog, announce, onSubmit }) {
         </fieldset>
 
         <div class="cond-readonly-strip" aria-label="변경할 수 없는 비교 기준">
-          <div><small>면적 기준</small><strong>공급면적 (전용면적 혼용 불가)</strong></div>
+          <div><small>비교 기준</small><strong>${esc(criterion.full)}</strong></div>
+          <div><small>단지 순서</small><strong>확인 좌표 간 직선거리순</strong></div>
           <div><small>층 · 연식</small><strong>비교 표에 표시 (필터 제외)</strong></div>
         </div>
       </div>
@@ -574,8 +530,6 @@ export function createConditionEditor({ dialog, announce, onSubmit }) {
 
   function syncLiveFeedback() {
     if (!state) return;
-    const areaPreview = dialog.querySelector('#cond-area-preview');
-    if (areaPreview) areaPreview.innerHTML = renderAreaPreviewHtml();
     const footer = dialog.querySelector('#cond-footer');
     if (footer) footer.innerHTML = renderFooterHtml();
     const rightsNote = dialog.querySelector('#cond-rights-note');
@@ -583,10 +537,6 @@ export function createConditionEditor({ dialog, announce, onSubmit }) {
       const hasRights =
         state.draft.tradeKinds.includes('presale_right') || state.draft.tradeKinds.includes('occupancy_right');
       rightsNote.hidden = !hasRights;
-    }
-    const tolNorm = normalizeToleranceInput(state.draft.areaInput, state.bounds.areaToleranceMax);
-    for (const btn of dialog.querySelectorAll('[data-cond-area]')) {
-      btn.classList.toggle('is-active', btn.dataset.condArea === tolNorm);
     }
     for (const btn of dialog.querySelectorAll('[data-cond-period-start]')) {
       btn.classList.toggle(
@@ -684,13 +634,6 @@ export function createConditionEditor({ dialog, announce, onSubmit }) {
       void confirm();
       return;
     }
-    if (button.dataset.condArea) {
-      state.draft.areaInput = button.dataset.condArea;
-      const input = dialog.querySelector('#cond-area-input');
-      if (input) input.value = state.draft.areaInput;
-      syncLiveFeedback();
-      return;
-    }
     if (button.dataset.condPeriodStart && button.dataset.condPeriodEnd) {
       state.draft.periodStart = button.dataset.condPeriodStart;
       state.draft.periodEnd = button.dataset.condPeriodEnd;
@@ -705,10 +648,7 @@ export function createConditionEditor({ dialog, announce, onSubmit }) {
   dialog?.addEventListener('input', (event) => {
     if (!state) return;
     const target = event.target;
-    if (target.id === 'cond-area-input') {
-      state.draft.areaInput = target.value;
-      syncLiveFeedback();
-    } else if (target.id === 'cond-period-start') {
+    if (target.id === 'cond-period-start') {
       state.draft.periodStart = target.value;
       syncLiveFeedback();
     } else if (target.id === 'cond-period-end') {

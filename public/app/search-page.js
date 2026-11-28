@@ -1,5 +1,5 @@
 import * as api from './client.js';
-import { esc, icon, kinds, won, reasonText, dateText, scheduleBadge, errorText } from './display.js';
+import { esc, icon, kinds, won, reasonText, dateText, scheduleBadge, errorText, groupModelsByAreaClass } from './display.js';
 import { amountInput, evidence, sourceNames, collectionLabels, planningReasons } from './planning-fields.js';
 
 const blank = () => ({
@@ -141,9 +141,15 @@ function noticeCard(n, group, index, regions) {
   const omitted = Object.values(n.truncation ?? {}).reduce((total, value) => total + value, 0);
   const roomReasons = new Set(n.models.flatMap(m => m.needsReviewRooms.flatMap(r => r.reasonCodes)));
   const noticeReasons = n.reasonCodes.filter(code => !roomReasons.has(code));
+  const areaGroups = groupModelsByAreaClass(n.models);
+  const groupedModelsHtml = areaGroups
+    .map(
+      (g) => `<div class="search-area-group"><div class="search-area-group-head"><strong>${esc(g.label)}</strong><span>주택형 ${g.models.length}개</span></div>${g.models.map(({ model, index: origIndex }) => modelCard(model, origIndex)).join('')}</div>`,
+    )
+    .join('');
   return `<article class="planning-box search-card"><div class="search-card-meta">${scheduleBadge(n.applicationStatus)} <span>${esc(region || '지역 확인 필요')} · ${esc(kinds[n.kind] || kinds.unknown)}</span></div><h3>${esc(n.title || '공고명 확인 필요')}</h3>
     <p class="search-card-id">공고 ${esc(n.noticeNo)} · ${esc(n.edition)}</p>
-    ${n.models.map(modelCard).join('')}${noticeReasons.length ? `<p class="field-help">${esc(uniqueReasons(noticeReasons))}</p>` : ''}
+    ${groupedModelsHtml}${noticeReasons.length ? `<p class="field-help">${esc(uniqueReasons(noticeReasons))}</p>` : ''}
     ${omitted ? `<p class="field-help">상세 ${esc(omitted)}건이 더 있습니다.</p>` : ''}</article>`;
 }
 function resultPanel(s) {

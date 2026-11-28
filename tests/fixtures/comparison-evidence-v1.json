@@ -57,7 +57,7 @@
       "localityCode": "9999900100",
       "evidence": {"source": "synthetic-complex-register", "reference": "comparison-a"},
       "coordinates": {
-        "latitude": "37.510",
+        "latitude": "37.502",
         "longitude": "127.000",
         "evidence": {"source": "synthetic-coordinate-register", "reference": "comparison-a"}
       }
@@ -92,10 +92,10 @@
       "page": 1,
       "position": 1,
       "identifiers": {"aptNm": "합성 비교 B", "sggCd": "99999", "umdNm": "가람동", "jibun": "201"},
-      "exclusiveAreaM2": "82.50",
+      "exclusiveAreaM2": "84.50",
       "complexId": "comparison-b",
       "supplyAreaM2": "110.00",
-      "evidence": {"source": "synthetic-area-register", "reference": "comparison-b/82.50"}
+      "evidence": {"source": "synthetic-area-register", "reference": "comparison-b/84.50"}
     },
     {
       "recordId": "col-apt_rights-99999-202610",
@@ -103,10 +103,10 @@
       "page": 1,
       "position": 2,
       "identifiers": {"aptNm": "합성 비교 B", "sggCd": "99999", "umdNm": "가람동", "jibun": "201"},
-      "exclusiveAreaM2": "82.50",
+      "exclusiveAreaM2": "84.50",
       "complexId": "comparison-b",
       "supplyAreaM2": "110.00",
-      "evidence": {"source": "synthetic-area-register", "reference": "comparison-b/82.50"}
+      "evidence": {"source": "synthetic-area-register", "reference": "comparison-b/84.50"}
     }
   ]
 }

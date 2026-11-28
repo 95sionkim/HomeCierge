@@ -850,7 +850,7 @@ test('worker linkage enforces authoritative comparisonPeriod, inclusive endpoint
     period: { start: '2026-10-10', end: '2026-10-31', asOf: '2026-11-10' },
     tradeKinds: ['sale', 'presale_right', 'occupancy_right'],
     areaToleranceMax: '5',
-    areaEditable: true,
+    areaEditable: false,
     replacementsEditable: true,
   };
   await as('authenticated', owner.userId);
@@ -1131,12 +1131,12 @@ t.setUp()
 scope = {'LAWD_CD': '99999', 'DEAL_YMD': '202610'}
 original = [item for page in t.bundle['pages'] if (page['source'], page['scope']) == (SALE, scope)
             for item in page['body']['response']['body']['items']['item']]
-extra = [('near-1', '112.2'), ('near-2', '112.7'), ('near-3', '113.0'), ('near-4', '113.4')]
-t.rows(SALE, original + [t.sale_row(name) for name, _ in extra])
-for name, _ in extra:
-    t.complex(name)
+extra = [('near-1', '112.2', '37.5025'), ('near-2', '112.7', '37.5030'), ('near-3', '113.0', '37.5035'), ('near-4', '113.4', '37.5040')]
+t.rows(SALE, original + [t.sale_row(name) for name, _, _ in extra])
+for name, _, lat in extra:
+    t.complex(name, latitude=lat)
 ingestion = replay(t.bundle)
-t.link_sales(ingestion, {(f'합성 {name}', '84.00'): (name, area) for name, area in extra})
+t.link_sales(ingestion, {(f'합성 {name}', '84.00'): (name, area) for name, area, _ in extra})
 ingestion['dataOrigin'] = 'collected'
 t.evidence['dataOrigin'] = 'collected'
 print(json.dumps({'request': t.bundle['request'], 'ingestion': ingestion, 'evidence': t.evidence}, ensure_ascii=False))
@@ -1171,15 +1171,14 @@ test('condition changes validate input, keep one run per approval and bind worke
     editable: true,
     period: { start: '2026-10-10', end: '2026-10-31', asOf: '2026-11-10' },
     tradeKinds: ['sale', 'presale_right', 'occupancy_right'],
-    areaToleranceMax: '5', areaEditable: true, replacementsEditable: true,
+    areaToleranceMax: '5', areaEditable: false, replacementsEditable: true,
   });
 
-  // 형식 오류와 현재 값과 같은 변경은 잠금 전에 22023으로 거부하고 턴을 남기지 않는다.
+  // 형식 오류·Q-52에서 폐지된 면적 범위(areaTolerancePercent)·현재 값과 같은 변경은 22023으로 거부하고 턴을 남기지 않는다.
   for (const conditions of [
-    null, {}, [], { other: true }, { areaTolerancePercent: '0' }, { areaTolerancePercent: '-1' },
-    { areaTolerancePercent: '5.0001' }, { areaTolerancePercent: '7' }, { areaTolerancePercent: '50' },
-    { areaTolerancePercent: '4.12345' }, { areaTolerancePercent: 3 },
-    { areaTolerancePercent: '03' }, { areaTolerancePercent: '5' }, { tradeKinds: [] }, { tradeKinds: ['sale', 'sale'] },
+    null, {}, [], { other: true }, { areaTolerancePercent: '3' }, { areaTolerancePercent: '5' },
+    { areaTolerancePercent: '0' }, { areaTolerancePercent: '-1' }, { areaTolerancePercent: '7' }, { areaTolerancePercent: 3 },
+    { tradeKinds: [] }, { tradeKinds: ['sale', 'sale'] },
     { tradeKinds: ['jeonse'] }, { tradeKinds: ['sale', 'presale_right', 'occupancy_right'] },
     { replacements: [] }, { replacements: [{ complexId: 'near-1', replaceComplexId: 'near-1' }] },
     { replacements: [{ complexId: 'comparison-b' }] },
@@ -1195,39 +1194,42 @@ test('condition changes validate input, keep one run per approval and bind worke
 
   // 다른 계정은 존재 여부를 알 수 없도록 404로 막는다.
   await as('authenticated', stranger.userId);
-  await assert.rejects(submitConditions(owner, r1, { conditions: { areaTolerancePercent: '3' } }), runNotFound);
+  await assert.rejects(submitConditions(owner, r1, { conditions: { tradeKinds: ['sale'] } }), runNotFound);
   await as('authenticated', owner.userId);
 
   // 제출은 대기 제안만 만들고 같은 요청 ID 재전송은 같은 결과, 다른 내용은 충돌이다.
-  const areaKey = randomUUID();
-  const areaSubmit = await submitConditions(owner, r1, {
-    requestId: areaKey, message: '공급면적 범위를 ±3%로 좁혀줘', conditions: { areaTolerancePercent: '3.0' },
+  const kindsKey = randomUUID();
+  const kindsSubmit1 = await submitConditions(owner, r1, {
+    requestId: kindsKey, message: '입주권을 빼고 매매·분양권만 비교해줘', conditions: { tradeKinds: ['presale_right', 'sale'] },
   });
-  const areaTurn = areaSubmit.turns.at(-1);
-  assert.equal(areaTurn.intent, 'change_conditions');
-  assert.deepEqual(areaTurn.proposal, {
-    kind: 'conditions', previous: { areaTolerancePercent: '5' }, proposed: { areaTolerancePercent: '3' },
-    effective: { areaTolerancePercent: '3' }, status: 'pending', resultRunId: null,
+  const kindsTurn1 = kindsSubmit1.turns.at(-1);
+  assert.equal(kindsTurn1.intent, 'change_conditions');
+  assert.deepEqual(kindsTurn1.proposal, {
+    kind: 'conditions',
+    previous: { tradeKinds: ['sale', 'presale_right', 'occupancy_right'] },
+    proposed: { tradeKinds: ['sale', 'presale_right'] },
+    effective: { tradeKinds: ['sale', 'presale_right'] },
+    status: 'pending', resultRunId: null,
   });
   assert.deepEqual(await submitConditions(owner, r1, {
-    requestId: areaKey, message: '공급면적 범위를 ±3%로 좁혀줘', conditions: { areaTolerancePercent: '3' },
-  }), areaSubmit);
+    requestId: kindsKey, message: '입주권을 빼고 매매·분양권만 비교해줘', conditions: { tradeKinds: ['sale', 'presale_right'] },
+  }), kindsSubmit1);
   await assert.rejects(submitConditions(owner, r1, {
-    requestId: areaKey, message: '공급면적 범위를 ±3%로 좁혀줘', conditions: { areaTolerancePercent: '4' },
+    requestId: kindsKey, message: '입주권을 빼고 매매·분양권만 비교해줘', conditions: { tradeKinds: ['sale'] },
   }), requestConflict);
 
   // 거절·취소는 실행을 만들지 않고 이후 다른 결정은 충돌이다.
-  const kindsSubmit = await submitConditions(owner, r1, { message: '매매만 비교해줘', conditions: { tradeKinds: ['sale'] } });
-  const kindsTurnId = kindsSubmit.turns.at(-1).id;
-  const kindsRejected = await decideTurn(owner, r1, kindsTurnId, 'reject');
-  assert.equal(kindsRejected.turns.find(t => t.id === kindsTurnId).proposal.status, 'rejected');
-  await assert.rejects(decideTurn(owner, r1, kindsTurnId, 'approve'), decisionConflict);
+  const rejectSubmit = await submitConditions(owner, r1, { message: '매매만 비교해줘', conditions: { tradeKinds: ['sale'] } });
+  const rejectTurnId = rejectSubmit.turns.at(-1).id;
+  const rejected = await decideTurn(owner, r1, rejectTurnId, 'reject');
+  assert.equal(rejected.turns.find(t => t.id === rejectTurnId).proposal.status, 'rejected');
+  await assert.rejects(decideTurn(owner, r1, rejectTurnId, 'approve'), decisionConflict);
   const cancelSubmit = await submitConditions(owner, r1, { message: '분양권만', conditions: { tradeKinds: ['presale_right'] } });
   const cancelTurnId = cancelSubmit.turns.at(-1).id;
   assert.equal((await decideTurn(owner, r1, cancelTurnId, 'cancel')).turns.find(t => t.id === cancelTurnId).proposal.status,
     'cancelled');
   await as('authenticated', stranger.userId);
-  await assert.rejects(decideTurn(owner, r1, areaTurn.id, 'approve'), runNotFound);
+  await assert.rejects(decideTurn(owner, r1, kindsTurn1.id, 'approve'), runNotFound);
   await as('authenticated', owner.userId);
   await db.exec('reset role');
   assert.equal((await one('select count(*)::int as n from private.analysis_runs where analysis_id = $1', [owner.analysisId])).n, 1);
@@ -1235,33 +1237,34 @@ test('condition changes validate input, keep one run per approval and bind worke
   // 같은 제안을 동시에 두 번 승인해도 새 실행은 하나이고 공유 프로필은 바뀌지 않는다.
   await as('authenticated', owner.userId);
   const [approved, replay] = await Promise.all([
-    decideTurn(owner, r1, areaTurn.id, 'approve'), decideTurn(owner, r1, areaTurn.id, 'approve'),
+    decideTurn(owner, r1, kindsTurn1.id, 'approve'), decideTurn(owner, r1, kindsTurn1.id, 'approve'),
   ]);
   assert.deepEqual(replay, approved);
-  const r2 = approved.turns.find(t => t.id === areaTurn.id).proposal.resultRunId;
+  const r2 = approved.turns.find(t => t.id === kindsTurn1.id).proposal.resultRunId;
   await db.exec('reset role');
   assert.equal((await one('select count(*)::int as n from private.analysis_runs where analysis_id = $1', [owner.analysisId])).n, 2);
   assert.deepEqual(await one('select search_conditions, revision from public.user_profiles where user_id = $1', [owner.userId]),
     { search_conditions: { region_codes: ['11215'], budget_max_won: '900000000' }, revision: 3 });
   await as('authenticated', owner.userId);
-  await assert.rejects(submitConditions(owner, r1, { conditions: { areaTolerancePercent: '2' } }), staleRun);
+  await assert.rejects(submitConditions(owner, r1, { conditions: { tradeKinds: ['sale'] } }), staleRun);
 
-  // 작업자는 승인된 조건만 받고, 승인과 다른 면적 기준·경계·거래 종류·선정 이유는 저장하지 못한다.
+  // 작업자는 승인된 조건만 받고, 평형 기준·거래 종류·선정 이유·관측 평형이 어긋나면 저장하지 못한다.
   await as('service_role');
   const job2 = await claim({ runId: r2 });
   const work2 = await readWork(job2);
-  assert.deepEqual(work2.comparisonConditions, { areaTolerancePercent: '3' });
+  assert.deepEqual(work2.comparisonConditions, { tradeKinds: ['sale', 'presale_right'] });
   assert.equal('comparisonPeriod' in work2, false);
   const prepared2 = runWorkerPrepare(job2.input, work2).comparison;
-  assert.deepEqual(prepared2.conditions.area, { basis: 'supply', tolerancePercent: '3', minM2: '109.028', maxM2: '115.772' });
+  assert.deepEqual(prepared2.conditions.area, { basis: 'exclusive_area_class', class: 84 });
   const forged = [
     baseComparison,
-    { ...prepared2, conditions: { ...prepared2.conditions, area: { ...prepared2.conditions.area, minM2: '109.02' } } },
-    { ...prepared2, conditions: { ...prepared2.conditions, area: { ...prepared2.conditions.area, tolerancePercent: '3.5' } } },
+    { ...prepared2, conditions: { ...prepared2.conditions, area: { basis: 'exclusive_area_class', class: 59 } } },
+    { ...prepared2, conditions: { ...prepared2.conditions, area: { basis: 'exclusive_area_class', class: 84, extra: 1 } } },
     { ...prepared2, conditions: { ...prepared2.conditions, tradeKinds: ['sale'] } },
     { ...prepared2, comparables: prepared2.comparables.map((c, i) => i === 4
       ? { ...c, selectionReason: 'manual_replacement', replacesComplexId: 'comparison-b' } : c) },
-    { ...prepared2, comparables: prepared2.comparables.map((c, i) => i === 0 ? { ...c, supplyAreaM2: '116.000' } : c) },
+    { ...prepared2, comparables: prepared2.comparables.map((c, i) => i === 0
+      ? { ...c, tradeStats: { ...c.tradeStats, sale: { ...c.tradeStats.sale, observations: c.tradeStats.sale.observations.map(o => ({ ...o, exclusiveAreaM2: '59.90' })) } } } : c) },
   ];
   for (const bad of forged) {
     await assert.rejects(finishComparison(job2, bad, null, null), invalidComparison);
@@ -1272,14 +1275,15 @@ test('condition changes validate input, keep one run per approval and bind worke
   assert.deepEqual((await getComparison(owner, r1)).result, baseComparison);
   assert.equal((await readConversation(owner, r1)).conditionBounds.editable, false);
 
-  // 단지 교체는 이전 승인 조건(±3%)을 유지한 채 적격 후보만 기존 단지 자리에 넣는다.
+  // 단지 교체는 이전 승인 조건(거래 종류)을 유지한 채 적격 후보만 기존 단지 자리에 넣는다.
   const replaceSubmit = await submitConditions(owner, r2, {
     message: '합성 near-4를 합성 비교 B로 바꿔줘',
     conditions: { replacements: [{ complexId: 'comparison-b', replaceComplexId: 'near-4' }] },
   });
   const replaceTurn = replaceSubmit.turns.at(-1);
   assert.deepEqual(replaceTurn.proposal.effective, {
-    areaTolerancePercent: '3', replacements: [{ complexId: 'comparison-b', replaceComplexId: 'near-4' }],
+    tradeKinds: ['sale', 'presale_right'],
+    replacements: [{ complexId: 'comparison-b', replaceComplexId: 'near-4' }],
   });
   assert.deepEqual(replaceTurn.proposal.previous, { replacements: [] });
   const r3 = (await decideTurn(owner, r2, replaceTurn.id, 'approve')).turns.at(-1).proposal.resultRunId;
@@ -1305,7 +1309,7 @@ test('condition changes validate input, keep one run per approval and bind worke
   await as('authenticated', owner.userId);
   const saleSubmit = await submitConditions(owner, r3, { message: '매매만 비교해줘', conditions: { tradeKinds: ['sale'] } });
   assert.deepEqual(saleSubmit.turns.at(-1).proposal.effective, {
-    areaTolerancePercent: '3', tradeKinds: ['sale'],
+    tradeKinds: ['sale'],
     replacements: [{ complexId: 'comparison-b', replaceComplexId: 'near-4' }],
   });
   const r4 = (await decideTurn(owner, r3, saleSubmit.turns.at(-1).id, 'approve')).turns.at(-1).proposal.resultRunId;
@@ -1320,8 +1324,7 @@ test('condition changes validate input, keep one run per approval and bind worke
     h.reasonCode !== 'replacement_candidate_ineligible') }, null, null), invalidComparison);
   await finishComparison(job4, prepared4, null, null);
 
-  // 대화의 기간 변경(기존 7인자 경로)도 기준 결과에 실제 적용된 면적·거래 종류를 이어받는다.
-  // 보류로 끝난 교체 요청은 기준 결과에 적용되지 않았으므로 이어받지 않는다(비교표에 보이는 조건이 출발점이다).
+  // 대화의 기간 변경(기존 7인자 경로)도 기준 결과에 실제 적용된 거래 종류를 이어받는다.
   await as('authenticated', owner.userId);
   const periodSubmit = await submitTurn(owner, r4, {
     message: '2026-10-15부터 2026-10-31까지로 바꿔줘', intent: 'change_period', start: '2026-10-15', end: '2026-10-31',
@@ -1332,10 +1335,10 @@ test('condition changes validate input, keep one run per approval and bind worke
   const work5 = await readWork(job5);
   assert.deepEqual(work5.comparisonPeriod, { start: '2026-10-15', end: '2026-10-31' });
   assert.deepEqual(work5.comparisonConditions, {
-    areaTolerancePercent: '3', tradeKinds: ['sale'], period: { start: '2026-10-15', end: '2026-10-31' },
+    tradeKinds: ['sale'], period: { start: '2026-10-15', end: '2026-10-31' },
   });
   const prepared5 = runWorkerPrepare(job5.input, work5).comparison;
-  assert.equal(prepared5.conditions.area.tolerancePercent, '3');
+  assert.deepEqual(prepared5.conditions.area, { basis: 'exclusive_area_class', class: 84 });
   await assert.rejects(finishComparison(job5, { ...prepared5, conditions: { ...prepared5.conditions,
     tradeKinds: ['sale', 'presale_right', 'occupancy_right'] } }, null, null), invalidComparison);
   await finishComparison(job5, prepared5, null, null);
@@ -1368,8 +1371,6 @@ test('resetting initial draft overrides persists across follow-up changes and tu
     conditionsSnapshot: {
       comparison: {
         modelNo: '01',
-        areaTolerancePercent: '3',
-        areaChangeConfirmed: true,
         replacements: [{ complexId: 'comparison-b', replaceComplexId: 'near-4' }],
       },
     },
@@ -1384,33 +1385,32 @@ test('resetting initial draft overrides persists across follow-up changes and tu
   await as('service_role');
   const job1 = await claim(run1);
   const comp1 = runWorkerPrepare(job1.input, await readWork(job1)).comparison;
-  assert.equal(comp1.conditions.area.tolerancePercent, '3');
+  assert.deepEqual(comp1.conditions.area, { basis: 'exclusive_area_class', class: 84 });
   assert.equal(comp1.comparables.some(c => c.selectionReason === 'manual_replacement'), true);
   await finishComparison(job1, comp1, null, null);
 
-  // 1) 초기 초안의 ±3%·직접 교체를 기본값(±5%·자동 선정)으로 되돌린다(정확히 5 허용 확인).
+  // 1) 초기 초안의 직접 교체를 자동 선정으로 되돌린다.
   await as('authenticated', owner.userId);
   const resetSubmit = await submitConditions(owner, run1.runId, {
-    message: '공급면적 ±5%와 자동 선정으로 되돌려줘',
-    conditions: { areaTolerancePercent: '5', replacements: [] },
+    message: '자동 선정으로 되돌려줘',
+    conditions: { replacements: [] },
   });
   const resetTurnId = resetSubmit.turns.at(-1).id;
   const r2 = (await decideTurn(owner, run1.runId, resetTurnId, 'approve')).turns.at(-1).proposal.resultRunId;
   await as('service_role');
   const job2 = await claim({ runId: r2 });
   const comp2 = runWorkerPrepare(job2.input, await readWork(job2)).comparison;
-  assert.equal(comp2.conditions.area.tolerancePercent, '5');
+  assert.deepEqual(comp2.conditions.area, { basis: 'exclusive_area_class', class: 84 });
   assert.equal(comp2.comparables.some(c => c.selectionReason === 'manual_replacement'), false);
   await finishComparison(job2, comp2, null, null);
 
-  // 2) 이어서 거래 종류만 바꿔도 초기 초안의 ±3%·직접 교체가 되살아나지 않는다.
+  // 2) 이어서 거래 종류만 바꿔도 초기 초안의 직접 교체가 되살아나지 않는다.
   await as('authenticated', owner.userId);
   const followSubmit = await submitConditions(owner, r2, {
     message: '매매만 비교해줘',
     conditions: { tradeKinds: ['sale'] },
   });
   assert.deepEqual(followSubmit.turns.at(-1).proposal.effective, {
-    areaTolerancePercent: '5',
     tradeKinds: ['sale'],
     replacements: [],
   });
@@ -1419,7 +1419,7 @@ test('resetting initial draft overrides persists across follow-up changes and tu
   const job3 = await claim({ runId: r3 });
   const work3 = await readWork(job3);
   const comp3 = runWorkerPrepare(job3.input, work3).comparison;
-  assert.equal(comp3.conditions.area.tolerancePercent, '5');
+  assert.deepEqual(comp3.conditions.area, { basis: 'exclusive_area_class', class: 84 });
   assert.deepEqual(comp3.conditions.tradeKinds, ['sale']);
   assert.equal(comp3.comparables.some(c => c.selectionReason === 'manual_replacement'), false);
   await finishComparison(job3, comp3, null, null);
@@ -1434,4 +1434,62 @@ test('resetting initial draft overrides persists across follow-up changes and tu
   await db.exec('reset role');
   assert.equal((await one('select count(*)::int as n from private.analysis_runs where analysis_id = $1', [owner.analysisId])).n, 1);
   assert.equal((await one('select count(*)::int as n from private.analysis_chat_turns where analysis_id = $1', [owner.analysisId])).n, 0);
+});
+
+test('Q-52 keeps historical ±5% results and turns readable, blocks approving legacy pending area turns, and allows upgrading base runs', async () => {
+  const owner = await createOwner();
+  const { runId: legacyRunId, comparison: baseQ52 } = await finishSyntheticRun(owner);
+  // 이전에 저장된 공급면적 ±5% 비교 결과와 과거 areaTolerancePercent 대기 턴을 DB에 재현한다(합성 자료).
+  const legacyComparison = structuredClone(baseQ52);
+  delete legacyComparison.target.exclusiveAreaM2;
+  delete legacyComparison.target.areaClass;
+  legacyComparison.conditions.area = { basis: 'supply', tolerancePercent: '5', minM2: '106.78', maxM2: '118.02' };
+  for (const row of legacyComparison.comparables) {
+    delete row.areaClass;
+    delete row.supplyAreaReference;
+    row.supplyAreaM2 = '112.50';
+    row.areaDifferenceM2 = '0.10';
+    row.selectionReason = 'area_difference_then_straight_line';
+  }
+  await db.exec('reset role');
+  await db.query('update private.comparison_results set result = $2 where run_id = $1',
+    [legacyRunId, json(legacyComparison)]);
+  const legacyTurnId = randomUUID();
+  await db.query(`
+    insert into private.analysis_chat_turns (
+      id, analysis_id, base_run_id, user_id, request_id, message, intent,
+      proposal_status, previous_conditions, proposed_conditions, effective_conditions
+    ) values (
+      $1, $2, $3, $4, $5, '과거 공급면적 ±3% 제안', 'change_conditions',
+      'pending', '{"areaTolerancePercent":"5"}'::jsonb, '{"areaTolerancePercent":"3"}'::jsonb, '{"areaTolerancePercent":"3"}'::jsonb
+    )`, [legacyTurnId, owner.analysisId, legacyRunId, owner.userId, randomUUID()]);
+
+  // 1) 과거 ±5% 결과와 과거 턴은 계속 정상 읽힌다.
+  await as('authenticated', owner.userId);
+  const readLegacy = await getComparison(owner, legacyRunId);
+  assert.equal(readLegacy.result.conditions.area.basis, 'supply');
+  const conv = await readConversation(owner, legacyRunId);
+  assert.equal(conv.conditionBounds.areaEditable, false);
+  assert.equal(conv.turns.length, 1);
+  assert.deepEqual(conv.turns[0].proposal.proposed, { areaTolerancePercent: '3' });
+
+  // 2) 과거 areaTolerancePercent 대기 턴의 승인은 PT409(condition_unavailable)로 차단하되 거절·취소는 허용한다.
+  await assert.rejects(decideTurn(owner, legacyRunId, legacyTurnId, 'approve'), conditionUnavailable);
+  const rejectedLegacy = await decideTurn(owner, legacyRunId, legacyTurnId, 'reject');
+  assert.equal(rejectedLegacy.turns[0].proposal.status, 'rejected');
+
+  // 3) 과거 ±5% 기준 실행 위에서 거래 종류 변경(매매만)을 승인하면 새 Q-52 평형 결과로 재계산·저장할 수 있다.
+  const upgradeSubmit = await submitConditions(owner, legacyRunId, {
+    message: '매매만 다시 비교해줘', conditions: { tradeKinds: ['sale'] },
+  });
+  const upgradeRunId = (await decideTurn(owner, legacyRunId, upgradeSubmit.turns.at(-1).id, 'approve'))
+    .turns.at(-1).proposal.resultRunId;
+  await as('service_role');
+  const upgradeJob = await claim({ runId: upgradeRunId });
+  const upgradeWork = await readWork(upgradeJob);
+  assert.deepEqual(upgradeWork.comparisonConditions, { tradeKinds: ['sale'] });
+  const upgradeComp = runWorkerPrepare(upgradeJob.input, upgradeWork).comparison;
+  assert.deepEqual(upgradeComp.conditions.area, { basis: 'exclusive_area_class', class: 84 });
+  const doneUpgrade = await finishComparison(upgradeJob, upgradeComp, null, null);
+  assert.equal(doneUpgrade.status, 'finished');
 });

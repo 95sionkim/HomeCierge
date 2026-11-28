@@ -15,6 +15,7 @@ MAX_COMPLEX_ID_LENGTH = 120
 ALWAYS_LLM_DENIED_SOURCES = frozenset({'naver_news', 'user_upload', 'upload'})
 
 REASON_DESCRIPTIONS = {
+    'target_area_class_unverified': '선택한 주택형의 평형(전용면적 정수부)을 확인해야 합니다.',
     'target_supply_area_unverified': '선택한 주택형의 공급면적을 공고문에서 확인해야 합니다.',
     'trade_supply_area_unverified': '거래 당시 주택형의 공급면적을 확인해야 합니다.',
     'trade_link_unverified': '거래를 해당 단지·주택형에 연결할 근거가 부족합니다.',
@@ -25,6 +26,7 @@ REASON_DESCRIPTIONS = {
     'subtotal_documents_differ': '분양가와 필수 옵션의 문서 판본이 서로 다릅니다.',
     'cancelled_trade': '해제된 거래를 제외했습니다.',
     'outside_contract_period': '계약 기간 밖의 거래를 제외했습니다.',
+    'outside_area_class': '대상 주택형과 다른 평형의 거래를 제외했습니다.',
     'outside_supply_area': '허용 공급면적 범위 밖의 거래를 제외했습니다.',
     'outside_applied_region': '적용 지역 밖의 단지여서 비교표에 넣을 수 없습니다.',
     'trade_kind_not_included': '선택한 거래 종류에 해당하는 거래가 없어 비교표에 넣을 수 없습니다.',
@@ -156,6 +158,11 @@ def _collect_sources_from_comparison(comparison):
                 ev = comp.get(ev_key)
                 if isinstance(ev, dict) and isinstance(ev.get('source'), str):
                     sources.add(ev['source'])
+            sref = comp.get('supplyAreaReference')
+            if isinstance(sref, dict):
+                sref_ev = sref.get('evidence')
+                if isinstance(sref_ev, dict) and isinstance(sref_ev.get('source'), str):
+                    sources.add(sref_ev['source'])
             dist = comp.get('distance')
             if isinstance(dist, dict):
                 for ev in dist.get('evidence') or []:
@@ -257,7 +264,9 @@ def filter_comparison_for_llm(comparison, source_permissions=None):
                 'm2': None,
                 'reasons': ['source_llm_permission_not_allowed'],
             }
-            if isinstance(filtered.get('conditions'), dict):
+            if (isinstance(filtered.get('conditions'), dict)
+                    and isinstance(filtered['conditions'].get('area'), dict)
+                    and filtered['conditions']['area'].get('basis') == 'supply'):
                 filtered['conditions']['area'] = None
 
     if not pdf_allowed and isinstance(filtered.get('noticePrice'), dict):
@@ -334,9 +343,27 @@ def filter_comparison_for_llm(comparison, source_permissions=None):
                         if any(isinstance(o, dict) and isinstance(o.get('evidence'), dict)
                                and not is_allowed(o['evidence'].get('source')) for o in obs_list):
                             area_allowed = False
+            sref = item.get('supplyAreaReference')
+            if isinstance(sref, dict):
+                sref_ev = sref.get('evidence')
+                if isinstance(sref_ev, dict) and not is_allowed(sref_ev.get('source')):
+                    item['supplyAreaReference'] = {
+                        'status': 'restricted_for_llm',
+                        'm2': None,
+                        'minM2': None,
+                        'maxM2': None,
+                    }
+                    item['supplyAreaM2'] = None
             if not area_allowed:
                 item['supplyAreaM2'] = None
                 item['areaDifferenceM2'] = None
+                if isinstance(item.get('supplyAreaReference'), dict) and item['supplyAreaReference'].get('status') in ('single', 'range'):
+                    item['supplyAreaReference'] = {
+                        'status': 'restricted_for_llm',
+                        'm2': None,
+                        'minM2': None,
+                        'maxM2': None,
+                    }
             item['tradeStats'] = allowed_stats
             if id_ok and allowed_stats:
                 kept.append(item)
@@ -405,12 +432,12 @@ TOOL_SCHEMAS = [
     {
         'type': 'function',
         'name': 'propose_condition_change',
-        'description': '공급면적 허용 범위·거래 종류·단지 교체·계약 기간 변경 제안 초안을 만듭니다. 검증과 저장·승인은 서버와 사용자가 처리합니다.',
+        'description': '거래 종류·단지 교체·계약 기간 변경 제안 초안을 만듭니다. 검증과 저장·승인은 서버와 사용자가 처리합니다.',
         'strict': True,
         'parameters': {
             'type': 'object',
             'additionalProperties': False,
-            'required': ['period', 'areaTolerancePercent', 'tradeKinds', 'replacements'],
+            'required': ['period', 'tradeKinds', 'replacements'],
             'properties': {
                 'period': {
                     'anyOf': [
@@ -424,12 +451,6 @@ TOOL_SCHEMAS = [
                                 'end': {'type': 'string'},
                             },
                         },
-                    ]
-                },
-                'areaTolerancePercent': {
-                    'anyOf': [
-                        {'type': 'null'},
-                        {'type': 'string'},
                     ]
                 },
                 'tradeKinds': {
@@ -552,7 +573,6 @@ def _tool_propose_period_change(arguments, context):
         'draft': {
             'kind': 'period',
             'period': period,
-            'areaTolerancePercent': None,
             'tradeKinds': None,
             'replacements': None,
         },
@@ -563,10 +583,11 @@ def _tool_propose_period_change(arguments, context):
 
 
 def _tool_propose_condition_change(arguments, context):
+    if arguments.get('areaTolerancePercent') is not None:
+        return {'ok': False, 'error': 'area_tolerance_not_supported'}
     draft = {
         'kind': 'conditions',
         'period': None,
-        'areaTolerancePercent': None,
         'tradeKinds': None,
         'replacements': None,
     }
@@ -576,12 +597,6 @@ def _tool_propose_condition_change(arguments, context):
         if p is None:
             return {'ok': False, 'error': 'invalid_period_format'}
         draft['period'] = p
-        has_any = True
-    if arguments.get('areaTolerancePercent') is not None:
-        tol = normalize_area_tolerance(arguments['areaTolerancePercent'])
-        if tol is None:
-            return {'ok': False, 'error': 'invalid_area_tolerance'}
-        draft['areaTolerancePercent'] = tol
         has_any = True
     if arguments.get('tradeKinds') is not None:
         kinds = normalize_trade_kinds(arguments['tradeKinds'])
@@ -1444,7 +1459,7 @@ def _tool_describe_service_capabilities(arguments, context):
         'limits': {
             'noEligibilityJudgment': '개인 청약 자격·가점·당첨 확률·대출 승인은 판정하지 않습니다.',
             'noInvestmentAdvice': '구매 권유, 가격·시세 전망, 수익 예측은 제공하지 않습니다.',
-            'supplyAreaBasis': '면적 비교와 맞춤 검색 면적 필터는 공급면적 기준이며 전용면적과 섞지 않습니다.',
+            'supplyAreaBasis': '맞춤 검색 면적 필터는 공급면적 기준이고, 주변 실거래 비교는 같은 평형(주거전용면적의 정수부) 기준이며 공급면적과 전용면적을 섞지 않습니다.',
             'separateCosts': '분양가+필수 옵션 소계에는 세금과 금융비용이 포함되지 않습니다.',
         },
         'llmSourcePolicy': context.get('llmSourcePolicy'),

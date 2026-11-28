@@ -350,10 +350,10 @@ test('LLM condition proposal uses shared server validation, attaches strictly as
   await as('service_role');
   await rpc('configure_agent_settings', true, 'gpt-6.2-sol');
 
-  // 1) 규칙 기반이 help로 분류한 자연어 턴에 LLM이 유효한 조건 변경 제안(±3%, Q-41 상한 이내)을 첨부한다.
+  // 1) 규칙 기반이 help로 분류한 자연어 턴에 LLM이 유효한 조건 변경 제안(거래 종류: 매매만)을 첨부한다.
   await as('authenticated', owner.userId);
   const reqId = randomUUID();
-  const submitted = await rpc('submit_analysis_chat_turn', owner.analysisId, runId, reqId, '면적 범위를 3퍼센트 정도로 좁혀줄래?', 'help');
+  const submitted = await rpc('submit_analysis_chat_turn', owner.analysisId, runId, reqId, '매매 거래만 따로 볼 수 있을까?', 'help');
   const turnId = submitted.turns[0].id;
   assert.equal(submitted.turns[0].proposal, null);
 
@@ -363,9 +363,9 @@ test('LLM condition proposal uses shared server validation, attaches strictly as
     'complete_agent_reply',
     job.replyId, job.generation, job.leaseToken,
     'answered', 'change_conditions',
-    '공급면적 허용 범위를 ±5%에서 ±3%로 좁히는 제안을 준비했습니다. 승인하시면 같은 수집본으로 다시 계산합니다.',
-    json([{ kind: 'condition', reference: 'areaTolerancePercent', label: '공급면적 ±3%' }]),
-    json({ kind: 'conditions', conditions: { areaTolerancePercent: '3' } }),
+    '거래 종류를 아파트 매매만으로 좁히는 제안을 준비했습니다. 승인하시면 같은 수집본으로 다시 계산합니다.',
+    json([{ kind: 'condition', reference: 'tradeKinds', label: '매매만 비교' }]),
+    json({ kind: 'conditions', conditions: { tradeKinds: ['sale'] } }),
     json({ inputTokens: 400, outputTokens: 150, latencyMs: 600, estimatedCostUsd: '0.00230000', pricingAsOf: '2026-11-12' }),
     json({ status: 'passed', reasons: [] }),
     'agent-core-v1',
@@ -379,24 +379,24 @@ test('LLM condition proposal uses shared server validation, attaches strictly as
   assert.equal(afterAttach.turns[0].intent, 'change_conditions');
   assert.equal(afterAttach.turns[0].proposal.status, 'pending');
   assert.equal(afterAttach.turns[0].proposal.resultRunId, null);
-  assert.deepEqual(afterAttach.turns[0].proposal.proposed, { areaTolerancePercent: '3' });
-  assert.deepEqual(afterAttach.turns[0].proposal.previous, { areaTolerancePercent: '5' });
+  assert.deepEqual(afterAttach.turns[0].proposal.proposed, { tradeKinds: ['sale'] });
+  assert.deepEqual(afterAttach.turns[0].proposal.previous, { tradeKinds: ['sale', 'presale_right', 'occupancy_right'] });
 
   // 원래 요청의 멱등 재전송도 충돌 없이 같은 대화 내역을 반환한다.
-  const replayed = await rpc('submit_analysis_chat_turn', owner.analysisId, runId, reqId, '면적 범위를 3퍼센트 정도로 좁혀줄래?', 'help');
+  const replayed = await rpc('submit_analysis_chat_turn', owner.analysisId, runId, reqId, '매매 거래만 따로 볼 수 있을까?', 'help');
   assert.equal(replayed.turns.length, 1);
   assert.equal(replayed.turns[0].proposal.status, 'pending');
 
-  // 2) Q-41 상한(±5%)을 넘는 잘못된 LLM 제안(±7%)은 서버 검증이 거부하고 답변을 폐기한다.
-  const badTurn = await rpc('submit_analysis_chat_turn', owner.analysisId, runId, randomUUID(), '면적 범위를 7퍼센트로', 'help');
+  // 2) Q-52: 공급면적 허용 범위(areaTolerancePercent)를 포함한 LLM 제안은 서버 검증이 거부하고 답변을 폐기한다.
+  const badTurn = await rpc('submit_analysis_chat_turn', owner.analysisId, runId, randomUUID(), '면적 범위를 3퍼센트로', 'help');
   await as('service_role');
   const badJob = await rpc('claim_agent_reply', 60);
   const badDone = await rpc(
     'complete_agent_reply',
     badJob.replyId, badJob.generation, badJob.leaseToken,
-    'answered', 'change_conditions', '공급면적 허용 범위를 ±7%로 제안합니다.',
+    'answered', 'change_conditions', '공급면적 허용 범위를 ±3%로 제안합니다.',
     json([]),
-    json({ kind: 'conditions', conditions: { areaTolerancePercent: '7' } }),
+    json({ kind: 'conditions', conditions: { areaTolerancePercent: '3' } }),
     json({}),
     json({ status: 'passed', reasons: [] }),
     'agent-core-v1',
@@ -424,7 +424,7 @@ test('LLM condition proposal uses shared server validation, attaches strictly as
   const { runId: freshRunId } = await finishSyntheticRun(owner);
   for (const decision of ['reject', 'cancel']) {
     await as('authenticated', owner.userId);
-    const turnRes = await rpc('submit_analysis_chat_turn', owner.analysisId, freshRunId, randomUUID(), `면적 2.5퍼센트(${decision})`, 'help');
+    const turnRes = await rpc('submit_analysis_chat_turn', owner.analysisId, freshRunId, randomUUID(), `매매만(${decision})`, 'help');
     const tid = turnRes.turns.at(-1).id;
     await db.exec('reset role');
     const { id: targetReplyId } = await one('select id from private.analysis_agent_replies where turn_id = $1', [tid]);
@@ -434,8 +434,8 @@ test('LLM condition proposal uses shared server validation, attaches strictly as
     await rpc(
       'complete_agent_reply',
       j.replyId, j.generation, j.leaseToken,
-      'answered', 'change_conditions', '공급면적 허용 범위를 ±2.5%로 제안합니다.',
-      json([]), json({ kind: 'conditions', conditions: { areaTolerancePercent: '2.5' } }),
+      'answered', 'change_conditions', '거래 종류를 아파트 매매만으로 제안합니다.',
+      json([]), json({ kind: 'conditions', conditions: { tradeKinds: ['sale'] } }),
       json({}), json({ status: 'passed', reasons: [] }), 'agent-core-v1',
     );
     await as('authenticated', owner.userId);
@@ -492,7 +492,7 @@ test('turn deletion cascade via resolve_turn_deletion_scope and account deletion
   const chainOwner = await createOwner();
   const { runId: baseRunId } = await finishSyntheticRun(chainOwner);
   await as('authenticated', chainOwner.userId);
-  const parentTurn = await rpc('submit_analysis_chat_turn', chainOwner.analysisId, baseRunId, randomUUID(), '면적 ±4%로 좁혀줘', 'help');
+  const parentTurn = await rpc('submit_analysis_chat_turn', chainOwner.analysisId, baseRunId, randomUUID(), '매매만 따로 볼 수 있을까?', 'help');
   const parentTurnId = parentTurn.turns[0].id;
   await db.exec('reset role');
   const { id: parentReplyId } = await one('select id from private.analysis_agent_replies where turn_id = $1', [parentTurnId]);
@@ -500,8 +500,8 @@ test('turn deletion cascade via resolve_turn_deletion_scope and account deletion
   const pj = await rpc('claim_agent_reply', 60, parentReplyId);
   assert.equal(pj.turnId, parentTurnId);
   await rpc('complete_agent_reply', pj.replyId, pj.generation, pj.leaseToken,
-    'answered', 'change_conditions', '공급면적 허용 범위를 ±4%로 제안합니다.',
-    json([]), json({ kind: 'conditions', conditions: { areaTolerancePercent: '4' } }),
+    'answered', 'change_conditions', '거래 종류를 매매만으로 제안합니다.',
+    json([]), json({ kind: 'conditions', conditions: { tradeKinds: ['sale'] } }),
     json({}), json({ status: 'passed', reasons: [] }), 'agent-core-v1');
   await as('authenticated', chainOwner.userId);
   const approvedParent = await rpc('decide_analysis_chat_turn', chainOwner.analysisId, baseRunId, parentTurnId, 'approve');

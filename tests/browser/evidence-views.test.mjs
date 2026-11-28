@@ -88,7 +88,7 @@ for (const width of [1440, 390]) {
       await scopePanel.locator('.scope-breakdown').getByText('계약 기간 밖 제외').waitFor();
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
 
-      // O-4: 비교표에서 합성 비교 A 열기 -> 식별 근거, 미제공 배지, 포함/해제/기간밖 거래 확인
+      // O-4: 비교표에서 합성 비교 A 열기 -> 식별 근거, 미제공 배지, 평형 기준·참고 공급면적, 포함/해제/기간밖 거래 확인
       const rowTrigger = page.locator('.comparison-table button[data-open-complex="comparison-a"]').first();
       await rowTrigger.click();
       const sheet = page.locator('#evidence-sheet');
@@ -96,8 +96,8 @@ for (const width of [1440, 390]) {
       assert.equal(await sheet.getAttribute('data-sheet'), 'complex');
       await sheet.getByText('99999-100', { exact: true }).waitFor();
       await sheet.getByText('미제공').first().waitFor();
+      await sheet.getByText('84㎡형(전용면적 정수부)', { exact: true }).waitFor();
       await sheet.getByText('112.50㎡').first().waitFor();
-      await sheet.getByText('0.10㎡').first().waitFor();
       await sheet.getByText('2026.10.20', { exact: true }).waitFor();
       await sheet.locator('del.cancelled-amount').getByText('51,500').waitFor();
       await sheet.getByText('해제 · 통계 제외', { exact: true }).waitFor();
@@ -156,7 +156,7 @@ for (const width of [1440, 390]) {
       assert.equal(await expNotice.locator('button').count(), 0);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
 
-      // 비교 단지 D 열기 -> K-apt/건축물대장 세대수 충돌(대표값 미선택) + 공급면적 범위 밖 제외 거래 확인
+      // 비교 단지 D 열기 -> K-apt/건축물대장 세대수 충돌(대표값 미선택) + 다른 평형 제외 거래 확인
       await scopePanel.locator('button[data-open-complex="exp-d"]').click();
       await sheet.locator('#sheet-title').getByText('합성 확대 단지 D', { exact: true }).waitFor();
       await sheet.getByText('612세대 (K-apt) · 613세대 (건축물대장)').waitFor();
@@ -164,15 +164,16 @@ for (const width of [1440, 390]) {
       await sheet.getByText('대표값을 임의로 고르지 않습니다').waitFor();
       await sheet.getByText('합성누리로 120', { exact: true }).waitFor();
       await sheet.getByText('A99000001', { exact: true }).first().waitFor();
-      await sheet.getByText('공급면적 허용 범위 밖 제외', { exact: true }).waitFor();
-      await sheet.getByText('공급 132.40㎡').waitFor();
+      await sheet.getByText('다른 평형 제외', { exact: true }).waitFor();
+      await sheet.getByText('전용 104.20㎡').waitFor();
       await page.keyboard.press('Escape');
 
-      // 비교 단지 E 열기 -> K-apt 조회 실패 오류 04 + 거리 미확인
+      // 비교 단지 E 열기 -> K-apt 조회 실패 오류 04 + 거리 미확인 + 참고 공급면적 범위
       await scopePanel.locator('button[data-open-complex="exp-e"]').click();
       await sheet.locator('#sheet-title').getByText('합성 확대 단지 E', { exact: true }).waitFor();
       await sheet.getByText('K-apt 조회 실패 오류 04', { exact: true }).waitFor();
       await sheet.getByText('거리 미확인', { exact: true }).waitFor();
+      await sheet.getByText('107.20–109.80㎡').first().waitFor();
       await page.keyboard.press('Escape');
 
       // 대상 단지 자체 거래(별도 참고) 열기
@@ -191,7 +192,7 @@ for (const width of [1440, 390]) {
       await scopePanel.locator('[data-kind-verdict="sale"]').getByText('확인 보류', { exact: true }).waitFor();
       await scopePanel.locator('[data-kind-verdict="presale_right"]').getByText('정상 0건', { exact: true }).waitFor();
       await scopePanel.locator('[data-kind-verdict="occupancy_right"]').getByText('조회 실패', { exact: true }).waitFor();
-      await scopePanel.getByText('D-01', { exact: true }).waitFor();
+      await scopePanel.getByText('거래의 전용면적과 주택형의 대응을 확인해야 합니다.', { exact: true }).waitFor();
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
 
       // 비로그인 합성 예시에서는 비공개 분석 API를 절대 호출하지 않는다.

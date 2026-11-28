@@ -101,7 +101,8 @@ const chatView = createChatView({
     dialogNotice = notice;
     dialogChatId = chatId;
     openDialog(noticeDialog(notice, !state.session));
-    const radio = dialog.querySelector('input[name=model]:not(:disabled)');
+    const activeGroup = dialog.querySelector('.model-class-group:not([hidden])');
+    const radio = (activeGroup ?? dialog).querySelector('input[name=model]:not(:disabled)');
     if (radio) {
       radio.checked = true;
       radio.dispatchEvent(new Event('change', { bubbles: true }));
@@ -1241,6 +1242,32 @@ dialog.addEventListener('click', async (event) => {
       event.clientY > bounds.bottom
     )
       closeDialog();
+    return;
+  }
+  const areaTab = event.target.closest('button[data-area-class-tab]');
+  if (areaTab) {
+    const key = areaTab.dataset.areaClassTab;
+    for (const tab of dialog.querySelectorAll('button[data-area-class-tab]')) {
+      const active = tab.dataset.areaClassTab === key;
+      tab.classList.toggle('is-active', active);
+      tab.setAttribute('aria-pressed', String(active));
+    }
+    for (const group of dialog.querySelectorAll('.model-class-group')) {
+      const active = group.dataset.areaClassGroup === key;
+      group.hidden = !active;
+      if (!active) {
+        for (const checked of group.querySelectorAll('input[name=model]:checked')) {
+          checked.checked = false;
+        }
+      }
+    }
+    const submit = dialog.querySelector('[data-action=start]');
+    if (submit) {
+      const visibleChecked = dialog.querySelector('.model-class-group:not([hidden]) input[name=model]:checked:not(:disabled)');
+      submit.disabled = !visibleChecked;
+    }
+    const msg = dialog.querySelector('#form-message');
+    if (msg) msg.textContent = '';
     return;
   }
   const button = event.target.closest('button[data-action], a[data-action]');

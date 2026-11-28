@@ -707,7 +707,7 @@ for (const width of [1440, 390]) {
       await page.goto(`${origin}/#sample/9900000101/01`);
       await page.getByRole('button', { name: '왜 이 거래만 포함됐어?', exact: true }).click();
       await page.locator('#conversation-input').press('Enter');
-      await page.locator('.conv-msg-agent').last().getByText(/0건이라고 확정할 수는 없습니다.*공급면적/).waitFor();
+      await page.locator('.conv-msg-agent').last().getByText(/0건이라고 확정할 수는 없습니다.*평형/).waitFor();
       await page.getByRole('button', { name: '2026-10-12부터 2026-10-25까지로 바꿔줘', exact: true }).click();
       await page.locator('#conversation-input').press('Enter');
       await page.locator('.conv-msg-agent').last().getByText('이 예시에는 날짜를 바꿔 비교할 수 있는 확정 계약 기간이 없습니다.', { exact: true }).waitFor();

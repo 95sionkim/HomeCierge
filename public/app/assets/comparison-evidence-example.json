@@ -104,7 +104,7 @@
         "tradeKind": "presale_right",
         "contractDate": "2026-10-24",
         "amountWon": "405000000",
-        "exclusiveAreaM2": "82.50",
+        "exclusiveAreaM2": "84.50",
         "floor": "5",
         "buildYear": null,
         "dealingGbn": null,
@@ -125,7 +125,7 @@
         "tradeKind": "occupancy_right",
         "contractDate": "2026-10-26",
         "amountWon": "486000000",
-        "exclusiveAreaM2": "82.50",
+        "exclusiveAreaM2": "84.50",
         "floor": "5",
         "buildYear": null,
         "dealingGbn": null,
@@ -145,9 +145,9 @@
       "comparison": {
         "contractVersion": "comparison/v1",
         "dataOrigin": "synthetic",
-        "completeness": "complete",
+        "completeness": "partial",
         "appliedScope": "expansion",
-        "rankingComplete": true,
+        "rankingComplete": false,
         "target": {
           "houseManageNo": "9900000002",
           "noticeNo": "9900000043",
@@ -155,6 +155,8 @@
           "name": "합성 누리 센트럴 아파트",
           "modelNo": "01",
           "houseType": "084.9811C",
+          "exclusiveAreaM2": "84.9811",
+          "areaClass": 84,
           "supplyArea": {
             "status": "confirmed",
             "basis": "supply",
@@ -273,7 +275,7 @@
             "inProgressMonth": null,
             "decision": null
           },
-          "area": { "basis": "supply", "tolerancePercent": "5", "minM2": "100.599205", "maxM2": "111.188595" },
+          "area": { "basis": "exclusive_area_class", "class": 84 },
           "tradeKinds": ["sale", "presale_right", "occupancy_right"],
           "maxComparables": 5,
           "limitations": ["reporting_delays", "later_corrections_or_cancellations"]
@@ -283,8 +285,14 @@
             "complexId": "exp-d",
             "name": "합성 확대 단지 D",
             "localityCode": "9999900200",
-            "supplyAreaM2": "106.00",
-            "areaDifferenceM2": "0.1061",
+            "areaClass": 84,
+            "supplyAreaReference": {
+              "status": "single",
+              "m2": "106.00",
+              "minM2": "106.00",
+              "maxM2": "106.00",
+              "evidence": { "source": "synthetic-area-register", "reference": "exp-d/84" }
+            },
             "identityEvidence": { "source": "kapt", "reference": "A99000001" },
             "regionEvidence": { "source": "synthetic-region-register", "reference": "nuri" },
             "distance": {
@@ -293,8 +301,8 @@
               "meters": 920.4,
               "evidence": [{ "source": "synthetic-coordinate-register", "reference": "exp-d" }]
             },
-            "rank": 1,
-            "selectionReason": "area_difference_then_straight_line",
+            "rank": null,
+            "selectionReason": "straight_line_rank_pending",
             "tradeStats": {
               "sale": {
                 "status": "confirmed",
@@ -357,13 +365,19 @@
             "complexId": "exp-e",
             "name": "합성 확대 단지 E",
             "localityCode": "9999900300",
-            "supplyAreaM2": "108.50",
-            "areaDifferenceM2": "2.6061",
+            "areaClass": 84,
+            "supplyAreaReference": {
+              "status": "range",
+              "m2": null,
+              "minM2": "107.20",
+              "maxM2": "109.80",
+              "evidence": { "source": "synthetic-area-register", "reference": "exp-e/84" }
+            },
             "identityEvidence": { "source": "synthetic-complex-register", "reference": "exp-e" },
             "regionEvidence": { "source": "synthetic-region-register", "reference": "maru" },
             "distance": { "kind": "straight_line", "status": "unverified", "meters": null, "evidence": [] },
-            "rank": 2,
-            "selectionReason": "area_difference_then_straight_line",
+            "rank": null,
+            "selectionReason": "straight_line_rank_pending",
             "tradeStats": {
               "sale": {
                 "status": "confirmed",
@@ -400,8 +414,14 @@
             "complexId": "target-nuri",
             "name": "합성 누리 센트럴 아파트",
             "localityCode": "9999900100",
-            "supplyAreaM2": "105.8939",
-            "areaDifferenceM2": "0",
+            "areaClass": 84,
+            "supplyAreaReference": {
+              "status": "single",
+              "m2": "105.8939",
+              "minM2": "105.8939",
+              "maxM2": "105.8939",
+              "evidence": { "source": "synthetic-area-register", "reference": "target-nuri/84" }
+            },
             "identityEvidence": { "source": "synthetic-complex-register", "reference": "target-nuri" },
             "regionEvidence": { "source": "synthetic-region-register", "reference": "garam" },
             "distance": { "kind": "straight_line", "status": "confirmed", "meters": 0, "evidence": [] },
@@ -436,17 +456,27 @@
             "characteristics": []
           }
         ],
-        "holds": [],
+        "holds": [
+          {
+            "reasonCode": "straight_line_distance_unverified",
+            "scope": "expansion",
+            "subject": "ranking",
+            "decisionId": "D-03",
+            "affectsSelection": false,
+            "complexIds": ["exp-e"]
+          }
+        ],
         "exclusions": [
           {
-            "reasonCode": "outside_supply_area",
+            "reasonCode": "outside_area_class",
             "scope": "priority",
             "subject": "trade",
             "tradeKind": "sale",
             "reference": { "recordId": "col-apt_trade-99999-202610", "source": "apt_trade", "page": 1, "position": 7 },
             "complexId": null,
             "localityCode": "9999900100",
-            "supplyAreaM2": "74.50"
+            "exclusiveAreaM2": "59.80",
+            "areaClass": 59
           },
           {
             "reasonCode": "cancelled_trade",
@@ -458,14 +488,15 @@
             "localityCode": "9999900200"
           },
           {
-            "reasonCode": "outside_supply_area",
+            "reasonCode": "outside_area_class",
             "scope": "expansion",
             "subject": "trade",
             "tradeKind": "sale",
             "reference": { "recordId": "col-apt_trade-99999-202610", "source": "apt_trade", "page": 1, "position": 5 },
             "complexId": "exp-d",
             "localityCode": "9999900200",
-            "supplyAreaM2": "132.40"
+            "exclusiveAreaM2": "104.20",
+            "areaClass": 104
           },
           {
             "reasonCode": "target_complex_trade",
@@ -752,6 +783,8 @@
           "name": "합성 가람동 보류 예시 아파트",
           "modelNo": "01",
           "houseType": "084.9811C",
+          "exclusiveAreaM2": "84.9811",
+          "areaClass": 84,
           "supplyArea": {
             "status": "confirmed",
             "basis": "supply",
@@ -851,7 +884,7 @@
             "inProgressMonth": null,
             "decision": null
           },
-          "area": { "basis": "supply", "tolerancePercent": "5", "minM2": "100.599205", "maxM2": "111.188595" },
+          "area": { "basis": "exclusive_area_class", "class": 84 },
           "tradeKinds": ["sale", "presale_right", "occupancy_right"],
           "maxComparables": 5,
           "limitations": ["reporting_delays", "later_corrections_or_cancellations"]
@@ -859,8 +892,8 @@
         "comparables": [],
         "targetReferences": [],
         "holds": [
-          { "reasonCode": "trade_supply_area_unverified", "scope": "priority", "subject": "trade", "tradeKind": "sale", "decisionId": "D-01" },
-          { "reasonCode": "trade_supply_area_unverified", "scope": "priority", "subject": "trade", "tradeKind": "sale", "decisionId": "D-01" },
+          { "reasonCode": "trade_exclusive_area_binding_unverified", "scope": "priority", "subject": "trade", "tradeKind": "sale" },
+          { "reasonCode": "trade_region_membership_unverified", "scope": "priority", "subject": "trade", "tradeKind": "sale" },
           { "reasonCode": "trade_link_unverified", "scope": "priority", "subject": "trade", "tradeKind": "sale" },
           { "reasonCode": "collection_failed", "scope": "priority", "subject": "collection", "recordId": "col-apt_rights-99999-202609", "source": "apt_rights", "tradeKinds": ["occupancy_right"] }
         ],

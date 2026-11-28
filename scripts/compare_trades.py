@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """BE-02 수집본과 작업자가 대조한 근거로 주변 실거래를 비교한다.
 
-ingestion은 replay()/ingest()가 반환한 ingestion/v0 객체다. selection에는 주택형·호실,
-확인한 면적 허용치와 기존 후보를 명시한 교체 요청만 적용한다. evidence는 작업자 전용
-comparison-evidence/v1이며 공고·지역·단지·행별 출처와 대응을 담는다. 네트워크나 파일을
-읽지 않고 JSON으로 저장 가능한 comparison/v1을 반환한다.
+ingestion은 replay()/ingest()가 반환한 ingestion/v0 객체다. selection에는 주택형·호실과
+기존 후보를 명시한 교체 요청만 적용한다. 비교 기준은 대상 주택형과 같은 평형(전용면적 정수부, Q-52)이며
+단지 순서는 확인 좌표 간 직선거리순이다. evidence는 작업자 전용 comparison-evidence/v1이며
+공고·지역·단지·행별 출처와 대응을 담는다. 네트워크나 파일을 읽지 않고 JSON으로 저장 가능한
+comparison/v1을 반환한다.
 """
 
 import math
 import re
 from collections import Counter, defaultdict
 from datetime import date
-from decimal import Context, Decimal, localcontext
+from decimal import Context, Decimal, InvalidOperation, localcontext
 from itertools import groupby
 from typing import Optional
 
@@ -25,12 +26,14 @@ else:
 
 TARGET_KEYS = ('houseManageNo', 'noticeNo', 'edition')
 PRICE_BASIS = 'sale_price_plus_required_options'
-DEFAULT_TOLERANCE = Decimal('5')
-MAX_AREA_TOLERANCE = Decimal('5')
 MAX_COMPLEX_ID_LENGTH = 120
-ALLOWED_CONDITION_KEYS = frozenset({'period', 'areaTolerancePercent', 'tradeKinds', 'replacements'})
+ALLOWED_CONDITION_KEYS = frozenset({'period', 'tradeKinds', 'replacements'})
 MAX_COMPARABLES = 5
 MEAN_EARTH_RADIUS_M = 6_371_008.8
+HOUSE_TYPE_AREA_PATTERN = re.compile(
+    r'^\s*0*([1-9][0-9]*(?:\.[0-9]+)?|0\.[0-9]*[1-9][0-9]*)\s*'
+    r'(?:[A-Za-z][A-Za-z0-9_-]*|\([A-Za-z0-9_-]+\))?\s*$'
+)
 
 
 def _obj(value):
@@ -95,13 +98,30 @@ def _canonical_decimal_string(value):
     return text or '0'
 
 
-def _approved_tolerance_decimal(value):
-    if not _matches(r'(?:0|[1-9][0-9]*)(?:\.[0-9]{1,4})?', value):
+def parse_exclusive_area_class(value) -> Optional[tuple[Decimal, int, str]]:
+    """주택형(HOUSE_TY) 또는 전용면적 문자열에서 (전용면적 Decimal, 평형 정수부, 면적 문자열)을 추출한다.
+
+    바깥 공백은 무시하고 주거전용면적의 정수부(소수점 버림)를 평형으로 정의한다(Q-52).
+    예: '084.9800A' -> (84.9800, 84, '84.9800'), '102.7700 ' -> (102.7700, 102, '102.7700'), '59.9926' -> (59.9926, 59, '59.9926').
+    """
+    if not isinstance(value, str):
         return None
-    amount = Decimal(value)
-    if amount <= 0 or amount > MAX_AREA_TOLERANCE:
+    match = HOUSE_TYPE_AREA_PATTERN.fullmatch(value)
+    if not match:
         return None
-    return Decimal(_canonical_decimal_string(amount))
+    area_text = match.group(1)
+    if len(area_text) > AREA_LENGTH:
+        return None
+    try:
+        amount = Decimal(area_text)
+    except InvalidOperation:
+        return None
+    if amount <= 0:
+        return None
+    area_class = int(amount)
+    if area_class < 1:
+        return None
+    return amount, area_class, area_text
 
 
 def _complex_id_text(value):
@@ -301,26 +321,6 @@ def _notice_price(catalog, model, selection, documents):
     return result
 
 
-def _area_conditions(supply, selection, holds, *, approved_tolerance=None):
-    percent = DEFAULT_TOLERANCE
-    if approved_tolerance is not None:
-        percent = approved_tolerance
-    elif 'areaTolerancePercent' in selection:
-        proposed = _area_decimal(selection['areaTolerancePercent'])
-        if proposed is None or proposed <= 0 or proposed > MAX_AREA_TOLERANCE:
-            holds.append(_hold('area_tolerance_invalid', subject='selection'))
-        elif proposed == DEFAULT_TOLERANCE or selection.get('areaChangeConfirmed') is True:
-            percent = proposed
-        else:
-            holds.append(_hold('area_change_confirmation_required', subject='selection'))
-    # 두 입력의 모든 자릿수와 백분율의 소수 이동을 보존한다.
-    with localcontext(Context(prec=len(format(supply, 'f')) + len(format(percent, 'f')) + 4)):
-        delta = supply * percent / 100
-        lower, upper = supply - delta, supply + delta
-    return {'basis': 'supply', 'tolerancePercent': _as_decimal_string(percent),
-            'minM2': _as_decimal_string(lower), 'maxM2': _as_decimal_string(upper)}, (lower, upper)
-
-
 def _period(ingestion):
     stored = _obj(ingestion.get('period'))
     try:
@@ -353,7 +353,7 @@ def _comparison_period(ingestion, override):
 def _comparison_conditions(ingestion, comparison_period, comparison_conditions):
     override_period = None if comparison_period is None else _comparison_period(ingestion, comparison_period)
     if comparison_conditions is None:
-        return {'period': override_period, 'areaTolerancePercent': None, 'tradeKinds': None, 'replacements': None}
+        return {'period': override_period, 'tradeKinds': None, 'replacements': None}
     if (not isinstance(comparison_conditions, dict) or not comparison_conditions
             or not set(comparison_conditions) <= ALLOWED_CONDITION_KEYS):
         raise ValueError('승인된 비교 조건 형식이 올바르지 않습니다.')
@@ -362,11 +362,6 @@ def _comparison_conditions(ingestion, comparison_period, comparison_conditions):
         if override_period is not None and override_period != cond_period:
             raise ValueError('승인된 비교 기간과 비교 조건의 기간이 일치하지 않습니다.')
         override_period = cond_period
-    area_tolerance = None
-    if 'areaTolerancePercent' in comparison_conditions:
-        area_tolerance = _approved_tolerance_decimal(comparison_conditions['areaTolerancePercent'])
-        if area_tolerance is None:
-            raise ValueError('승인된 공급면적 허용 범위가 올바르지 않습니다.')
     trade_kinds = None
     if 'tradeKinds' in comparison_conditions:
         requested_kinds = comparison_conditions['tradeKinds']
@@ -399,7 +394,6 @@ def _comparison_conditions(ingestion, comparison_period, comparison_conditions):
         replacements = normalized
     return {
         'period': override_period,
-        'areaTolerancePercent': area_tolerance,
         'tradeKinds': trade_kinds,
         'replacements': replacements,
     }
@@ -687,7 +681,7 @@ def _mark(row, judgment, reason=None):
     return row
 
 
-def _classify(observation, links, duplicate_links, complexes, region_index, period, trade_kinds, target_id):
+def _classify(observation, links, duplicate_links, complexes, region_index, period, trade_kinds, target_id, target_class):
     (source, request, month), row, reference, collected_at, bad_location = observation
     kind = _known_kind(source, row)
     identifiers = _obj(row.get('identifiers'))
@@ -708,6 +702,25 @@ def _classify(observation, links, duplicate_links, complexes, region_index, peri
         return _mark(result, 'exclusion', 'trade_kind_not_included')
 
     key = _row_key(reference)
+    exclusive = _obj(row.get('exclusiveArea'))
+    exclusive_m2 = (
+        _area(exclusive.get('m2'))
+        if exclusive.get('status') == 'parsed' and exclusive.get('basis') == 'exclusive'
+        else None
+    )
+    trade_class = int(exclusive_m2) if exclusive_m2 is not None and exclusive_m2 >= 1 else None
+    if trade_class is not None and trade_class != target_class:
+        link = None if key in duplicate_links else links.get(key)
+        if isinstance(link, dict) and link.get('status', 'confirmed') == 'confirmed':
+            cid = _text(link.get('complexId'))
+            complex_ = complexes.get(cid)
+            if (complex_ is not None and complex_['localityCode'] == local
+                    and _identifiers_match(source, identifiers, link)):
+                result['complexId'] = cid
+                result['isTarget'] = cid == target_id
+        result.update(exclusiveAreaM2=exclusive['m2'], areaClass=trade_class)
+        return _mark(result, 'exclusion', 'outside_area_class')
+
     if key in duplicate_links:
         return _mark(result, 'hold', 'trade_link_conflict')
     if local is None:
@@ -720,8 +733,6 @@ def _classify(observation, links, duplicate_links, complexes, region_index, peri
     complex_id = _text(link.get('complexId'))
     complex_ = complexes.get(complex_id)
     proof = _confirmed_proof(link)
-    exclusive = _obj(row.get('exclusiveArea'))
-    exclusive_m2 = _area(exclusive.get('m2'))
     address_keys = _address_keys(identifiers, local, request)
     if (complex_ is None or complex_['localityCode'] != local or not proof or not address_keys
             or set(IDENTIFIER_FIELDS[source]).intersection(
@@ -729,19 +740,18 @@ def _classify(observation, links, duplicate_links, complexes, region_index, peri
             or not _identifiers_match(source, identifiers, link)):
         return _mark(result, 'hold', 'trade_complex_identity_unverified')
     result.update(complexId=complex_id, identityKeys=address_keys, evidence=proof, isTarget=complex_id == target_id)
-    if (exclusive.get('status') != 'parsed' or exclusive.get('basis') != 'exclusive' or exclusive_m2 is None
+    if (exclusive_m2 is None or trade_class is None
             or _area(link.get('exclusiveAreaM2')) != exclusive_m2):
         return _mark(result, 'hold', 'trade_exclusive_area_binding_unverified')
     supply = _area(link.get('supplyAreaM2')) if link.get('supplyAreaBasis', 'supply') == 'supply' else None
-    result.update(exclusiveAreaM2=exclusive['m2'], exclusive=exclusive_m2, supply=supply)
+    result.update(exclusiveAreaM2=exclusive['m2'], exclusive=exclusive_m2, areaClass=trade_class, supply=supply)
     if kind is None or day is None or day.isoformat()[:7] != month or cancellation != 'not_marked':
         return _mark(result, 'hold', 'trade_validity_unverified')
     amount = _obj(row.get('amount'))
     won = _won(amount.get('won'))
     if amount.get('status') != 'parsed' or won is None:
         return _mark(result, 'hold', 'trade_amount_unverified')
-    if supply is None:
-        return _mark(result, 'hold', 'trade_supply_area_unverified')
+    # Q-52: 비교 포함 여부는 같은 평형(전용면적 정수부)으로 정하며 공급면적 미확인만으로 보류하지 않는다.
     attrs = _obj(row.get('attributes'))
     result.update(amount=won, contractDate=day.isoformat(),
                   floor=_identifier(attrs.get('floor')), buildYear=_identifier(attrs.get('buildYear')))
@@ -749,19 +759,14 @@ def _classify(observation, links, duplicate_links, complexes, region_index, peri
 
 
 def _mark_conflicting_links(rows):
-    identities, areas = defaultdict(set), defaultdict(set)
+    identities = defaultdict(set)
     for row in rows:
         for key in row.get('identityKeys', ()):
             identities[key].add(row['complexId'])
-        if row.get('supply') is not None:
-            areas[row['complexId'], row['exclusive']].add(row['supply'])
     for row in rows:
         if any(len(identities[key]) > 1 for key in row.get('identityKeys', ())):
             row.update(isTarget=False, complexId=None, supply=None)
             _mark(row, 'hold', 'trade_complex_identity_conflict')
-        elif row.get('supply') is not None and len(areas[row['complexId'], row['exclusive']]) > 1:
-            row['supply'] = None
-            _mark(row, 'hold', 'trade_supply_area_conflict')
 
 
 def _trade_evidence_holds(evidence, replayed, records):
@@ -815,23 +820,56 @@ def _row_item(row, reason, role, **detail):
                  complexId=row['complexId'], localityCode=row['localityCode'], **detail)
 
 
-def _nearest_areas(rows, target_area, role):
+def _supply_area_reference(complex_, rows, target_class):
+    """같은 평형의 참고 공급면적(단일·범위·없음)을 구성한다(Q-38·Q-52). 비교 포함 여부와 순위에는 쓰지 않는다."""
+    refs_map = _obj(complex_.get('supplyAreaReferences'))
+    explicit = _obj(refs_map.get(str(target_class)))
+    status = explicit.get('status')
+    if status == 'single':
+        m2 = _area(explicit.get('m2'))
+        proof = _proof(explicit.get('evidence'))
+        if m2 is not None and proof is not None:
+            m2_str = explicit['m2']
+            return {'status': 'single', 'm2': m2_str, 'minM2': m2_str, 'maxM2': m2_str, 'evidence': proof}
+    elif status == 'range':
+        min_m2 = _area(explicit.get('minM2'))
+        max_m2 = _area(explicit.get('maxM2'))
+        proof = _proof(explicit.get('evidence'))
+        if min_m2 is not None and max_m2 is not None and min_m2 <= max_m2 and proof is not None:
+            return {'status': 'range', 'm2': None, 'minM2': explicit['minM2'], 'maxM2': explicit['maxM2'], 'evidence': proof}
+    elif status == 'unavailable':
+        reason = explicit.get('reasonCode')
+        reason_code = reason if _matches(r'[a-z][a-z0-9_]{0,79}', reason) else 'supply_area_unavailable'
+        return {'status': 'unavailable', 'm2': None, 'minM2': None, 'maxM2': None, 'reasonCode': reason_code}
+
+    values = {}
+    proofs = []
+    for row in rows:
+        if row.get('supply') is not None:
+            values.setdefault(row['supply'], _as_decimal_string(row['supply']))
+            if row.get('evidence'):
+                proofs.append(row['evidence'])
+    if len(values) == 1:
+        val_str = next(iter(values.values()))
+        ref = {'status': 'single', 'm2': val_str, 'minM2': val_str, 'maxM2': val_str}
+        if proofs:
+            ref['evidence'] = proofs[0]
+        return ref
+    if len(values) > 1:
+        ordered = sorted(values.items())
+        ref = {'status': 'range', 'm2': None, 'minM2': ordered[0][1], 'maxM2': ordered[-1][1]}
+        if proofs:
+            ref['evidence'] = proofs[0]
+        return ref
+    return {'status': 'unavailable', 'm2': None, 'minM2': None, 'maxM2': None, 'reasonCode': 'supply_area_unavailable'}
+
+
+def _group_by_complex(rows):
+    """단지 안의 같은 평형 거래를 소수점이 달라도 한 묶음으로 모은다(Q-52)."""
     by_complex = defaultdict(list)
     for row in rows:
         by_complex[row['complexId']].append(row)
-    selected, holds, unresolved = {}, [], []
-    for complex_id, group in by_complex.items():
-        differences = {area: _difference(area, target_area) for area in {row['supply'] for row in group}}
-        closest = min(differences.values())
-        areas = [area for area, difference in differences.items() if difference == closest]
-        if len(areas) > 1:
-            holds.append(_hold('closest_supply_area_tie', scope=role, subject='supply_area', decisionId='D-03',
-                               complexId=complex_id, areasM2=[_as_decimal_string(area) for area in sorted(areas)],
-                               references=[row['reference'] for row in group if row['supply'] in areas]))
-            unresolved.extend(group)
-        else:
-            selected[complex_id] = (areas[0], closest, [row for row in group if row['supply'] == areas[0]])
-    return selected, holds, unresolved
+    return dict(by_complex)
 
 
 def _collection_status(records):
@@ -844,7 +882,7 @@ def _collection_status(records):
     return 'partial'
 
 
-def _screen_scope(role, area_scope, rows, coverage, extra, trade_kinds, period, area, bounds):
+def _screen_scope(role, area_scope, rows, coverage, extra, trade_kinds, period):
     scope, localities = area_scope
     requests = scope['requestRegionCodes']
     records = []
@@ -869,15 +907,18 @@ def _screen_scope(role, area_scope, rows, coverage, extra, trade_kinds, period, 
                 exclusions.append(_row_item(row, 'outside_applied_region', role))
             continue
         if row['judgment'] == 'exclusion':
-            exclusions.append(_row_item(row, row['reason'], role))
+            extra_detail = {}
+            if row['reason'] == 'outside_area_class':
+                extra_detail = {
+                    'targetReference': row['isTarget'],
+                    'exclusiveAreaM2': row.get('exclusiveAreaM2'),
+                    'areaClass': row.get('areaClass'),
+                }
+            exclusions.append(_row_item(row, row['reason'], role, **extra_detail))
             continue
         if row['isTarget']:
             exclusions.append(_row_item(row, 'target_complex_trade', role))
-        supply = row.get('supply')
-        if supply is not None and not bounds[0] <= supply <= bounds[1]:
-            exclusions.append(_row_item(row, 'outside_supply_area', role, targetReference=row['isTarget'],
-                                        supplyAreaM2=_as_decimal_string(supply), evidence=row['evidence']))
-        elif row['judgment'] == 'hold':
+        if row['judgment'] == 'hold':
             if row['isTarget']:
                 own_holds.append(_row_item(row, row['reason'], role, targetReference=True))
             else:
@@ -888,19 +929,16 @@ def _screen_scope(role, area_scope, rows, coverage, extra, trade_kinds, period, 
         else:
             eligible.append(row)
 
-    selected, area_holds, area_unresolved = _nearest_areas(eligible, area, role)
-    target, target_holds, _ = _nearest_areas(own_rows, area, role)
-    holds.extend(area_holds)
-    unresolved.extend(area_unresolved)
-    own_holds.extend({**item, 'targetReference': True} for item in target_holds)
+    selected = _group_by_complex(eligible)
+    target = _group_by_complex(own_rows)
     kind_decisions = {}
     for kind in trade_kinds:
         kind_records = [record for record in records if kind in record['tradeKinds']]
         kind_coverage = _collection_status(kind_records)
         pending = sum(row['tradeKind'] in (None, kind) and kind in SOURCE_KINDS[row['scopeKey'][0]] for row in unresolved)
         pending += sum(key is None or kind in SOURCE_KINDS[key[0]] for key, _ in relevant_extra)
-        # 모든 확인 단지의 선정 면적을 확인한 뒤, 종류별 후보 수와 화면에 표시할 후보 수를 따로 센다.
-        count = sum(any(row['tradeKind'] == kind for row in group) for _, _, group in selected.values())
+        # 같은 평형으로 묶인 확인 단지의 종류별 후보 수와 화면 표시 후보 수를 따로 센다.
+        count = sum(any(row['tradeKind'] == kind for row in group) for group in selected.values())
         if count:
             conclusion = 'candidates_found'
         elif kind_coverage == 'failed':
@@ -960,13 +998,16 @@ def _statistic(rows, kind, provisional):
             'medianWon': _median_won(amounts), 'smallSample': len(amounts) <= 2, 'observations': observations}
 
 
-def _candidate(complex_, selected, target, region, provisional):
-    supply, difference, rows = selected
+def _candidate(complex_, rows, target, region, provisional, target_class):
     grouped = defaultdict(list)
     for row in rows:
         grouped[row['tradeKind']].append(row)
+    supply_ref = _supply_area_reference(complex_, rows, target_class)
     return {'complexId': complex_['complexId'], 'name': complex_['name'], 'localityCode': complex_['localityCode'],
-            'supplyAreaM2': _as_decimal_string(supply), 'areaDifferenceM2': _as_decimal_string(difference),
+            'areaClass': target_class,
+            'supplyAreaM2': supply_ref['m2'] if supply_ref['status'] == 'single' else None,
+            'supplyAreaReference': supply_ref,
+            'areaDifferenceM2': None,
             'identityEvidence': _proof(complex_['evidence']), 'regionEvidence': _proof(region['evidence']),
             'distance': _distance(target, complex_), 'rank': None,
             'tradeStats': {kind: _statistic(group, kind, provisional) for kind, group in grouped.items()},
@@ -974,37 +1015,35 @@ def _candidate(complex_, selected, target, region, provisional):
 
 
 def _rank(candidates, role, provisional):
-    ordered = sorted(candidates.values(), key=lambda candidate: Decimal(candidate['areaDifferenceM2']))
+    group = sorted(candidates.values(), key=lambda candidate: candidate['complexId'])
     selected, holds = [], []
-    for _, area_group in groupby(ordered, key=lambda candidate: Decimal(candidate['areaDifferenceM2'])):
-        if len(selected) == MAX_COMPARABLES:
+    if not group:
+        return selected, holds
+    if len(group) == 1:
+        buckets, hold_reason = [group], None
+    elif any(row['distance']['meters'] is None for row in group):
+        buckets = [group]
+        hold_reason = ('straight_line_coordinate_conflict' if any(row['distance']['status'] == 'conflict' for row in group)
+                       else 'straight_line_distance_unverified')
+    else:
+        by_distance = sorted(group, key=lambda row: (row['distance']['meters'], row['complexId']))
+        buckets = [list(rows) for _, rows in groupby(by_distance, key=lambda row: row['distance']['meters'])]
+        hold_reason = 'straight_line_distance_tie'
+    for bucket in buckets:
+        remaining = MAX_COMPARABLES - len(selected)
+        if not remaining:
             break
-        group = list(area_group)
-        if len(group) == 1:
-            buckets, hold_reason = [group], None
-        elif any(row['distance']['meters'] is None for row in group):
-            buckets = [group]
-            hold_reason = ('straight_line_coordinate_conflict' if any(row['distance']['status'] == 'conflict' for row in group)
-                           else 'straight_line_distance_unverified')
-        else:
-            by_distance = sorted(group, key=lambda row: row['distance']['meters'])
-            buckets = [list(rows) for _, rows in groupby(by_distance, key=lambda row: row['distance']['meters'])]
-            hold_reason = 'straight_line_distance_tie'
-        for bucket in buckets:
-            remaining = MAX_COMPARABLES - len(selected)
-            if not remaining:
-                break
-            tied = len(bucket) > 1
-            if tied:
-                holds.append(_hold(hold_reason, scope=role, subject='ranking', decisionId='D-03',
-                                   complexIds=[row['complexId'] for row in bucket],
-                                   affectsSelection=len(bucket) > remaining))
-            if len(bucket) > remaining:
-                return selected, holds  # 남은 자리를 차순위로 채우면 보류한 동률을 임의로 건너뛰게 된다.
-            selection_reason = 'area_difference_rank_pending' if tied else 'area_difference_then_straight_line'
-            for row in bucket:
-                rank = None if tied or provisional else len(selected) + 1
-                selected.append({**row, 'rank': rank, 'selectionReason': selection_reason})
+        tied = len(bucket) > 1
+        if tied:
+            holds.append(_hold(hold_reason, scope=role, subject='ranking', decisionId='D-03',
+                               complexIds=[row['complexId'] for row in bucket],
+                               affectsSelection=len(bucket) > remaining))
+        if len(bucket) > remaining:
+            return selected, holds  # 남은 자리를 차순위로 채우면 보류한 동률을 임의로 건너뛰게 된다.
+        selection_reason = 'straight_line_rank_pending' if tied else 'straight_line_distance'
+        for row in bucket:
+            rank = None if tied or provisional else len(selected) + 1
+            selected.append({**row, 'rank': rank, 'selectionReason': selection_reason})
     return selected, holds
 
 
@@ -1043,10 +1082,10 @@ def _replace(selected, candidates, selection, complexes, localities, role,
                 ):
                     cause = 'candidate_unverified'
                 elif any(
-                    e.get('complexId') == incoming and e.get('reasonCode') == 'outside_supply_area'
+                    e.get('complexId') == incoming and e.get('reasonCode') == 'outside_area_class'
                     for e in active_exclusions
                 ):
-                    cause = 'outside_supply_area'
+                    cause = 'outside_area_class'
                 else:
                     cause = 'comparison_conditions_unmet'
             holds.append(_hold('replacement_candidate_ineligible', candidateReason=cause, **detail))
@@ -1058,7 +1097,7 @@ def _replace(selected, candidates, selection, complexes, localities, role,
     return selected, holds
 
 
-def _candidate_pool(complexes, regions, candidates, comparables, active, target_complex):
+def _candidate_pool(complexes, regions, candidates, comparables, active, target_complex, target_class):
     displayed_ids = {row['complexId'] for row in comparables}
     localities = active['localities']
     active_holds = active['holds']
@@ -1073,7 +1112,7 @@ def _candidate_pool(complexes, regions, candidates, comparables, active, target_
             cand = candidates[complex_id]
             dist = cand['distance']['meters']
             eligible_items.append((
-                (Decimal(cand['areaDifferenceM2']), dist is None, dist if dist is not None else 0.0, complex_id),
+                (dist is None, dist if dist is not None else 0.0, complex_id),
                 {
                     'complexId': complex_id,
                     'name': complex_['name'],
@@ -1081,14 +1120,17 @@ def _candidate_pool(complexes, regions, candidates, comparables, active, target_
                     'localityName': locality_name,
                     'eligible': True,
                     'selected': complex_id in displayed_ids,
+                    'areaClass': target_class,
                     'supplyAreaM2': cand['supplyAreaM2'],
-                    'areaDifferenceM2': cand['areaDifferenceM2'],
+                    'supplyAreaReference': cand['supplyAreaReference'],
+                    'areaDifferenceM2': None,
+                    'distanceMeters': dist,
                     'tradeKinds': sorted(cand['tradeStats'].keys(), key=TRADE_KINDS.index),
                     'reasonCode': None,
                 },
             ))
             continue
-        supply_area_m2 = None
+        excl_area_class = None
         if locality_code not in localities:
             reason_code = 'outside_applied_region'
         else:
@@ -1102,12 +1144,12 @@ def _candidate_pool(complexes, regions, candidates, comparables, active, target_
             else:
                 area_excl = next(
                     (e for e in active_exclusions
-                     if e.get('complexId') == complex_id and e.get('reasonCode') == 'outside_supply_area'),
+                     if e.get('complexId') == complex_id and e.get('reasonCode') == 'outside_area_class'),
                     None,
                 )
                 if area_excl is not None:
-                    reason_code = 'outside_supply_area'
-                    supply_area_m2 = area_excl.get('supplyAreaM2')
+                    reason_code = 'outside_area_class'
+                    excl_area_class = area_excl.get('areaClass')
                 else:
                     other_excl = next(
                         (e for e in active_exclusions
@@ -1125,8 +1167,11 @@ def _candidate_pool(complexes, regions, candidates, comparables, active, target_
                 'localityName': locality_name,
                 'eligible': False,
                 'selected': False,
-                'supplyAreaM2': supply_area_m2,
+                'areaClass': excl_area_class,
+                'supplyAreaM2': None,
+                'supplyAreaReference': None,
                 'areaDifferenceM2': None,
+                'distanceMeters': None,
                 'tradeKinds': [],
                 'reasonCode': reason_code,
             },
@@ -1144,7 +1189,8 @@ def compare_snapshot(ingestion: dict, selection: dict, evidence: Optional[dict] 
 
     binding_issue는 DB 작업자가 고정된 분석 조건과 수집본의 연결을 검증하며 기록한 사유다.
     comparison_period는 서비스가 승인한 재계산 기간({start, end})이며 원본 수집 기간 안에서만 허용한다.
-    comparison_conditions는 서비스가 승인한 비교 조건 재계산 값({period, areaTolerancePercent, tradeKinds, replacements})이다.
+    comparison_conditions는 서비스가 승인한 비교 조건 재계산 값({period, tradeKinds, replacements})이다.
+    비교 대상은 같은 평형(전용면적 정수부, Q-52)이며 순위는 확인 좌표 간 직선거리순이다.
     가격·자체 거래·순위의 개별 상태를 함께 반환한다. 필수 수집과 주변 후보 판별의
     완전성이 증명될 때만 정상 0개로 판정하며, 순위에 필요한 미정값은 D-03으로 남긴다.
     """
@@ -1173,7 +1219,8 @@ def compare_snapshot(ingestion: dict, selection: dict, evidence: Optional[dict] 
     target = {key: target[key] for key in TARGET_KEYS}
     notice = _obj(catalog.get('notice'))
     result['target'] = {**target, 'name': _reported(_obj(notice.get('fields')).get('HOUSE_NM')),
-                        'modelNo': None, 'houseType': None, 'supplyArea': None, 'complexId': None, 'noticeEvidence': None}
+                        'modelNo': None, 'houseType': None, 'exclusiveAreaM2': None, 'areaClass': None,
+                        'supplyArea': None, 'complexId': None, 'noticeEvidence': None}
     if catalog.get('contract') != CATALOG_VERSION:
         holds.append(_hold('catalog_version_unsupported', subject='notice'))
         return result
@@ -1208,15 +1255,21 @@ def compare_snapshot(ingestion: dict, selection: dict, evidence: Optional[dict] 
     if model is None:
         holds.append(_hold(model_issue, subject='housing_type'))
         return result
-    checked, area = _checked_target_area(model, documents)
-    result['target'].update(modelNo=model['modelNo'], houseType=_reported_house_type(model['houseType']), supplyArea=checked)
-    if area is None:
-        holds.append(_hold('target_supply_area_unverified', subject='supply_area', decisionId='D-01',
-                           reasons=checked['reasons'], evidence=checked['evidence']))
-        return result
-    result['conditions']['area'], bounds = _area_conditions(
-        area, selection, holds, approved_tolerance=approved['areaTolerancePercent'],
+    house_type = _reported_house_type(model['houseType'])
+    checked, _ = _checked_target_area(model, documents)
+    parsed_target_class = parse_exclusive_area_class(house_type)
+    result['target'].update(
+        modelNo=model['modelNo'],
+        houseType=house_type,
+        exclusiveAreaM2=parsed_target_class[2] if parsed_target_class else None,
+        areaClass=parsed_target_class[1] if parsed_target_class else None,
+        supplyArea=checked,
     )
+    if parsed_target_class is None:
+        holds.append(_hold('target_area_class_unverified', subject='area_class', decisionId='D-01'))
+        return result
+    target_class = parsed_target_class[1]
+    result['conditions']['area'] = {'basis': 'exclusive_area_class', 'class': target_class}
     evidence = _obj(evidence)
     if evidence.get('contractVersion') != 'comparison-evidence/v1' or evidence.get('dataOrigin') != result['dataOrigin']:
         holds.append(_hold('comparison_evidence_unverified', subject='trade_evidence'))
@@ -1235,11 +1288,12 @@ def compare_snapshot(ingestion: dict, selection: dict, evidence: Optional[dict] 
         return result
 
     links, duplicates, extra = _trade_evidence_holds(evidence, replayed, records)
-    rows = [_classify(obs, links, duplicates, complexes, (by_code, by_name), period, kinds, target_complex['complexId'])
+    rows = [_classify(obs, links, duplicates, complexes, (by_code, by_name), period, kinds,
+                      target_complex['complexId'], target_class)
             for obs in observations]
     _mark_conflicting_links(rows)
     role = 'priority'
-    priority = _screen_scope(role, priority_scope, rows, coverage, extra, kinds, period, area, bounds)
+    priority = _screen_scope(role, priority_scope, rows, coverage, extra, kinds, period)
     decision = result['regionDecision']
     decision['priority'] = priority['decision']
     decision['reasonCode'] = 'priority_' + priority['decision']['conclusion']
@@ -1253,7 +1307,7 @@ def compare_snapshot(ingestion: dict, selection: dict, evidence: Optional[dict] 
             holds.append(_hold('expansion_region_unverified', scope='expansion', subject='region', decisionId='D-02'))
         else:
             role = 'expansion'
-            active = _screen_scope(role, expansion_scope, rows, coverage, extra, kinds, period, area, bounds)
+            active = _screen_scope(role, expansion_scope, rows, coverage, extra, kinds, period)
             decision['expansion'] = active['decision']
 
     result['appliedScope'] = role
@@ -1263,7 +1317,7 @@ def compare_snapshot(ingestion: dict, selection: dict, evidence: Optional[dict] 
     result['collections'] = list(used.values())
     provisional = bool(active['holds']) or expansion_unresolved
     candidates = {key: _candidate(complexes[key], selected, target_complex,
-                                  regions[complexes[key]['localityCode']], provisional)
+                                  regions[complexes[key]['localityCode']], provisional, target_class)
                   for key, selected in active['selected'].items()}
     selected, rank_holds = _rank(candidates, role, provisional)
     result['comparables'], replacement_holds = _replace(
@@ -1273,7 +1327,7 @@ def compare_snapshot(ingestion: dict, selection: dict, evidence: Optional[dict] 
         active_exclusions=active['exclusions'],
     )
     result['candidatePool'] = _candidate_pool(
-        complexes, regions, candidates, result['comparables'], active, target_complex,
+        complexes, regions, candidates, result['comparables'], active, target_complex, target_class,
     )
     holds.extend(active['holds'] + active['ownHolds'] + rank_holds + replacement_holds)
     result['rankingComplete'] = not (provisional or rank_holds)
@@ -1281,7 +1335,7 @@ def compare_snapshot(ingestion: dict, selection: dict, evidence: Optional[dict] 
         summary['displayedCandidateCount'] = sum(kind in candidate['tradeStats'] for candidate in result['comparables'])
     for key, selected in active['target'].items():
         reference = _candidate(complexes[key], selected, target_complex, target_region,
-                               provisional or bool(active['ownHolds']))
+                               provisional or bool(active['ownHolds']), target_class)
         reference['selectionReason'] = 'target_reference'
         result['targetReferences'].append(reference)
     if not provisional and not rank_holds and not price_unresolved:
