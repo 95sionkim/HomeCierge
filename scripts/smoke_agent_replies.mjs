@@ -208,7 +208,7 @@ export async function checkAgentReplies({ config, accounts, admin, requestApi, f
     check(reopenedView.turns.find(t => t.id === turn1.id)?.agentReply?.answer === syntheticAnswer, 'agent_reply_reopen_visible');
     check((await requestJson(requestApi, convPath, { token: peer.accessToken })).status === 404, 'agent_reply_peer_after_done_404');
 
-    // 4-3) Q-41 상한(±5%)을 넘는 잘못된 LLM 조건 제안(±7%)은 서버 검증이 거부한다.
+    // 4-3) Q-52로 폐지된 면적 허용 범위 제안(areaTolerancePercent)이 LLM 응답에 붙으면 서버 검증이 거부한다.
     const badSubmitted = await expectJson(
       await requestJson(requestApi, convPath, {
         token: owner.accessToken,
