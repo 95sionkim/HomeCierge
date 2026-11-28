@@ -58,6 +58,14 @@ def labels_for(environment='development'):
 LABELS = labels_for('development')
 LAUNCHCTL = '/bin/launchctl'
 POLL_SECONDS = 30
+ROLE_POLL_SECONDS = {
+    'worker': 5,
+    'agent': 5,
+    'deletion': 30,
+    'directory': 30,
+}
+AUTH_REJECTED_BACKOFF_SECONDS = 60
+RPC_UNAVAILABLE_BACKOFF_SECONDS = 15
 
 
 def clock():
@@ -231,7 +239,7 @@ def serve(secret_dir, role, environment='development'):
         if role == 'directory' and state.get('status') == 'refreshing':
             record(path, state, 'publication_unconfirmed', lastPublicationStatus='publication_unconfirmed')
         while True:
-            delay = POLL_SECONDS
+            delay = ROLE_POLL_SECONDS[role]
             try:
                 env = worker_env(
                     secret_dir,
@@ -268,14 +276,19 @@ def serve(secret_dir, role, environment='development'):
                             os.environ[KAKAO_KEY] = env[KAKAO_KEY]
                         else:
                             os.environ.pop(KAKAO_KEY, None)
-                        outcome = run_once(client, notice=live_notice_transports)['status']
+                        job_result = run_once(client, notice=live_notice_transports)
                     finally:
                         for key, old in previous.items():
                             if old is None:
                                 os.environ.pop(key, None)
                             else:
                                 os.environ[key] = old
-                    record(path, state, outcome, **({} if outcome == 'idle' else {'lastJobStatus': outcome}))
+                    outcome = job_result['status']
+                    extra = {} if outcome == 'idle' else {'lastJobStatus': outcome}
+                    if job_result.get('saveRetries'):
+                        extra['lastSaveRetries'] = job_result['saveRetries']
+                        extra['lastSaveRetryReasons'] = list(job_result.get('saveRetryReasons', ()))
+                    record(path, state, outcome, **extra)
                     if outcome != 'idle':
                         delay = 0
             except (UnicodeError, ValueError, NoticeWorkerConfigurationError) as exc:
@@ -285,8 +298,13 @@ def serve(secret_dir, role, environment='development'):
                 if state.get('status') != status:
                     record(path, state, status)
             except WorkerRpcError as exc:
-                record(path, state, 'worker_key_rejected' if exc.status in (401, 403) else 'rpc_unavailable')
-                delay = 60
+                rejected = exc.status in (401, 403)
+                extra = {}
+                if exc.save_retries:
+                    extra['lastSaveRetries'] = exc.save_retries
+                    extra['lastSaveRetryReasons'] = list(exc.save_retry_reasons)
+                record(path, state, 'worker_key_rejected' if rejected else 'rpc_unavailable', **extra)
+                delay = AUTH_REJECTED_BACKOFF_SECONDS if rejected else RPC_UNAVAILABLE_BACKOFF_SECONDS
             if delay:
                 time.sleep(delay)
 

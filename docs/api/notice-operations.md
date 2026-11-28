@@ -6,10 +6,10 @@
 
 | 역할 (`--role`) | 개발 서비스 (`--environment development`, 기본) | 운영 서비스 (`--environment production`) | 처리 시점 및 동작 |
 | --- | --- | --- | --- |
-| `directory` | `kr.homecierge.development.notice-directory` | `kr.homecierge.production.notice-directory` | 매일 한국 시각 09:17부터 30초 안에 확인. 최근 90일의 두 공고 목록을 갱신한다. 해당 시각을 놓친 날은 깨어난 뒤 한 번 실행한다. 수집이 불완전하면 최근 정상 게시본을 유지한다. |
-| `worker` | `kr.homecierge.development.notice-worker` | `kr.homecierge.production.notice-worker` | 대기열을 30초마다 조회. 새 분석을 한 건씩 임대한다. 완료 뒤 곧바로 다음 실행을 확인한다. 실행 상태와 결과는 소유자 API에서 조회한다. |
-| `deletion` | `kr.homecierge.development.data-deletion` | `kr.homecierge.production.data-deletion` | 대기열을 30초마다 조회. 접수된 소유자 파일을 정리한다. 계정 전체 삭제는 파일 부재를 확인한 뒤 Auth 계정까지 정리한다. [삭제 처리](data-deletion.md) |
-| `agent` | `kr.homecierge.development.agent-worker` | `kr.homecierge.production.agent-worker` | 대기열을 30초마다 조회. 비교 대화(`private.analysis_agent_replies`)와 채팅 홈(`private.chat_agent_replies`)의 비동기 에이전트 응답을 임대·실행·검증하고 만료 임대를 `expired`로 정리한다. [에이전트 코어](agent-core.md) |
+| `directory` | `kr.homecierge.development.notice-directory` | `kr.homecierge.production.notice-directory` | 매일 한국 시각 09:17부터 30초 안에 확인(대기 주기 30초). 최근 90일의 두 공고 목록을 갱신한다. 해당 시각을 놓친 날은 깨어난 뒤 한 번 실행한다. 수집이 불완전하면 최근 정상 게시본을 유지한다. |
+| `worker` | `kr.homecierge.development.notice-worker` | `kr.homecierge.production.notice-worker` | 대기열이 비면 5초마다 조회. 새 분석을 한 건씩 임대한다. 완료 뒤 곧바로 다음 실행을 확인한다. 실행 상태와 결과는 소유자 API에서 조회한다. |
+| `deletion` | `kr.homecierge.development.data-deletion` | `kr.homecierge.production.data-deletion` | 대기열이 비면 30초마다 조회. 접수된 소유자 파일을 정리한다. 계정 전체 삭제는 파일 부재를 확인한 뒤 Auth 계정까지 정리한다. [삭제 처리](data-deletion.md) |
+| `agent` | `kr.homecierge.development.agent-worker` | `kr.homecierge.production.agent-worker` | 대기열이 비면 5초마다 조회. 비교 대화(`private.analysis_agent_replies`)와 채팅 홈(`private.chat_agent_replies`)의 비동기 에이전트 응답을 임대·실행·검증하고 만료 임대를 `expired`로 정리한다. [에이전트 코어](agent-core.md) |
 
 ## 설치와 자격 설정
 
@@ -23,7 +23,7 @@ python3 scripts/manage_notice_services.py set-key
 python3 scripts/manage_notice_services.py status
 ```
 
-첫 명령은 지정한 파일의 `DATA_GO_KR_SERVICE_KEY`를 `.secrets/DATA_GO_KR_SERVICE_KEY.env`에 복사하며, 같은 파일에 `KAKAO_REST_API_KEY`가 있으면 `.secrets/KAKAO_REST_API_KEY.env`에도 함께 복사한다. 이미 등록했으면 `install`만 실행해도 된다. `KAKAO_REST_API_KEY`는 비교 작업자(`worker`)의 단지 대표 좌표 조회(Q-39)에 쓰는 **선택** 키다. 따로 등록하려면 `python3 scripts/store_api_key.py KAKAO_REST_API_KEY`를 사용한다. 키가 없어도 `worker`는 정상 기동하며 단지 대표 좌표만 미확인 상태로 둔다(`deletion`·`agent` 서비스에는 전달하지 않는다). `set-key`에는 Supabase Dashboard에서 같은 개발 프로젝트의 **secret key**를 터미널 숨김 입력으로 전달한다. 작업자 전용 읽기 RPC로 권한을 확인한 뒤 `.secrets/worker.env`에 저장한다. 자격 파일의 접근 권한은 모두 소유자 읽기·쓰기(`0600`)다. 기존 서비스가 다음 30초 주기에 자격을 읽는다. [Supabase 공식 API 키 안내](https://supabase.com/docs/guides/getting-started/api-keys) · [자동 비교 근거](auto-comparison-evidence.md)
+첫 명령은 지정한 파일의 `DATA_GO_KR_SERVICE_KEY`를 `.secrets/DATA_GO_KR_SERVICE_KEY.env`에 복사하며, 같은 파일에 `KAKAO_REST_API_KEY`가 있으면 `.secrets/KAKAO_REST_API_KEY.env`에도 함께 복사한다. 이미 등록했으면 `install`만 실행해도 된다. `KAKAO_REST_API_KEY`는 비교 작업자(`worker`)의 단지 대표 좌표 조회(Q-39)에 쓰는 **선택** 키다. 따로 등록하려면 `python3 scripts/store_api_key.py KAKAO_REST_API_KEY`를 사용한다. 키가 없어도 `worker`는 정상 기동하며 단지 대표 좌표만 미확인 상태로 둔다(`deletion`·`agent` 서비스에는 전달하지 않는다). `set-key`에는 Supabase Dashboard에서 같은 개발 프로젝트의 **secret key**를 터미널 숨김 입력으로 전달한다. 작업자 전용 읽기 RPC로 권한을 확인한 뒤 `.secrets/worker.env`에 저장한다. 자격 파일의 접근 권한은 모두 소유자 읽기·쓰기(`0600`)다. 기존 서비스가 다음 확인 주기(`worker`·`agent` 5초, `deletion`·`directory` 30초)에 자격을 읽는다. [Supabase 공식 API 키 안내](https://supabase.com/docs/guides/getting-started/api-keys) · [자동 비교 근거](auto-comparison-evidence.md)
 
 기존 개발 작업자 자격으로 삭제 서비스만 설치·갱신할 때는 `python3 scripts/manage_notice_services.py install --role deletion`을 실행한다. 이 서비스에는 공공데이터 API 키가 필요 없다.
 
@@ -51,8 +51,9 @@ python3 scripts/manage_notice_services.py status --environment production
 | 상태 | 확인할 내용 |
 | --- | --- |
 | `waiting_for_worker_key`, `waiting_for_provider_key`, `waiting_for_llm_key` | 해당 자격을 등록하면 자동으로 재개한다. |
-| `worker_key_rejected`, `rpc_unavailable` | 해당 환경 프로젝트의 작업자 권한과 네트워크 연결을 점검한다. |
-| `idle` | 작업자가 해당 환경 DB에 연결해 대기 작업이 없음을 확인했다. 직전에 처리한 실행의 상태는 `lastJobStatus`에 남는다. |
+| `worker_key_rejected` | 작업자 키 인증이 401·403으로 거절됐다. 60초 대기 후 다시 확인하므로 해당 환경 프로젝트의 작업자 권한을 점검한다. |
+| `rpc_unavailable` | 일시 RPC·네트워크 오류가 발생했다. 15초 대기 후 다시 시도한다. `worker`에서 저장 재시도 후 실패한 경우 `lastSaveRetries`·`lastSaveRetryReasons`에 재시도 횟수와 사유 코드만 남는다. |
+| `idle` | 작업자가 해당 환경 DB에 연결해 대기 작업이 없음을 확인했다(`worker`·`agent`는 5초, `deletion`·`directory`는 30초 간격). 직전에 처리한 실행의 상태는 `lastJobStatus`에, 저장 재시도가 있었던 경우 `lastSaveRetries`·`lastSaveRetryReasons`에 남는다. |
 | `scheduled`, `refreshing` | 갱신 시각을 기다리거나 당일 갱신을 실행 중이다. |
 | `published` | `publishedAt`과 `noticeCount`로 최근 정상 게시 시점과 공고 수를 확인한다. |
 | `kept_previous`, `publication_unconfirmed` | 수집이 불완전하거나 게시 응답을 확인할 수 없었다. 마지막 정상 게시 시점과 공고 수를 확인한다. |

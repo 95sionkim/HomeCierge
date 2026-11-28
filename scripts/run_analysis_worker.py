@@ -13,12 +13,16 @@ from compare_trades import ALLOWED_CONDITION_KEYS, MAX_COMPARABLES, compare_snap
 from ingestion_pages import loads_source_json
 from ingestion_trades import TRADE_KINDS
 from notice_run_capture import (
-    CaptureStopped, NoticeRunFailure, NoticeWorkerConfigurationError,
-    execute_upload_supplement_lease, live_notice_transports, prepare_notice_comparison,
+    LIMITS as NOTICE_LIMITS, CaptureStopped, NoticeRunFailure, NoticeTransports,
+    NoticeWorkerConfigurationError, execute_upload_supplement_lease, live_notice_transports,
+    prepare_notice_comparison,
 )
 from replay_ingestion import replay
 from store_ingestion import snapshot_input
-from worker_rpc import WorkerRpc, WorkerRpcError, WorkerRpcResponseTooLarge
+from worker_rpc import (
+    WorkerRpc, WorkerRpcError, WorkerRpcResponseTooLarge,
+    is_transient_save_error, save_error_reason,
+)
 
 
 FIXTURE = Path(__file__).resolve().parents[1] / 'tests/fixtures/ingestion-v0.json'
@@ -28,6 +32,10 @@ EVIDENCE_FIXTURE = FIXTURE.with_name('comparison-evidence-v1.json')
 # comparison/v1에서 사용한 합성 근거와 수집본 버전을 함께 고정한다.
 EVIDENCE_SHA256 = '4773237d773f7437aa476d2dfe6d16de4408481b348c311b2a6980abc67591df'
 MAX_COMPARISON_INPUT_BYTES = 32 * 1024 * 1024
+# 저장 RPC 일시 오류(HTTP 5xx, 57014, 응답 미확인) 시 같은 수집본으로 최대 3회 재시도한다.
+SAVE_RETRY_DELAYS = (2, 5, 10)
+# service_role statement_timeout(60초)보다 길게 두어 57014 응답을 클라이언트 시간 초과 전에 받는다.
+FINISH_RPC_TIMEOUT_SECONDS = 70
 
 
 def pinned_fixture(path, expected_sha256):
@@ -158,7 +166,7 @@ def lease_identity(job, expected_run_id):
         raise WorkerRpcError() from None
 
 
-def finish_comparison(client, lease, inputs, capture, comparison, schedules=None, evidence_bundle=None):
+def _build_finish_rpc(lease, inputs, capture, comparison, schedules=None, evidence_bundle=None):
     payload = {**lease, 'p_input': inputs, 'p_result': capture, 'p_comparison': comparison}
     if evidence_bundle is not None:
         body = dict(
@@ -169,13 +177,125 @@ def finish_comparison(client, lease, inputs, capture, comparison, schedules=None
         )
         if schedules is not None:
             body['p_schedules'] = schedules
-        return client.post('finish_notice_with_evidence', body)
+        return 'finish_notice_with_evidence', body
     if schedules is not None:
-        return client.post('finish_notice_with_funding', dict(payload, p_schedules=schedules))
-    return client.post('finish_analysis_comparison', payload)
+        return 'finish_notice_with_funding', dict(payload, p_schedules=schedules)
+    return 'finish_analysis_comparison', payload
 
 
-def execute_notice_lease(client, lease, selection, lease_seconds, transports):
+def _attach_save_retry_info(exc, reasons):
+    if reasons and isinstance(exc, WorkerRpcError):
+        exc.save_retries = len(reasons)
+        exc.save_retry_reasons = tuple(reasons)
+    return exc
+
+
+def _check_uncertain_run_status(client, lease):
+    """응답 유실(status is None) 시 실행 상태를 읽어 완료·재시도 가능·임대 상실을 구분한다."""
+    probe = client.post('read_analysis_run_status', lease)
+    if not isinstance(probe, dict) or probe.get('runId') != lease['p_run_id']:
+        raise WorkerRpcError()
+    status = probe.get('status')
+    attempt = probe.get('attempt')
+    if status == 'finished' and type(attempt) is int and attempt == lease['p_generation']:
+        reply = {key: value for key, value in probe.items() if key != 'leaseActive'}
+        return 'finished', reply
+    if (status == 'running' and type(attempt) is int and attempt == lease['p_generation']
+            and probe.get('leaseActive') is True):
+        return 'retry', None
+    return 'lease_lost', None
+
+
+def finish_comparison(
+    client, lease, inputs, capture, comparison, schedules=None, evidence_bundle=None, *,
+    lease_seconds=60, renew=None, sleep=None, retry_delays=SAVE_RETRY_DELAYS, retry_log=None,
+):
+    """같은 수집본으로 저장 RPC를 호출한다. 일시 오류 시 임대를 갱신하며 최대 3회 재시도한다."""
+    rpc_name, body = _build_finish_rpc(lease, inputs, capture, comparison, schedules, evidence_bundle)
+    wait = time.sleep if sleep is None else sleep
+    delays = tuple(retry_delays)
+    reasons = []
+
+    def record_retry(exc):
+        reason = save_error_reason(exc)
+        reasons.append(reason)
+        if retry_log is not None:
+            retry_log.append(reason)
+
+    def renew_before_retry():
+        if renew is not None:
+            renew(lease_seconds)
+            return
+        reply = client.post('renew_analysis_run', {**lease, 'p_lease_seconds': lease_seconds})
+        if not isinstance(reply, dict):
+            raise WorkerRpcError()
+        if 'runId' in reply and reply.get('runId') != lease['p_run_id']:
+            raise WorkerRpcError()
+        if 'status' in reply and reply.get('status') != 'running':
+            raise WorkerRpcError()
+        if 'attempt' in reply and (type(reply.get('attempt')) is not int or reply['attempt'] != lease['p_generation']):
+            raise WorkerRpcError()
+
+    retry_index = 0
+    pending_status_check = False
+    last_error = None
+    while True:
+        if pending_status_check:
+            try:
+                outcome, confirmed = _check_uncertain_run_status(client, lease)
+            except WorkerRpcError as probe_exc:
+                if not is_transient_save_error(probe_exc) or retry_index >= len(delays):
+                    target_exc = probe_exc if probe_exc.status is not None else last_error
+                    raise _attach_save_retry_info(target_exc, reasons) from None
+                record_retry(probe_exc)
+                wait(delays[retry_index])
+                retry_index += 1
+                continue
+            if outcome == 'finished':
+                return confirmed
+            if outcome == 'lease_lost':
+                raise _attach_save_retry_info(WorkerRpcError(409, 'PT409'), reasons)
+            pending_status_check = False
+            if retry_index >= len(delays):
+                raise _attach_save_retry_info(last_error, reasons)
+            record_retry(last_error)
+            wait(delays[retry_index])
+            retry_index += 1
+            try:
+                renew_before_retry()
+            except WorkerRpcError as renew_exc:
+                raise _attach_save_retry_info(renew_exc, reasons) from None
+            continue
+
+        try:
+            return client.post(rpc_name, body, timeout=FINISH_RPC_TIMEOUT_SECONDS)
+        except WorkerRpcError as exc:
+            if not is_transient_save_error(exc):
+                raise _attach_save_retry_info(exc, reasons) from None
+            last_error = exc
+            if exc.status is None:
+                # 응답을 못 받아 커밋 여부가 불확실하므로 무작정 다시 쓰지 않고 실행 상태를 확인한다.
+                pending_status_check = True
+                continue
+            if retry_index >= len(delays):
+                raise _attach_save_retry_info(exc, reasons) from None
+            record_retry(exc)
+            wait(delays[retry_index])
+            retry_index += 1
+            try:
+                renew_before_retry()
+            except WorkerRpcError as renew_exc:
+                raise _attach_save_retry_info(renew_exc, reasons) from None
+
+
+def _notice_save_options(transports, lease_seconds):
+    if isinstance(transports, NoticeTransports):
+        limits = dict(NOTICE_LIMITS, **(transports.limits or {}))
+        return min(300, max(lease_seconds, limits['leaseSeconds'])), transports.sleep
+    return min(300, max(lease_seconds, NOTICE_LIMITS['leaseSeconds'])), None
+
+
+def execute_notice_lease(client, lease, selection, lease_seconds, transports, *, retry_log=None):
     if transports is None:
         raise NoticeWorkerConfigurationError('공고 실행을 처리하려면 --live 또는 공고 조회 전송이 필요합니다.')
 
@@ -199,6 +319,7 @@ def execute_notice_lease(client, lease, selection, lease_seconds, transports):
             **lease, 'p_region': region_record, 'p_entries': entries,
         })
 
+    save_lease_seconds, save_sleep = _notice_save_options(transports, lease_seconds)
     try:
         try:
             work = client.post('read_comparison_work', lease, limit=MAX_COMPARISON_INPUT_BYTES)
@@ -212,7 +333,10 @@ def execute_notice_lease(client, lease, selection, lease_seconds, transports):
             read_permissions=read_permissions, read_cache=read_cache, upsert_cache=upsert_cache,
             return_evidence=True,
         )
-        return finish_comparison(client, lease, inputs, capture, comparison, schedules, evidence_bundle)
+        return finish_comparison(
+            client, lease, inputs, capture, comparison, schedules, evidence_bundle,
+            lease_seconds=save_lease_seconds, renew=renew, sleep=save_sleep, retry_log=retry_log,
+        )
     except CaptureStopped as exc:
         if exc.rpc_error is not None:
             # 갱신 응답이 유실된 경우도 새 RPC로 현재 세대의 상태를 쓰지 않는다.
@@ -237,11 +361,14 @@ def execute_notice_lease(client, lease, selection, lease_seconds, transports):
     return client.post('fail_notice_analysis_run', {**lease, 'p_error_code': code, 'p_retryable': retryable})
 
 
-def execute_lease(client, lease, selection, lease_seconds, notice=None):
+def execute_lease(client, lease, selection, lease_seconds, notice=None, *, retry_log=None):
     if isinstance(selection, dict) and selection.get('kind') == 'notice':
-        return execute_notice_lease(client, lease, selection, lease_seconds, notice)
+        return execute_notice_lease(client, lease, selection, lease_seconds, notice, retry_log=retry_log)
     if isinstance(selection, dict) and selection.get('kind') == 'upload_supplement':
-        return execute_upload_supplement_lease(client, lease, selection, lease_seconds, notice)
+        return execute_upload_supplement_lease(
+            client, lease, selection, lease_seconds, notice,
+            finish=finish_comparison, retry_log=retry_log,
+        )
     try:
         try:
             work = client.post('read_comparison_work', lease, limit=MAX_COMPARISON_INPUT_BYTES)
@@ -250,7 +377,10 @@ def execute_lease(client, lease, selection, lease_seconds, notice=None):
             raise ValueError('비교 입력 크기를 확인하세요.') from None
         inputs, capture, comparison = prepare_comparison(selection, work)
         client.post('renew_analysis_run', {**lease, 'p_lease_seconds': lease_seconds})
-        return finish_comparison(client, lease, inputs, capture, comparison)
+        return finish_comparison(
+            client, lease, inputs, capture, comparison,
+            lease_seconds=lease_seconds, retry_log=retry_log,
+        )
     except (AttributeError, KeyError, OSError, TypeError, ValueError):
         retryable = False
     except WorkerRpcError as exc:
@@ -274,17 +404,25 @@ def run_once(client, *, lease_seconds=60, run_id=None, notice=None):
     lease = lease_identity(job, run_id)
     run_id = lease['p_run_id']
     selection = job.get('input')
+    retry_log = []
+
+    def with_retries(result):
+        if retry_log:
+            result['saveRetries'] = len(retry_log)
+            result['saveRetryReasons'] = list(retry_log)
+        return result
+
     try:
-        reply = execute_lease(client, lease, selection, lease_seconds, notice)
+        reply = execute_lease(client, lease, selection, lease_seconds, notice, retry_log=retry_log)
     except WorkerRpcError as exc:
         if exc.code in ('PT404', 'PT409'):
-            return {'status': 'lease_lost', 'runId': run_id}
+            return with_retries({'status': 'lease_lost', 'runId': run_id})
         raise
     if not isinstance(reply, dict) or reply.get('runId') != run_id:
         raise WorkerRpcError()
     status = reply.get('status')
     if status in ('failed', 'retry_wait'):
-        return {'status': status, 'runId': run_id}
+        return with_retries({'status': status, 'runId': run_id})
     if status != 'finished':
         raise WorkerRpcError()
     try:
@@ -293,7 +431,7 @@ def run_once(client, *, lease_seconds=60, run_id=None, notice=None):
             raise ValueError
     except (KeyError, ValueError, TypeError, AttributeError):
         raise WorkerRpcError() from None
-    return {'status': status, 'runId': run_id, 'snapshotId': snapshot_id}
+    return with_retries({'status': status, 'runId': run_id, 'snapshotId': snapshot_id})
 
 
 def main():
@@ -329,7 +467,9 @@ def main():
         except NoticeWorkerConfigurationError as exc:
             parser.exit(2, f'{exc}\n')
         except WorkerRpcError as exc:
-            print(str(exc), file=sys.stderr, flush=True)
+            suffix = (f' (saveRetries={exc.save_retries}, reasons={",".join(exc.save_retry_reasons)})'
+                      if exc.save_retries else '')
+            print(f'{exc}{suffix}', file=sys.stderr, flush=True)
             if not args.watch:
                 return 1
             time.sleep(2)

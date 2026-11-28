@@ -1073,6 +1073,10 @@ export type Database = {
         Args: { p_analysis_id: string; p_snapshot_id: string }
         Returns: Json
       }
+      read_analysis_run_status: {
+        Args: { p_generation: number; p_lease_token: string; p_run_id: string }
+        Returns: Json
+      }
       read_auto_evidence_cache: {
         Args: {
           p_complex_keys?: string[]

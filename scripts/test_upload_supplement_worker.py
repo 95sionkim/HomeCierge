@@ -76,6 +76,8 @@ class UploadSupplementWorkerTests(unittest.TestCase):
         self.client.post.side_effect = self.rpc
         self.events = []
         self.seconds = 0
+        self.fail_finish_queue = []
+        self.run_status_reply = None
 
     def rpc(self, name, params, **kwargs):
         self.events.append((name, params))
@@ -85,9 +87,21 @@ class UploadSupplementWorkerTests(unittest.TestCase):
             return self.work
         if name == 'lookup_official_notice_document_index':
             return [r for r in self.lookup_rows if r.get('sha256') == params['p_sha256']]
+        if name == 'read_analysis_run_status':
+            if isinstance(self.run_status_reply, Exception):
+                raise self.run_status_reply
+            if self.run_status_reply is not None:
+                return self.run_status_reply
+            return {'runId': self.job['runId'], 'status': 'running',
+                    'attempt': self.job['generation'], 'leaseActive': True}
         if name == 'renew_analysis_run':
             return {'runId': self.job['runId'], 'status': 'running', 'attempt': self.job['generation']}
-        if name in ('finish_notice_with_funding', 'finish_analysis_comparison'):
+        if name in ('finish_notice_with_funding', 'finish_analysis_comparison', 'finish_notice_with_evidence'):
+            if self.fail_finish_queue:
+                next_reply = self.fail_finish_queue.pop(0)
+                if isinstance(next_reply, Exception):
+                    raise next_reply
+                return next_reply
             return self.finished
         if name == 'fail_notice_analysis_run':
             return {'status': 'retry_wait' if params['p_retryable'] else 'failed', 'runId': self.job['runId']}
@@ -337,6 +351,25 @@ class UploadSupplementWorkerTests(unittest.TestCase):
         api_opener.open.return_value = api_resp
         owned = read_owned_upload(self.analysis_id.upper(), upper_uid, 'synthetic-jwt', opener=api_opener)
         self.assertEqual(owned, {'id': self.upload_id.lower(), 'content': PDF_B})
+
+    def test_upload_supplement_save_retry_preserves_upload_and_capture(self):
+        self.fail_finish_queue = [WorkerRpcError(500, '57014')]
+        result = self.run_worker(
+            pdf=lambda url, **kw: html_ok(page([(self.att11, NOTICE_LABEL)])) if url == DETAIL else {'status': 503, 'headers': {}, 'body': b''},
+            upload_bytes=b'<html>not-a-pdf</html>',
+        )
+        self.assertEqual(result, {
+            **self.finished,
+            'saveRetries': 1,
+            'saveRetryReasons': ['statement_timeout'],
+        })
+        self.assertEqual(len(self.calls('upload')), 1)
+        self.assertEqual(len(self.calls('api')), 28)
+        finishes = self.calls('finish_notice_with_funding')
+        self.assertEqual(len(finishes), 2)
+        self.assertEqual(finishes[0], finishes[1])
+        self.assertEqual(self.calls('renew_analysis_run')[-1]['p_lease_seconds'], 120)
+        self.assertEqual(self.calls('fail_notice_analysis_run'), [])
 
 
 if __name__ == '__main__':

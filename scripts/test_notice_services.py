@@ -692,6 +692,78 @@ class NoticeServiceTests(unittest.TestCase):
             ops.main(['--environment', 'development', 'status', '--environment', 'production'])
         self.assertEqual(raised.exception.code, 2)
 
+    def test_role_poll_intervals_and_backoff_constants_are_fixed(self):
+        self.assertEqual(ops.ROLE_POLL_SECONDS, {
+            'worker': 5,
+            'agent': 5,
+            'deletion': 30,
+            'directory': 30,
+        })
+        self.assertEqual(ops.AUTH_REJECTED_BACKOFF_SECONDS, 60)
+        self.assertEqual(ops.RPC_UNAVAILABLE_BACKOFF_SECONDS, 15)
+
+        self.add_keys()
+        ops.write_private(self.secrets / (ops.LLM_KEY + '.env'), (ops.LLM_KEY + '=sk-synthetic-test\n').encode())
+
+        # 각 역할이 대기열이 비었을 때 정해진 주기로만 대기하는지 확인한다.
+        for role, expected_sleep, patch_target, return_value in (
+            ('worker', 5, 'run_once', {'status': 'idle'}),
+            ('agent', 5, 'process_agent_reply', {'status': 'idle'}),
+            ('deletion', 30, 'process_deletion', 'idle'),
+            ('directory', 30, 'directory_tick', None),
+        ):
+            with self.subTest(role=role):
+                with mock.patch.object(ops, 'WorkerRpc'), \
+                        mock.patch.object(ops, patch_target, return_value=return_value), \
+                        mock.patch.object(ops.time, 'sleep', side_effect=KeyboardInterrupt) as sleep:
+                    with self.assertRaises(KeyboardInterrupt):
+                        ops.serve(self.secrets, role)
+                sleep.assert_called_once_with(expected_sleep)
+
+    def test_serve_backoff_separates_transient_rpc_errors_from_auth_rejections_and_records_save_retries(self):
+        self.add_keys()
+        # 일시 오류(503, 57014, 응답 미확인)는 15초 대기하며 저장 재시도 횟수·사유만 안전하게 기록한다.
+        exhausted = WorkerRpcError(500, '57014', save_retries=3,
+                                   save_retry_reasons=('statement_timeout', 'http_503', 'response_unconfirmed'))
+        for exc, expected_status, expected_sleep in (
+            (exhausted, 'rpc_unavailable', 15),
+            (WorkerRpcError(503), 'rpc_unavailable', 15),
+            (WorkerRpcError(), 'rpc_unavailable', 15),
+            (WorkerRpcError(401), 'worker_key_rejected', 60),
+            (WorkerRpcError(403), 'worker_key_rejected', 60),
+        ):
+            with self.subTest(status=exc.status, code=exc.code):
+                with mock.patch.object(ops, 'WorkerRpc'), \
+                        mock.patch.object(ops, 'run_once', side_effect=exc), \
+                        mock.patch.object(ops.time, 'sleep', side_effect=KeyboardInterrupt) as sleep:
+                    with self.assertRaises(KeyboardInterrupt):
+                        ops.serve(self.secrets, 'worker')
+                sleep.assert_called_once_with(expected_sleep)
+                state = ops.read_state(ops.state_file(self.secrets, 'worker'))
+                self.assertEqual(state['status'], expected_status)
+                if exc.save_retries:
+                    self.assertEqual(state['lastSaveRetries'], 3)
+                    self.assertEqual(state['lastSaveRetryReasons'],
+                                     ['statement_timeout', 'http_503', 'response_unconfirmed'])
+                self.assertNotIn('test-fixture', json.dumps(state))
+
+        # 저장 재시도 후 완료된 실행은 상태 파일에 재시도 횟수와 사유를 남긴다.
+        with mock.patch.object(ops, 'WorkerRpc'), \
+                mock.patch.object(ops, 'run_once', side_effect=[
+                    {'status': 'finished', 'runId': str(uuid4()), 'snapshotId': str(uuid4()),
+                     'saveRetries': 2, 'saveRetryReasons': ['statement_timeout', 'http_503']},
+                    {'status': 'idle'},
+                ]), \
+                mock.patch.object(ops.time, 'sleep', side_effect=KeyboardInterrupt) as sleep:
+            with self.assertRaises(KeyboardInterrupt):
+                ops.serve(self.secrets, 'worker')
+        sleep.assert_called_once_with(5)
+        state = ops.read_state(ops.state_file(self.secrets, 'worker'))
+        self.assertEqual(state['status'], 'idle')
+        self.assertEqual(state['lastJobStatus'], 'finished')
+        self.assertEqual(state['lastSaveRetries'], 2)
+        self.assertEqual(state['lastSaveRetryReasons'], ['statement_timeout', 'http_503'])
+
 
 if __name__ == '__main__':
     unittest.main()

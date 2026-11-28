@@ -655,7 +655,9 @@ def prepare_upload_supplement_comparison(
     return inputs, capture, comparison, schedules
 
 
-def execute_upload_supplement_lease(client, lease, selection, lease_seconds, transports):
+def execute_upload_supplement_lease(
+    client, lease, selection, lease_seconds, transports, *, finish=None, retry_log=None,
+):
     """업로드 보완 실행 한 건을 작업자 임대 안에서 검증·점검·원자 저장한다."""
     if transports is None:
         raise NoticeWorkerConfigurationError('업로드 보완 실행을 처리하려면 --live 또는 공고·업로드 전송이 필요합니다.')
@@ -683,6 +685,14 @@ def execute_upload_supplement_lease(client, lease, selection, lease_seconds, tra
             **lease, 'p_region': region_record, 'p_entries': entries,
         })
 
+    if isinstance(transports, NoticeTransports):
+        limits = dict(LIMITS, **(transports.limits or {}))
+        save_lease_seconds = min(300, max(lease_seconds, limits['leaseSeconds']))
+        save_sleep = transports.sleep
+    else:
+        save_lease_seconds = min(300, max(lease_seconds, LIMITS['leaseSeconds']))
+        save_sleep = None
+
     try:
         try:
             work = client.post('read_upload_supplement_work', lease, limit=MAX_UPLOAD_SUPPLEMENT_WORK_BYTES)
@@ -694,6 +704,11 @@ def execute_upload_supplement_lease(client, lease, selection, lease_seconds, tra
             read_permissions=read_permissions, read_cache=read_cache, upsert_cache=upsert_cache,
             return_evidence=True,
         )
+        if finish is not None:
+            return finish(
+                client, lease, inputs, capture, comparison, schedules, evidence_bundle,
+                lease_seconds=save_lease_seconds, renew=renew, sleep=save_sleep, retry_log=retry_log,
+            )
         payload = {**lease, 'p_input': inputs, 'p_result': capture, 'p_comparison': comparison}
         if evidence_bundle is not None:
             body = dict(
