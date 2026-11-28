@@ -441,8 +441,8 @@ export async function checkUploadSupplement({
           method: 'POST',
           body: {
             requestId: randomUUID(),
-            message: '공급면적 범위를 ±3%로 좁혀줘',
-            conditions: { areaTolerancePercent: '3' },
+            message: '매매만 비교해줘',
+            conditions: { tradeKinds: ['sale'] },
           },
         }),
         200,
