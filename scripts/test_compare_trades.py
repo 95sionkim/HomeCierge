@@ -152,6 +152,26 @@ class ComparisonTests(unittest.TestCase):
         self.assertEqual(self.compare({'modelNo': '01'}, ingestion)['target']['modelNo'], '01')
         self.assertEqual(self.compare({'modelNo': '99'}, ingestion)['comparables'], [])
 
+    def test_house_type_with_outer_whitespace_from_api_stays_linked(self):
+        # 합성: 청약홈 API는 접미 문자가 없는 주택형을 '102.7700 '처럼 바깥 공백과 함께 준다(2026-11-28 천안 공고).
+        # 수집본은 원문을 보존하므로 비교도 같은 원문으로 주택형과 호실 가격을 연결해야 한다.
+        baseline = self.compare({'modelNo': '01'})
+        ingestion = replay(self.bundle)
+        catalog = ingestion['catalog']
+        raw = catalog['housingTypes'][0]['houseType']['value'] + ' '
+        catalog['housingTypes'][0]['houseType']['value'] = raw
+        for room in catalog['rooms']:
+            if room['modelNo'] == '01':
+                room['houseType'] = raw
+        result = self.compare({'modelNo': '01'}, ingestion)
+        self.assertEqual((result['target']['modelNo'], result['target']['houseType']), ('01', raw))
+        self.assertNotIn('housing_type_unverified', result['noticePrice']['reasons'])
+        self.assertEqual((result['noticePrice']['minWon'], result['noticePrice']['maxWon']),
+                         (baseline['noticePrice']['minWon'], baseline['noticePrice']['maxWon']))
+        self.assertEqual(result['completeness'], baseline['completeness'])
+        catalog['housingTypes'][0]['houseType']['value'] = '   '
+        self.assertEqual(self.compare({'modelNo': '01'}, ingestion)['noticePrice']['reasons'], ['housing_type_unverified'])
+
     def test_supply_area_must_be_checked_and_bound_to_same_edition(self):
         ingestion = replay(self.bundle)
         ingestion['catalog']['documents'][0]['edition'] = 'other-edition'

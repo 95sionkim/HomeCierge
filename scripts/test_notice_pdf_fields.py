@@ -314,6 +314,26 @@ class SyntheticLayoutTests(unittest.TestCase):
         self.assertEqual((result['status'], result['evidence']), ('held', []))
         self.assertIn('pdf_notice_date_not_found', _codes(result))
 
+    def test_new_sale_first_notice_date_counts_only_when_it_equals_the_api_date(self):
+        # 합성: 신규분양 공고는 '본 주택의 최초 입주자모집공고일은 …'로 공고일을 적기도 한다(2026-11-28 천안 공고 서식).
+        def new_sale(date_text):
+            spec = synthetic_notice_spec()
+            spec['pages'][0]['texts'][0] = (40, 40, '[합성 시험 자료] 합성 가람 아파트 입주자모집공고 - 실제 공고가 아님')
+            spec['pages'][0]['texts'][1] = (40, 70, '■ 본 주택의 최초 입주자모집공고일은 ' + date_text + '입니다.')
+            spec['pages'][0]['texts'][2] = (40, 100, '■ 주택관리번호 : {houseManageNo}')
+            return spec
+        result, _ = _run(new_sale('{noticeDate}'))
+        self.assertEqual((result['status'], result['identity']['noticeDate']), ('checked', ['2026-10-05']))
+        self.assertIn({'page': 1, 'kind': 'first_notice_date_sentence'}, result['identity']['locations'])
+        result, _ = _run(new_sale('2026.09.07.(월)'))  # API 모집공고일과 다르면 쓰지 않는다
+        self.assertEqual((result['status'], result['evidence']), ('held', []))
+        self.assertIn('pdf_notice_date_not_found', _codes(result))
+        resupply = new_sale('{noticeDate}')
+        resupply['pages'][0]['texts'][0] = (40, 40, '[합성 시험 자료] 합성 가람 아파트 재공급 입주자모집공고 - 실제 공고가 아님')
+        result, _ = _run(resupply)  # 재공급 제목이면 '최초'는 예전 회차라 쓰지 않는다
+        self.assertEqual((result['status'], result['evidence']), ('held', []))
+        self.assertIn('pdf_notice_date_not_found', _codes(result))
+
     def test_two_digit_schedule_year_is_only_matched_against_a_reference_date(self):
         result, _ = _run(synthetic_short_schedule_spec())
         self.assertEqual((result['status'], result['identity']['noticeDate']), ('checked', ['2026-10-05']))

@@ -45,6 +45,15 @@ _DATE_WITH_WEEKDAY = (
 NOTICE_DATE = re.compile(
     r'본\s*' + _CURRENT_ROUND_QUALIFIER + r'입주자\s*모집\s*공고일\s*(?:은|는|:|：)\s*' + _DATE_WITH_WEEKDAY
 )
+# 신규분양 공고는 공고일을 '본 주택의 최초 입주자모집공고일은 2026.11.19.(목)'처럼 적기도 한다. 재공급·무순위에서
+# '최초'는 예전 회차를 가리키므로 이 표기는 현재 공고일 문장으로 보지 않고, API 모집공고일과 정확히 같을 때만
+# 공고일 근거로 쓴다(현재 회차 문장이 하나도 없을 때에 한함). 날짜가 다르면 버리고 지금처럼 미확인으로 둔다.
+FIRST_NOTICE_DATE = re.compile(
+    r'본\s*(?:(?:주택|아파트|단지)\s*의\s*)?최초\s*입주자\s*모집\s*공고일\s*(?:은|는|:|：)\s*' + _DATE_WITH_WEEKDAY
+)
+# 위 대체 규칙은 신규분양 출처에서만 쓴다. 문서 첫머리 제목에 재공급·무순위 표지가 있으면 '최초'는 예전 회차다.
+FIRST_NOTICE_TITLE_CHARS = 400
+RESUPPLY_TITLE_MARKER = re.compile(r'재공급|무순위|잔여세대|계약취소|임의공급|추가입주자')
 # 줄·항목 시작의 '입주자모집공고일 : 2026. 11. 13.(목)' 형태. 앞에 '최초·당초·이전·종전·기존'이 있으면 제외한다.
 NOTICE_DATE_LABEL = re.compile(
     r'(?:^|[■□◆◇▣•※\n])\s*(?:금회\s*|무순위\s*(?:\(\s*사후\s*\)\s*)?|불법행위\s*재공급\s*|재공급\s*|잔여세대\s*|임의공급\s*)?'
@@ -1973,6 +1982,14 @@ def _identity(pages, numbers, schedule, target, catalog):
                                  for m in NOTICE_DATE.finditer(page['text'])) if d)
         dates.extend(_notice_date_labels(page['text'], page['page']))
     api_date = reported_notice_date(catalog)
+    title = compact((pages[0].get('text') or '')[:FIRST_NOTICE_TITLE_CHARS]) if pages else ''
+    if (api_date and (catalog.get('notice') or {}).get('source') == 'applyhome_apt'
+            and not RESUPPLY_TITLE_MARKER.search(title)
+            and not any(x.get('date') for x in dates) and not any(d and 'short' in d for d in schedule)):
+        first = [d for page in pages for d in (_dated(m.groups(), page['page'], 'first_notice_date_sentence')
+                                                 for m in FIRST_NOTICE_DATE.finditer(page['text'])) if d]
+        if first and all(d['date'] == api_date for d in first):
+            dates.extend(first)
     full_dates = sorted({x['date'] for x in dates})
     reference = api_date or (full_dates[0] if len(full_dates) == 1 else None)
     unresolved = []

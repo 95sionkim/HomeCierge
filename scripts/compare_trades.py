@@ -147,6 +147,18 @@ def _reported(value):
     return _text(value.get('value')) if value.get('status') == 'reported' else None
 
 
+def _reported_house_type(value):
+    """주택형은 API 원문 표기를 보존한다(예: '102.7700 '). 바깥 공백만 있는 원문도 보고값으로 받는다.
+
+    수집본의 호실·납부 일정과 DB(notice_run_house_type, funding_label_valid)가 같은 원문을 쓰므로 비교도 원문으로 한다.
+    """
+    value = _obj(value)
+    text = value.get('value')
+    if value.get('status') != 'reported' or not isinstance(text, str) or not text.strip():
+        return None
+    return text
+
+
 def _same_target(value, target):
     return all(_obj(value).get(key) == target[key] for key in TARGET_KEYS)
 
@@ -165,7 +177,7 @@ def _catalog_position(value, role):
 def _selected_model(catalog, selection):
     models, duplicates = _unique(_items(catalog.get('housingTypes')), lambda row: _text(row.get('modelNo')))
     linked = {key: model for key, model in models.items()
-              if model.get('status') == 'linked' and _reported(model.get('houseType'))
+              if model.get('status') == 'linked' and _reported_house_type(model.get('houseType'))
               and any(_catalog_position(_obj(ref), 'model') for ref in _items(model.get('evidence')))}
     if 'modelNo' in selection:
         key = _text(selection['modelNo'])
@@ -255,7 +267,7 @@ def _notice_price(catalog, model, selection, documents):
     confirmed, held = {}, {name: ['room_identity_conflict'] for name in duplicates}
     held_units = {}
     for name, room in rooms.items():
-        total = _room_total(room, _reported(model.get('houseType')), documents)
+        total = _room_total(room, _reported_house_type(model.get('houseType')), documents)
         if total is not None:
             confirmed[name] = total
         else:
@@ -1197,7 +1209,7 @@ def compare_snapshot(ingestion: dict, selection: dict, evidence: Optional[dict] 
         holds.append(_hold(model_issue, subject='housing_type'))
         return result
     checked, area = _checked_target_area(model, documents)
-    result['target'].update(modelNo=model['modelNo'], houseType=_reported(model['houseType']), supplyArea=checked)
+    result['target'].update(modelNo=model['modelNo'], houseType=_reported_house_type(model['houseType']), supplyArea=checked)
     if area is None:
         holds.append(_hold('target_supply_area_unverified', subject='supply_area', decisionId='D-01',
                            reasons=checked['reasons'], evidence=checked['evidence']))
