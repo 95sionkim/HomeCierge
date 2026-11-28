@@ -372,6 +372,25 @@ def plist_owned_by_checkout(program_args, secrets, role, environment='developmen
     return False
 
 
+BOOTSTRAP_ATTEMPTS = 5
+BOOTSTRAP_RETRY_SECONDS = 1.0
+
+
+def bootstrap_job(domain, plist):
+    """launchd는 bootout 직후의 bootstrap을 'Bootstrap failed: 5: Input/output error'로 가끔 거절한다.
+
+    2026-11-28 재설치에서 이 오류로 설치가 중간에 멈춰 일부 서비스가 이전 릴리스에 남았다. 잠시 쉬고 다시 시도한다.
+    """
+    for attempt in range(BOOTSTRAP_ATTEMPTS):
+        try:
+            subprocess.run([LAUNCHCTL, 'bootstrap', domain, str(plist)], check=True)
+            return
+        except subprocess.CalledProcessError:
+            if attempt == BOOTSTRAP_ATTEMPTS - 1:
+                raise
+            time.sleep(BOOTSTRAP_RETRY_SECONDS)
+
+
 def job_state(role, environment='development'):
     label = labels_for(environment)[role]
     target = 'gui/' + str(os.getuid()) + '/' + label
@@ -455,7 +474,7 @@ def manage(root, command, api_env=None, requested_role=None, environment='develo
             plist.unlink(missing_ok=True)
         else:
             write_private(plist, desired)
-            subprocess.run([LAUNCHCTL, 'bootstrap', domain, str(plist)], check=True)
+            bootstrap_job(domain, plist)
     manage(root, 'status', environment=environment)
 
 

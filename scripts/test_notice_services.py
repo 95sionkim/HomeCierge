@@ -129,6 +129,21 @@ class WorkerRpcMatrixTests(unittest.TestCase):
 
 
 class NoticeServiceTests(unittest.TestCase):
+    def test_bootstrap_retries_transient_launchd_input_output_error(self):
+        # 2026-11-28 재설치에서 bootout 직후 bootstrap이 'Bootstrap failed: 5: Input/output error'로 거절돼 설치가 멈췄다.
+        import subprocess
+        failure = subprocess.CalledProcessError(5, [ops.LAUNCHCTL, 'bootstrap'])
+        with mock.patch.object(ops.subprocess, 'run', side_effect=[failure, failure, None]) as run, \
+                mock.patch.object(ops.time, 'sleep') as sleep:
+            ops.bootstrap_job('gui/501', Path('/tmp/synthetic.plist'))
+        self.assertEqual(run.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+        with mock.patch.object(ops.subprocess, 'run', side_effect=failure) as run, \
+                mock.patch.object(ops.time, 'sleep'):
+            with self.assertRaises(subprocess.CalledProcessError):
+                ops.bootstrap_job('gui/501', Path('/tmp/synthetic.plist'))
+        self.assertEqual(run.call_count, ops.BOOTSTRAP_ATTEMPTS)
+
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
