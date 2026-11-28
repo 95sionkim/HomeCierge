@@ -790,7 +790,7 @@ if (failures.length) {
 } else if (process.argv.includes('--chat-home')) {
   process.stdout.write('Chat home passed (two users, CRUD, rename, lookup, idempotency, workspace start, cross-account 404, relogin restore, cleanup)\n');
 } else if (process.argv.includes('--condition-changes')) {
-  process.stdout.write('Condition changes passed (two users, Q-41 area narrowing, trade kinds, replacement, duplicate approval, forged result rejection, reject/cancel, profile unchanged, cleanup)\n');
+  process.stdout.write('Condition changes passed (two users, Q-52 area tolerance rejection, trade kinds, replacement, duplicate approval, forged result rejection, reject/cancel, profile unchanged, cleanup)\n');
 } else if (process.argv.includes('--upload-supplement')) {
   process.stdout.write('Upload supplement passed (two users, Storage PDF upload, idempotent enqueue, bound completion, cross-account 404, A-56 impact preview and cascade cleanup)\n');
 } else if (process.argv.includes('--agent-replies')) {
