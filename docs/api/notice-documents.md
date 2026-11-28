@@ -91,10 +91,13 @@ python3 scripts/review_notice_documents.py --live --request /path/to/selected-no
 
 | 공고·표 서식 | 해석 단위와 검증 규칙 | 보류·한계 조건 |
 | --- | --- | --- |
+| 문서 전체 스캔 | `MAX_PAGES = 150` 안에서 후보 쪽 상한 절단 없이 끝까지 표를 스캔한다(`MAX_TABLE_PAGES = MAX_PAGES`). 면적·가격·옵션·납부·일정·정정 머리말 조합으로 후보 쪽을 선별하고, 쪽 끝 가격·구간·옵션 표가 다음 여러 쪽에 머리말 없이 같은 열 수로 이어지면 연속 스캔한다. | 문서가 150쪽을 넘거나 표 추출 예외·제한이 걸리면 `pdf_page_limit_exceeded` 또는 `table_scan_incomplete`로 보류한다. |
 | 공고 식별(번호·공고일) | 띄어쓰기 누락·줄바꿈·`주택관리번호`/`공고번호`·`입주자모집공고일 : YYYY. MM. DD.(요일)`·`무순위(사후)` 일정표 변형을 읽는다. | 출처 경로만으로 확인하지 않는다. `최초`·`당초` 등 이전 회차 표기는 제외하고, 복수 번호·날짜가 섞이거나 불일치하면 거부(`rejected`)한다. |
+| 공급면적 표 | `주거전용 + 주거공용 = 공급면적 소계`와 면적 단위(`㎡`)를 검산한다. 공급면적 합이 정확히 일치하고 계약면적(`공급 + 기타공용`)만 `0.0001㎡` 반올림 차이가 나면 공급면적은 확인하고 `checks.contract_equals_supply_plus_other = "rounding_note"` 참고 표시만 남긴다. | 공급면적 합 자체의 불일치(`supply_area_sum_mismatch`), 계약면적 `0.0002㎡` 이상 불일치(`contract_area_sum_mismatch`), 면적 단위 미확인은 보류한다. |
+| 단위 문구 | 일반 표기(`[단위: 세대, 원]`)와 글자·기호가 쪼개진 표기(`단위세대원 ( : , )` 등)를 공백·괄호·쉼표·콜론과 무관하게 판정해 `원`·`천원`·`만원`을 구분한다. | `천원`·`만원`을 `원`으로 오인하지 않으며, 미지원 단위(`백만원`·`억원` 등)나 복수 단위 혼재는 `amount_unit_unverified`·`amount_unit_ambiguous`로 보류한다. |
 | 호실별 가격표 (`unit.kind = "room"`) | 기존 호실 표기(`101동 101호`)와 하이픈 표기(`0202-1501`), 좌·우 외곽 세로선이 생략된 HWP 변환 표(가로 괘선 복구), 표 제목·단일 주택형의 모호하지 않은 주택형 연결을 지원한다. | 복수 주택형에서 주택형 열과 제목 연결이 모두 없으면 `room_type_column_missing`으로 보류한다. 호실이 아닌 행은 `price_row_not_per_room`으로 남긴다. |
-| 동·호 라인 × 층 구간 가격표 (`unit.kind = "band"`) | `주택형`, `동호구분`, `층구분`, `해당세대수`, `대지비·건축비(+부가세/재분양비)=계`, 납부 합=계, 주택형·하위 타입별 `해당세대수 합=공급세대수`, 같은 `(동, 라인)` 층 구간 비겹침을 교차 검산한다. 표시 이름(예: `101동·102동 3호 라인 11~15층`)과 `unit` 메타데이터를 함께 전달하며 개별 호실 번호는 추정하지 않는다. | 검산 불일치(`sale_price_component_mismatch`, `sale_price_payment_mismatch`, `band_household_count_mismatch`, `band_floor_overlap`)나 동·호 라인 및 세대수 근거가 없는 층별 요약표(`price_rows_not_per_room`)는 보류한다. |
-| 필수 옵션과 선택 품목 | 공고 본문이 발코니 확장·추가선택품목이 계약자 선택·별도 계약 품목임을 명시하고 필수 승계 문구·별도 필수 옵션표가 없을 때만 `required_options = "0"`(`optional_only`)과 빈 납부 일정을 확정한다. | 선택 명시가 없거나 필수 승계·확장형 강제 문구 또는 복수 옵션표가 있으면 `0`원으로 채우지 않고 `options_table_not_found`·`option_requirement_unverified`·`option_room_in_multiple_tables`로 보류한다. |
+| 동·호 라인 × 층 구간 가격표 (`unit.kind = "band"`) | `주택형`/`약식표기` 열과 `동별·라인별` 열을 열 위치로 구분한다. `공급세대수`가 주택형 전체 소계인 서식과 동·라인 묶음별 소계인 서식(천안형)을 모두 지원해 묶음 소계=묶음 내 구간 세대수 합과 주택형별 총합=공급대상 표 세대수를 교차 검산한다. 부가가치세 `-` 칸은 `대지비+건축비=계`가 일치할 때만 0원으로 확인한다. `N층 이상` 구간은 상한을 추정하지 않고 `floors: {from: N, to: null}`·표시 이름 `… N층 이상`으로 확인하며 같은 `(동, 라인)` 층 겹침을 검산한다. 같은 열 구조로 이어진 다음 쪽 첫 묶음의 `동별·라인별` 셀이 앞 쪽 미완성 표기를 완성할 때만 보수적으로 이어 붙여 양쪽 근거 쪽(`evidencePages`, `evidence[]`, `paymentSchedules[].evidence`)을 모두 남긴다. | 검산 불일치(`sale_price_component_mismatch`, `sale_price_payment_mismatch`, `band_household_count_mismatch`, `band_floor_overlap`), 애매한 쪽 경계 위치 조각(`band_location_unreadable`), 동·호 라인 및 세대수 근거가 없는 층별 요약표(`price_rows_not_per_room`)는 보류한다. |
+| 필수 옵션과 선택 품목 | 공고 본문이 발코니 확장·추가선택품목의 계약자 선택 명시 또는 `공급금액 미포함`·`별도 계약`/`별도 납부계좌` 안내를 두고 필수·승계 문구 및 별도 필수 옵션표가 없을 때만 `required_options = "0"`(`optional_only`)과 근거 문장 쪽·빈 납부 일정을 확정한다. | 옵션·발코니 언급이 전혀 없는 공고, 필수 승계·강제 확장 문구가 있는 공고, 복수 옵션표가 있는 공고는 `0`원으로 채우지 않고 `options_table_not_found`·`option_requirement_unverified`·`option_room_in_multiple_tables`로 보류한다. |
 | 외부 첨부 미제공(예: LH 신혼희망타운) | 청약홈 상세 HTML에 공식 PDF 첨부가 없으면 `attachment_not_found`로 기록하고 업로드 보완 흐름으로 안내한다. | 현재 단계에서는 LH 청약센터 등 외부 사이트를 직접 조회하지 않는다(한계로 유지). |
 
 ### 정정 공고 처리(A-59)
@@ -102,29 +105,30 @@ python3 scripts/review_notice_documents.py --live --request /path/to/selected-no
 - **PDF 본문 정정 표지(A-59a)**: 표지 제목의 `정정공고`, 본문 `정정 내용` 절, `변경 전/변경 후` 표를 탐지하면 `documentReview.documents[].correction`과 `relation.kind = "correction_included"`를 기록한다. 기존 공고문 전체를 대체한다는 긍정 문장이 명시되지 않으면 정정 대상 항목과 그에 의존하는 소계·납부 일정을 `in_pdf_correction_unverified`로 보류하고 `check_correction_relation` 후속 행동을 남긴다. 정정 범위 밖의 독립 확인 항목(예: 공급금액만 정정된 경우의 공급면적)은 유지한다.
 - **같은 공고·회차의 공식 색인 복수 해시(A-59b)**: `private.official_notice_document_index`는 같은 `(house_manage_no, notice_no, edition)`에서 관측된 서로 다른 공식 SHA-256을 덮어쓰지 않고 모두 보존한다. `read_comparison_work`와 `read_upload_supplement_work`는 이전 공식 해시 이력을 `officialRevisions`로 작업자에 전달한다(단건 대조용 `officialIndex`는 기존처럼 모호 슬롯을 제외). 최신 수집 시각만으로 정정본을 선택하지 않고 `official_document_hash_changed`·`correction_relation_unverified`로 보류하며, 이전 판본 바이트가 함께 확보되면 두 판본을 병렬 대조해 불일치 금액은 `conflict`로, 일치하는 독립 항목은 `confirmed`로 남긴다.
 
-### 오프라인 서식 회귀 점검 도구와 표본 12건 관측
+### 오프라인 서식 회귀 점검 도구와 표본 13건 관측
 
-실제 수집 표본 디렉터리(Git 제외)에서 네트워크 호출 없이 서식 해석 결과만 재현하려면 `scripts/verify_notice_formats.py`를 사용한다. 출력에는 상태·건수·사유 코드만 포함하며 공고 원문·발췌·구체 금액은 출력하지 않는다.
+실제 수집 표본 디렉터리(Git 제외)에서 네트워크 호출 없이 서식 해석 결과만 재현하려면 `scripts/verify_notice_formats.py`를 사용한다. 출력에는 상태·건수·스캔 쪽수·처리 시간·사유 코드만 포함하며 공고 원문·발췌·구체 금액은 출력하지 않는다.
 
 ```sh
 python3 scripts/verify_notice_formats.py --samples-dir /path/to/notice-format-samples
 ```
 
-아래 표는 2026-11-27 로컬 보관 표본 12건에 대한 기존 도구(개선 전)와 현재 도구(개선 후)의 오프라인 관측 비교다. 이 결과는 보관 표본의 서식 파서 관측이며 전체 서식 검증 완료나 PRD 수락 기준 최종 통과를 뜻하지 않는다(D-04 미정 유지).
+아래 표는 2026-11-28 로컬 보관 표본 13건(기존 12건 + 천안 `2026000521`)에 대한 작업 R 전(`MAX_TABLE_PAGES = 40` 기준)과 작업 R 후(전체 쪽 스캔·천안형 서식·확정 판정 반영)의 오프라인 관측 비교다. 이 결과는 보관 표본의 서식 파서 관측이며 전체 서식 검증 완료나 PRD 수락 기준 최종 통과를 뜻하지 않는다(D-04 미정 유지).
 
-| 공고 | 유형 | 개선 전 사유 | 개선 후 상태(식별) | 면적(확/보/충) | 분양가(확/보/충) | 옵션(확/보/충) | 단위 | 개선 후 사유 코드 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 2026000472 | APT/민영 | `pdf_notice_number_not_found`, `price_rows_not_per_room` | checked (`confirmed`) | 2/0/0 | 12/0/0 | 12/0/0 | band:12 | `table_scan_incomplete` |
-| 2026000499 | APT/민영 | `pdf_notice_number_not_found`, `price_rows_not_per_room` | checked (`confirmed`) | 5/0/0 | 214/0/0 | 214/0/0 | band:214 | `table_scan_incomplete` |
-| 2026000505 | APT/민영 | `pdf_notice_number_not_found`, `price_rows_not_per_room` | checked (`confirmed`) | 4/0/0 | 32/0/0 | 0/32/0 | band:32 | `options_table_not_found`, `table_scan_incomplete` |
-| 2026000515 | APT/민영 | `price_rows_not_per_room` | checked (`confirmed`) | 10/0/0 | 46/0/0 | 46/0/0 | band:46 | `table_scan_incomplete` |
-| 2026000560 | APT/민영 | `pdf_notice_number_not_found`, `price_rows_not_per_room` | checked (`confirmed`) | 1/0/2 | 13/0/0 | 13/0/0 | band:13 | `contract_area_sum_mismatch` |
-| 2026820014 | 신혼희망타운/국민 | `attachment_not_found` | `attachment_not_found` | 0/0/0 | 0/0/0 | 0/0/0 | - | `attachment_not_found` |
-| 2026910292 | 무순위 | `pdf_notice_date_not_found`, `price_rows_not_per_room` | checked (`confirmed`) | 2/0/0 | 5/0/0 | 0/5/0 | band:5 | `options_table_not_found` |
-| 2026910300 | 무순위 | `pdf_notice_number_not_found`, `price_rows_not_per_room` | checked (`confirmed`) | 0/0/0 | 55/0/0 | 55/0/0 | band:55 | - |
-| 2026910306 | 무순위 | `pdf_notice_number_not_found`, `pdf_notice_date_not_found` | checked (`confirmed`) | 0/0/0 | 24/0/0 | 0/24/0 | band:24 | `options_table_not_found` |
-| 2026930043 | 불법행위 재공급 | `price_row_not_per_room` | checked (`confirmed`) | 1/0/0 | 2/0/0 | 0/2/0 | room:2 | `option_item_duplicated`, `option_requirement_unverified`, `option_room_in_multiple_tables`, `option_table_continuation_unverified`, `required_options_uncrosschecked`, `room_not_in_options_table` |
-| 2026930045 | 불법행위 재공급 | `room_type_column_missing` | checked (`confirmed`) | 3/0/0 | 3/0/0 | 3/0/0 | room:3 | - |
-| 2026930046 | 불법행위 재공급 | `contract_area_sum_mismatch`, `source_value_conflict`, `price_rows_not_per_room` | checked (`confirmed`) | 0/0/2 | 2/0/0 | 0/2/0 | room:2 | `contract_area_sum_mismatch`, `option_requirement_unverified` |
+| 공고 | 유형 | 작업 R 전 사유(시간) | 작업 R 후 상태(식별) | 면적(확/보/충) | 분양가(확/보/충) | 옵션(확/보/충) | 단위 | 스캔(쪽) | 시간(초) | 작업 R 후 사유 코드 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 2026000472 | APT/민영 | `table_scan_incomplete` (2.954초) | checked (`confirmed`) | 2/0/0 | 12/0/0 | 12/0/0 | band:12 | 24/70 | 1.962 | - |
+| 2026000499 | APT/민영 | `table_scan_incomplete` (6.481초) | checked (`confirmed`) | 5/0/0 | 214/0/0 | 214/0/0 | band:214 | 28/67 | 5.272 | - |
+| 2026000505 | APT/민영 | `options_table_not_found`, `table_scan_incomplete` (3.917초) | checked (`confirmed`) | 4/0/0 | 32/0/0 | 32/0/0 | band:32 | 22/65 | 2.664 | - |
+| 2026000515 | APT/민영 | `table_scan_incomplete` (4.583초) | checked (`confirmed`) | 10/0/0 | 46/0/0 | 46/0/0 | band:46 | 22/71 | 2.949 | - |
+| 2026000521 | APT/민영 | `amount_unit_unverified`, `band_household_count_mismatch`, `band_location_unreadable`, `table_scan_incomplete` (4.330초) | checked (`confirmed`) | 4/0/0 | 63/0/0 | 63/0/0 | band:63 | 24/77 | 3.032 | - |
+| 2026000560 | APT/민영 | `contract_area_sum_mismatch` (3.516초) | checked (`confirmed`) | 3/0/0 | 13/0/0 | 13/0/0 | band:13 | 20/66 | 2.271 | - |
+| 2026820014 | 신혼희망타운/국민 | `attachment_not_found` (0.003초) | `attachment_not_found` | 0/0/0 | 0/0/0 | 0/0/0 | - | - | 0.000 | `attachment_not_found` |
+| 2026910292 | 무순위 | `options_table_not_found` (3.603초) | checked (`confirmed`) | 2/0/0 | 5/0/0 | 5/0/0 | band:5 | 11/14 | 3.327 | - |
+| 2026910300 | 무순위 | - (1.351초) | checked (`confirmed`) | 0/0/0 | 55/0/0 | 55/0/0 | band:55 | 8/13 | 1.268 | - |
+| 2026910306 | 무순위 | `options_table_not_found` (0.669초) | checked (`confirmed`) | 0/0/0 | 24/0/0 | 0/24/0 | band:24 | 6/10 | 0.597 | `options_table_not_found` |
+| 2026930043 | 불법행위 재공급 | `option_item_duplicated`, `option_requirement_unverified`, `option_room_in_multiple_tables`, `option_table_continuation_unverified`, `required_options_uncrosschecked`, `room_not_in_options_table` (0.971초) | checked (`confirmed`) | 1/0/0 | 2/0/0 | 0/2/0 | room:2 | 8/15 | 0.705 | `option_item_duplicated`, `option_requirement_unverified`, `option_room_in_multiple_tables`, `option_table_continuation_unverified`, `required_options_uncrosschecked`, `room_not_in_options_table` |
+| 2026930045 | 불법행위 재공급 | - (1.214초) | checked (`confirmed`) | 3/0/0 | 3/0/0 | 3/0/0 | room:3 | 9/20 | 0.910 | - |
+| 2026930046 | 불법행위 재공급 | `contract_area_sum_mismatch`, `option_requirement_unverified` (0.485초) | checked (`confirmed`) | 2/0/0 | 2/0/0 | 0/2/0 | room:2 | 6/10 | 0.494 | `option_requirement_unverified` |
 
-`2026000560`의 2개 주택형과 `2026930046`의 2개 주택형은 공고문 원문 표의 공급면적+기타공용면적 합과 계약면적 표기가 소수 넷째 자리에서 실제로 달라 `contract_area_sum_mismatch` 보류를 유지한다. `2026000505`·`2026910292`·`2026910306`은 발코니 확장 선택 품목 문구가 명시되지 않아, `2026930043`·`2026930046`은 필수 승계 문구 또는 복수 옵션표 조건을 확인할 수 없어 옵션 보류를 유지한다.
+13건 전체 오프라인 PDF 처리 시간은 작업 R 전 34.077초(`MAX_TABLE_PAGES = 40` 절단 포함)에서 작업 R 후 25.451초(전체 쪽 스캔, 미완료 0건)로 줄었고, 전 표본에서 모든 쪽을 강제 전수 스캔한 결과와 필드·근거·납부 일정·사유 코드가 일치함을 확인했다. `2026910306`은 공고 전체에 발코니·옵션 언급이 없어 `options_table_not_found` 보류를 유지하고, `2026930043`·`2026930046`은 필수 승계 문구와 복수 옵션표·이어진 표 조건 때문에 옵션 보류를 유지한다. `2026000560`의 2개 주택형과 `2026930046`의 2개 주택형은 공급면적 합이 일치하고 계약면적만 `0.0001㎡` 반올림 차이가 있어 공급면적을 확인하되 `rounding_note` 참고 표시를 남긴다.

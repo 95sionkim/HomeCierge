@@ -23,14 +23,18 @@ from ingestion_notices import AREA, AREA_LENGTH, DOCUMENT_KEYS, DOCUMENT_SOURCES
 CONTRACT = 'notice-pdf-fields/v0'
 MAX_PDF_BYTES = 50 * 1024 * 1024  # 공식 첨부 확보 상한과 같다
 MAX_PAGES = 150  # 표 추출 전에 확인하는 전체 쪽 상한
-MAX_TABLE_PAGES = 40  # 표를 추출하는 후보 쪽(머리말 단어가 있는 쪽과 그 다음 쪽) 상한
+MAX_TABLE_PAGES = MAX_PAGES  # 전체 쪽 상한 안에서 후보 쪽을 잘라내지 않고 끝까지 스캔한다
 MAX_TABLE_CELLS = 4000
 MAX_BAND_LABEL_UTF16 = 64  # 공개 탐색 색인(64)과 자금표(120) 상한을 모두 만족한다
 OCR_TEXT_MIN = 50  # extract_notice_pdf의 OCR 검토 기준과 같다(공백 제외 글자 수)
 STATUSES = ('parser_unavailable', 'unreadable', 'encrypted', 'too_large', 'ocr_required', 'rejected', 'held',
             'unsupported_layout', 'checked')
-TABLE_TRIGGERS = ('주택형', '동호', '동·호', '동라인', '동·라인', '동별라인', '동별/라인별', '동별(라인별)',
-                  '품목', '대지비', '정정내용', '변경전', '정정전')
+# 표 머리말 조합으로 후보 쪽을 고른다. 일반 본문에도 자주 나오는 '주택형'·'품목'·'동호' 단독 일치를 피해
+# 전체 쪽 스캔 비용을 줄이되 면적·가격·옵션·납부·일정·정정 표 쪽은 빠뜨리지 않는다.
+PRICE_DIRECT_TRIGGERS = ('대지비', '재분양비')
+PRICE_TITLE_HINTS = ('분양가', '공급금액', '공급가격')
+OPTION_ITEM_CONTEXT = ('동호수', '동호', '동·호', '유상', '무상', '계약금', '잔금', '발코니확장', '확장금액', '옵션금액', '공급금액')
+CORRECTION_TRIGGERS = ('정정내용', '정정사항', '정정내역', '변경내역', '변경전', '정정전')
 INCOMPLETE_SCANS = ('skipped_limit', 'failed', 'text_failed')
 _CURRENT_ROUND_QUALIFIER = (
     r'(?:(?:주택|아파트|공고|단지)\s*의\s*)?'
@@ -69,7 +73,7 @@ SCHEDULE_HEADERS = (
 SCHEDULE_DATE = re.compile(r'(\d{4})\s*[.\-]\s*(\d{1,2})\s*[.\-]\s*(\d{1,2})\.?\s*(?:\(\s*([월화수목금토일])\s*\))?')
 # 두 자리 연도 일정값. 세기를 추정하지 않고 API 공고일(또는 원문의 유일한 전체 날짜)과 같을 때만 그 날짜로 본다.
 SHORT_DATE = re.compile(r'(\d{2})\.(\d{1,2})\.(\d{1,2})\.?(?:\(([월화수목금토일])\))?')
-SCHEDULE_TRIGGER = re.compile(r'(?:입주자)?모집공고일.{0,120}?(?:당첨자발표|청약접수|일반공급|특별공급|무순위)')
+SCHEDULE_TRIGGER = re.compile(r'(?:입주자)?모집공고일.{0,120}?(?:당첨자발표|청약접수|접수일|계약체결|정당계약)')
 CONTRACT_SCHEDULE_TRIGGER = re.compile(r'당첨자발표.{0,80}?(?:계약체결|정당계약)')
 CONTRACT_SCHEDULE_HEADERS = ('계약체결', '계약체결일', '정당계약', '정당계약일')
 AWARD_SCHEDULE_HEADERS = ('당첨자발표', '당첨자발표일')
@@ -110,6 +114,15 @@ BUILDING_LINE_SEGMENT = re.compile(
 )
 DASHES = ('-', '–', '—', '－')
 MONEY_UNITS = {'원': 1, '천원': 1000, '만원': 10000}
+UNSUPPORTED_MONEY_UNIT = re.compile(r'^(?:십|백|십만|백만|천만|억|십억|백억|천억)원$')
+# 쪼개진 단위 문구(예: '단위세대원 ( : , )')를 판정한다. 천원·만원·백만원·억원 등을 긴 토큰 우선으로 분해해
+# 천원·만원을 원으로 오인하거나 미지원 단위(백만원·억원)를 만원·원으로 오인하지 않는다.
+GLUED_UNIT_TOKEN = re.compile(
+    r'(?:십억|백억|천억|억|천만|백만|십만|백|십)원'
+    r'|천원|만원|원|㎡|m²|m2|평|세대|호|동|층|개소|구분'
+    r'|부가가치세포함|부가가치세별도|부가세포함|부가세별도|VAT포함|VAT별도'
+)
+UNIT_STRIP_PUNCT = re.compile(r'[\s()\[\]:：,/··∙■□◆◇▣\-]+')
 AREA_UNITS = {'㎡': 'm2', 'm²': 'm2', 'm2': 'm2', '평': 'pyeong'}
 # 옵션 표 바로 위·아래 문장에서만 찾는 승계(필수) 명시 문구와, 같은 근처에 있으면 적용을 단정하지 않는 부정·선택 문구.
 REQUIRED_OPTION_PHRASES = (
@@ -119,14 +132,25 @@ REQUIRED_OPTION_PHRASES = (
     '비확장을별도로신청할수없',
 )
 # 문서 전체에서 '선택 품목 명시' 적용을 막는 필수 승계·강제 확장 문구(계약 후 변경 불가·실별 선택 불가 같은 일반 안내 제외).
+# 이 목록은 문장 자체로 옵션·기존계약 승계나 강제 확장을 가리키므로 같은 문장에 발코니·옵션 단어가 없어도 차단한다.
 MANDATORY_SUCCESSION_PHRASES = (
-    '기존계약을승계', '기존옵션계약을승계', '기존계약조건을승계', '기존내용을승계', '승계하는조건',
-    '유상옵션을승계', '추가선택품목을승계', '승계하여야하며', '발코니확장형으로만공급',
+    '기존계약을승계', '기존옵션계약을승계', '기존계약조건을승계', '기존내용을승계', '기존계약승계', '옵션계약승계',
+    '유상옵션을승계', '추가선택품목을승계', '발코니확장형으로만공급',
     '비확장을별도로신청할수없', '선택및변경이불가하며기존', '별도로선택이불가하며기존',
     '유상옵션의변경취소이불가', '유상옵션의변경및취소가불가',
+    '전세대발코니확장', '전세대확장형', '발코니확장이필수', '발코니확장은필수',
+    '확장형으로만시공', '비확장선택불가', '비확장형선택불가',
 )
+# 같은 문장에 발코니·추가선택품목·유상옵션·위항목 주제가 함께 있을 때만 필수·승계로 보는 문구
+# (예: 도시가스 정압기 부지 점용계약 승계 같은 무관한 조항의 오인을 막는다).
+TOPIC_MANDATORY_PHRASES = (
+    '승계하는조건', '승계하여야하며', '승계하여야', '승계합니다', '승계조건',
+    '필수승계', '필수선택', '필수옵션', '필수로계약', '필수적으로계약', '의무적으로계약',
+)
+MANDATORY_CONTEXT_TOPICS = ('발코니', '추가선택품목', '유상옵션', '선택품목', '옵션', '위항목', '기존계약')
 OPTION_NEGATIONS = ('승계하지', '승계되지', '승계대상이아', '않아도', '아님', '아닙니다', '선택가능', '선택이가능',
-                    '선택할수있', '선택하실수있', '선택사항', '변경가능', '변경이가능')
+                    '선택할수있', '선택하실수있', '변경가능', '변경이가능')
+OPTIONAL_MATTER_NEGATION = re.compile(r'(?<!필수)선택사항')
 OPTION_TOPICS = ('승계', '선택', '옵션', '품목', '확장', '변경')  # 옵션 적용과 관련된 부정 문장만 센다
 # 신규분양·무순위에서 발코니 확장 및 추가선택품목이 계약자 선택 품목임을 명시하는 긍정 문구.
 OPTIONAL_OPTION_TOPICS = ('발코니확장', '추가선택품목', '유상옵션', '선택품목')
@@ -135,6 +159,32 @@ OPTIONAL_OPTION_PHRASES = (
     '별도계약을통해선택', '선택하여계약하는사항', '선택하여계약하는별도계약품목', '선택계약하는사항',
     '선택하여계약할수있', '계약자의선택에따라', '계약자선택품목으로', '선택품목이며계약자가선택',
     '계약자가선택하여별도계약', '계약자가선택하는별도계약', '선택품목으로별도계약',
+    '추가로품목을선택하고공급계약을체결할수있',
+)
+# 발코니 확장·추가선택품목이 공급금액 미포함 또는 별도 계약·별도 납부계좌로 안내된 문구(필수·승계 문구가 없을 때만 사용).
+_OPT_TOPIC_COMPACT = r'(?:발코니확장|추가선택품목|유상옵션|선택품목)'
+OPTIONAL_SEPARATE_PATTERNS = (
+    re.compile(
+        r'(?:공급금액|분양가격|분양가|공급가격)(?:에는|은|는).{0,70}?'
+        + _OPT_TOPIC_COMPACT
+        + r'.{0,70}?(?:미포함|포함되어있지|포함되지|포함하지)'
+    ),
+    re.compile(
+        _OPT_TOPIC_COMPACT
+        + r'.{0,40}?(?:분양가|공급금액|분양가격|공급가격)(?:에는|에|와|과).{0,25}?(?:미포함|포함되어있지|포함되지|별도)'
+    ),
+    re.compile(_OPT_TOPIC_COMPACT + r'.{0,35}?(?:공급계약|분양계약|아파트공급계약).{0,20}?별도'),
+    re.compile(_OPT_TOPIC_COMPACT + r'.{0,30}?별도(?:의|로)?계약(?:서|품목|을진행|을체결|으로|진행|체결)'),
+    re.compile(r'(?:공급계약|분양계약)서.{0,25}?' + _OPT_TOPIC_COMPACT + r'.{0,25}?계약서'),
+    re.compile(
+        r'(?:분양대금|공급대금|공급금액).{0,40}?(?:납부계좌|입금계좌|계좌).{0,50}?'
+        + _OPT_TOPIC_COMPACT
+        + r'.{0,45}?(?:계좌와상이|계좌와다르|별도계좌|별도납부)'
+    ),
+    re.compile(
+        _OPT_TOPIC_COMPACT
+        + r'.{0,45}?(?:납부계좌|입금계좌|계좌|대금).{0,45}?(?:분양대금|공급대금).{0,20}?(?:납부계좌|입금계좌|계좌)(?:와|과)(?:상이|별도|다르)'
+    ),
 )
 OPTION_TABLE_HEADINGS = ('발코니확장', '추가선택품목', '유상옵션', '시스템에어컨', '가전옵션', '플러스옵션')
 # PDF 본문 정정 표지(A-59a). 공고문 일반 유의사항의 '정정공고할 수 있습니다' 같은 상투 문구는 제외한다.
@@ -184,6 +234,41 @@ def _extract_hlines(page):
                 if abs(p1.y - p2.y) <= 1.5 and abs(p1.x - p2.x) >= 10:
                     hlines.append((float(min(p1.x, p2.x)), float(max(p1.x, p2.x)), float((p1.y + p2.y) / 2)))
     return hlines
+
+
+def _needs_table_scan(key):
+    """공백을 제거한 쪽 텍스트가 면적·가격·옵션·납부·일정·정정 표 후보인지 판정한다."""
+    if not key:
+        return False
+    if any(word in key for word in PRICE_DIRECT_TRIGGERS):
+        return True
+    if any(word in key for word in CORRECTION_TRIGGERS):
+        return True
+    if SCHEDULE_TRIGGER.search(key) or CONTRACT_SCHEDULE_TRIGGER.search(key):
+        return True
+    # 공급면적·공급대상 표는 _classify에서 '주택형'과 '모델' 열을 모두 요구한다.
+    if '주택형' in key and '모델' in key:
+        return True
+    # 대지비 열이 없는 호실/구간/무순위 가격표(납부 단계 또는 동·호 열을 동반한다).
+    if any(word in key for word in PRICE_TITLE_HINTS):
+        if ('계약금' in key and '잔금' in key) or any(word in key for word in ('동호수', '동호', '동·호')):
+            return True
+    # 호실별 옵션 표와 주택형별 발코니 확장·유상옵션 표.
+    if '품목' in key and '금액' in key and any(word in key for word in OPTION_ITEM_CONTEXT):
+        return True
+    if any(word in key for word in ('확장금액', '옵션금액')):
+        return True
+    if '발코니확장' in key and '금액' in key and '계약금' in key and '잔금' in key:
+        return True
+    return False
+
+
+def _table_shape(table, entry, tables):
+    grid = _grid(table, entry.get('words'), entry.get('hlines'), tables)
+    if not grid:
+        return None, None
+    _, header = _header(grid)
+    return len(grid[0]), header is None
 
 
 def _read_pdf(raw):
@@ -240,18 +325,31 @@ def _read_pdf(raw):
 
             for entry in pages:
                 key = compact(entry['text'])
-                if (any(word in key for word in TABLE_TRIGGERS) or SCHEDULE_TRIGGER.search(key)
-                        or CONTRACT_SCHEDULE_TRIGGER.search(key)):
+                if _needs_table_scan(key):
                     if scan(entry['page']):
-                        # 쪽 끝의 가격·구간 가격·옵션 표는 다음 쪽에 머리말 없이 이어질 수 있어 바로 다음 쪽을 이어 스캔한다.
+                        # 쪽 끝의 가격·구간 가격·옵션 표는 다음 여러 쪽에 머리말 없이 이어질 수 있어
+                        # 같은 열 수의 머리말 없는 표가 이어지는 동안 계속 다음 쪽을 스캔한다.
                         cur = entry['page']
+                        cont_width = None
                         while cur < len(pages):
                             cur_entry = pages[cur - 1]
                             tables = sorted(cur_entry['tables'], key=lambda t: t['bbox'][1])
-                            if tables and _kind(tables[-1], cur_entry, tables) in ('price', 'band_price', 'options'):
+                            if not tables:
+                                break
+                            last_tbl = tables[-1]
+                            if _kind(last_tbl, cur_entry, tables) in ('price', 'band_price', 'options'):
+                                cont_width, _ = _table_shape(last_tbl, cur_entry, tables)
                                 if not scan(cur + 1):
                                     break
                                 cur += 1
+                            elif cont_width is not None and len(tables) == 1:
+                                width, is_headerless = _table_shape(last_tbl, cur_entry, tables)
+                                if is_headerless and width == cont_width:
+                                    if not scan(cur + 1):
+                                        break
+                                    cur += 1
+                                else:
+                                    break
                             else:
                                 break
             return 'read', None, pages, extractor
@@ -642,22 +740,68 @@ def _contract_dates(grid, words, page):
             and (value := _dated(match.groups(), page, 'contract_schedule_table'))]
 
 
+def _parse_unit_note(note):
+    """표 위 단위 문구에서 금액·면적 단위를 뽑는다. 쪼개진 단위 문구('단위세대원 ( : , )')도 판정하되
+    천원·만원·백만원·억원 오인을 막는다."""
+    money, area = set(), set()
+    if not note:
+        return money, area
+    delimited = []
+    for inner in UNIT_NOTE.findall(note):
+        delimited.extend(t for t in re.split(r'[,/··∙:：\s()\[\]]+', inner) if t)
+    for token in delimited:
+        if token in MONEY_UNITS:
+            money.add(MONEY_UNITS[token])
+        elif UNSUPPORTED_MONEY_UNIT.fullmatch(token):
+            money.add(None)
+        elif token in AREA_UNITS:
+            area.add(AREA_UNITS[token])
+    if not money and not area:
+        candidates = []
+        for match in re.finditer(r'단\s*위', note):
+            tail = re.split(r'[※•▪]|다\.', note[match.end():], maxsplit=1)[0]
+            stripped = UNIT_STRIP_PUNCT.sub('', tail)
+            if stripped and len(stripped) <= 40:
+                candidates.append(stripped)
+        if not any(''.join(GLUED_UNIT_TOKEN.findall(c)) == c for c in candidates):
+            short_all = UNIT_STRIP_PUNCT.sub('', note)
+            if '단위' in short_all and len(short_all) <= 32:
+                candidates.append(short_all.replace('단위', ''))
+        for cand in candidates:
+            parts = GLUED_UNIT_TOKEN.findall(cand)
+            if not parts or ''.join(parts) != cand:
+                continue
+            for token in parts:
+                if token in MONEY_UNITS:
+                    money.add(MONEY_UNITS[token])
+                elif UNSUPPORTED_MONEY_UNIT.fullmatch(token):
+                    money.add(None)
+                elif token in AREA_UNITS:
+                    area.add(AREA_UNITS[token])
+    if money == {None}:
+        money = set()
+    return money, area
+
+
 def _units(labels, note):
     """머리말 괄호와 표 바로 위 단위 표기에서 금액·면적 단위를 모은다."""
-    tokens = set()
+    money, area = set(), set()
     for parts in labels:
         for part in parts:
             for inner in PAREN.findall(part):
-                tokens.update(t for t in re.split(r'[,/·:：\s]+', inner) if t)
-    note_tokens = set()
-    for inner in UNIT_NOTE.findall(note or ''):
-        note_tokens.update(t for t in re.split(r'[,/·\s]+', inner) if t)
-    if (note and '단위' in note and len(compact(note)) <= 32
-            and not any(t in MONEY_UNITS or t in AREA_UNITS for t in note_tokens)):
-        # 세로로 줄바꿈된 짧은 단위 표기(예: '단위\n세대\n원\n(\n:\n,\n)')에서 단위 토큰을 복구한다.
-        note_tokens.update(t for t in re.split(r'[,/·:：\s()\[\]]+', note) if t)
-    tokens.update(note_tokens)
-    return ({MONEY_UNITS[t] for t in tokens if t in MONEY_UNITS}, {AREA_UNITS[t] for t in tokens if t in AREA_UNITS})
+                for token in (t for t in re.split(r'[,/··∙:：\s]+', inner) if t):
+                    if token in MONEY_UNITS:
+                        money.add(MONEY_UNITS[token])
+                    elif UNSUPPORTED_MONEY_UNIT.fullmatch(token):
+                        money.add(None)
+                    elif token in AREA_UNITS:
+                        area.add(AREA_UNITS[token])
+    note_money, note_area = _parse_unit_note(note)
+    money.update(note_money)
+    area.update(note_area)
+    if money == {None}:
+        money = set()
+    return money, area
 
 
 def _bounds(table, tables, page_height=None):
@@ -671,7 +815,7 @@ def _bounds(table, tables, page_height=None):
 def _unit_note(page, table, tables):
     top = table['bbox'][1]
     floor, _ = _bounds(table, tables)
-    notes = [b for b in page['blocks'] if '단위' in b[4] and floor - 1 <= b[1] and b[3] <= top + 3
+    notes = [b for b in page['blocks'] if '단위' in compact(b[4]) and floor - 1 <= b[1] and b[3] <= top + 3
              and top - b[3] <= NOTE_ABOVE]
     return max(notes, key=lambda b: b[3])[4] if notes else None
 
@@ -688,13 +832,17 @@ def _near_blocks(page, table, tables):
     return [b[4] for b in blocks if (start <= b[1] and b[3] <= top + 3) or (bottom - 3 <= b[1] < end)]
 
 
+def _has_option_negation(key):
+    return any(word in key for word in OPTION_NEGATIONS) or OPTIONAL_MATTER_NEGATION.search(key) is not None
+
+
 def _option_scope(page, table, tables):
     """옵션 표에 묶인 문장만으로 승계(필수) 적용을 판정한다: required|ambiguous|unverified와 긍정·부정 문장 수."""
     positive = negative = 0
     for text in _near_blocks(page, table, tables):
         for sentence in SENTENCE_BREAK.split(text):
             key = compact(sentence)
-            denies = any(word in key for word in OPTION_NEGATIONS)
+            denies = _has_option_negation(key)
             if any(phrase in key for phrase in REQUIRED_OPTION_PHRASES) and not denies:
                 positive += 1
             elif denies and any(word in key for word in OPTION_TOPICS):
@@ -704,20 +852,28 @@ def _option_scope(page, table, tables):
 
 
 def _doc_option_policy(pages):
-    """문서 전체에서 발코니 확장·추가선택품목의 선택 품목 명시와 필수 승계 문구를 구분해 찾는다."""
+    """문서 전체에서 발코니 확장·추가선택품목의 선택·별도 계약 명시와 필수·승계 문구를 구분해 찾는다."""
     mandatory_pages, optional_pages = set(), set()
     for page in pages:
         for sentence in SENTENCE_BREAK.split(page.get('text') or ''):
             key = compact(sentence)
             if not key:
                 continue
+            denies = _has_option_negation(key)
+            has_mandatory_context = any(topic in key for topic in MANDATORY_CONTEXT_TOPICS)
+            is_mandatory = (
+                not denies
+                and (any(phrase in key for phrase in MANDATORY_SUCCESSION_PHRASES)
+                     or (has_mandatory_context and any(phrase in key for phrase in TOPIC_MANDATORY_PHRASES)))
+            )
+            if is_mandatory:
+                mandatory_pages.add(page['page'])
+                continue
             has_topic = any(topic in key for topic in OPTIONAL_OPTION_TOPICS)
             if not has_topic:
                 continue
-            denies = any(word in key for word in OPTION_NEGATIONS)
-            if any(phrase in key for phrase in MANDATORY_SUCCESSION_PHRASES) and not denies:
-                mandatory_pages.add(page['page'])
-            if any(phrase in key for phrase in OPTIONAL_OPTION_PHRASES):
+            if (any(phrase in key for phrase in OPTIONAL_OPTION_PHRASES)
+                    or any(pattern.search(key) for pattern in OPTIONAL_SEPARATE_PATTERNS)):
                 optional_pages.add(page['page'])
     return sorted(mandatory_pages), sorted(optional_pages)
 
@@ -1192,7 +1348,8 @@ def _area_fields(table, rows, cols, units, page, types, numbers, supply_counts):
         if None in (exclusive, common, supply) or not AREA.fullmatch(_text(supply_cell)):
             field.hold('area_cells_unreadable')
         else:
-            field.check('supply_equals_exclusive_plus_common', 'pass' if exclusive + common == supply else 'fail',
+            supply_ok = exclusive + common == supply
+            field.check('supply_equals_exclusive_plus_common', 'pass' if supply_ok else 'fail',
                         'supply_area_sum_mismatch')
             prefix = HOUSE_TYPE.fullmatch(house_type)
             if prefix and _decimals(Decimal(prefix[1])) >= _decimals(exclusive):
@@ -1203,8 +1360,14 @@ def _area_fields(table, rows, cols, units, page, types, numbers, supply_counts):
             other = _decimal(row[cols['otherCommon']]) if 'otherCommon' in cols else None
             contract = _decimal(row[cols['contract']]) if 'contract' in cols else None
             if other is not None and contract is not None:
-                field.check('contract_equals_supply_plus_other', 'pass' if supply + other == contract else 'fail',
-                            'contract_area_sum_mismatch')
+                diff = abs((supply + other) - contract)
+                if diff == 0:
+                    field.data['checks']['contract_equals_supply_plus_other'] = 'pass'
+                elif supply_ok and diff <= Decimal('0.0001'):
+                    # 공급면적(주거전용+주거공용)이 일치하고 계약면적만 0.0001㎡ 반올림 차이일 때는 참고 표시만 남긴다.
+                    field.data['checks']['contract_equals_supply_plus_other'] = 'rounding_note'
+                else:
+                    field.check('contract_equals_supply_plus_other', 'fail', 'contract_area_sum_mismatch')
             field.value = _text(supply_cell)
             if api['apiSupply'] is not None:
                 # 정보용. API SUPLY_AR와의 불일치 보류는 normalize_catalog가 판정한다.
@@ -1466,7 +1629,8 @@ def _installment_amounts(rows, cols, ambiguous):
 def _payment_schedule(field, document, *, timings=(), amounts=None, reasons=()):
     data = field.data
     schedule = {key: data[key] for key in ('modelNo', 'houseType', 'room', 'item')}
-    evidence = [_page_ref(document, data['page'])] if data['page'] else []
+    ev_pages = data.get('evidencePages') or ([data['page']] if data['page'] else [])
+    evidence = [_page_ref(document, p) for p in ev_pages]
     problems = list(dict.fromkeys([*reasons, *data['reasons']]))
     status = field.status
     if status == 'confirmed' and 'payment_amount_mismatch' in problems:
@@ -1585,26 +1749,65 @@ def _price_fields(table, rows, cols, units, page, labels, types, document, *, he
     return fields, issues
 
 
+def _col_origin_key(row, cols, role):
+    indices = cols.get(role + 'Cols') or ([cols[role]] if role in cols else [])
+    origins = tuple(row[c]['origin'] for c in indices if c < len(row) and row[c])
+    return origins or None
+
+
+def _can_stitch_building_lines(prev_raw, curr_raw):
+    """쪽 경계에서 분할된 동별·라인별 병합 셀을 보수적으로 이어 붙일 수 있는지 판정한다."""
+    prev_parsed = _parse_building_lines(prev_raw)
+    curr_parsed = _parse_building_lines(curr_raw)
+    combined_raw = f'{prev_raw} {curr_raw}'
+    combined_parsed = _parse_building_lines(combined_raw)
+    if combined_parsed is None:
+        return None
+    # 앞 쪽 끝 표기가 '104,105동'처럼 동만 있고 라인(호)이 빠졌고, 다음 쪽 첫 셀이 '3,4호'처럼 단독 해석 불가한 라인 조각인 경우.
+    if (prev_parsed is not None and prev_parsed[2][-1][1] is None
+            and curr_parsed is None and combined_parsed[2][-1][1] is not None):
+        return combined_raw, combined_parsed
+    # 앞 쪽 끝 표기가 쉼표·숫자 등에서 끊겨 단독 해석 불가하고, 다음 쪽 첫 셀과 합쳐야 동·라인이 완성되는 경우.
+    if prev_parsed is None and combined_parsed[2][-1][1] is not None:
+        return combined_raw, combined_parsed
+    return None
+
+
 def _band_price_fields(stitched_entries, labels, types, supply_counts, document):
     """동·호 라인 × 층 구간 가격표 묶음(여러 쪽 이어짐 포함)을 가격 단위로 읽고 교차 검산한다."""
     fields, issues, payment_map = [], [], {}
-    model_groups = {}  # (modelNo, houseType) -> {'fields': [], 'type_counts': {}, 'bad_households': bool, 'bands': []}
+    model_groups = {}  # (modelNo, houseType) -> {'fields': [], 'sub_groups': {}, 'bad_households': bool, 'bands': []}
     all_records = []  # (field, entry, row_index, row, pairs, floor_info, type_label)
+    resolved_rows = []
 
     carry_mapped = None
     carry_type_label = None
     carry_line_raw = None
+    carry_line_origin = None
+    carry_stitch_pages = None
     carry_type_count = None
 
-    for entry in stitched_entries:
+    # 1단계: 여러 쪽에 걸친 행을 수집하고, 같은 열 구조로 이어진 다음 쪽 첫 묶음의 분할된 동별·라인별 셀만 보수적으로 이어 붙인다.
+    for entry_idx, entry in enumerate(stitched_entries):
         page, table, cols, units = entry['page'], entry['table'], entry['cols'], entry['units']
-        multiplier = next(iter(units[0])) if len(units[0]) == 1 else None
         has_line = 'line' in cols
         has_band_count = 'bandCount' in cols
         # 해당세대수 열이 별도로 있으면 bandCount, 없으면(무순위·공공분양 구간표) count 열이 구간 세대수다.
         hh_col = cols['bandCount'] if has_band_count else cols.get('count')
         type_count_col = cols.get('count') if has_band_count else None
         heading_text = entry.get('headingText', '')
+
+        prev_entry = stitched_entries[entry_idx - 1] if entry_idx > 0 else None
+        can_stitch_boundary = (
+            prev_entry is not None
+            and has_line
+            and 'line' in prev_entry['cols']
+            and page['page'] == prev_entry['page']['page'] + 1
+            and entry['width'] == prev_entry['width']
+            and cols['line'] == prev_entry['cols']['line']
+        )
+        stitch_checked = False
+        stitched_curr_origin = None
 
         for index, row in entry['rows']:
             if any(_text(cell) in SUMMARY_ROWS for cell in row[:4]):
@@ -1625,129 +1828,212 @@ def _band_price_fields(stitched_entries, labels, types, supply_counts, document)
             if mapped is None:
                 issues.append(_issue(document, reason, page=page['page'], table=table['id'], row=index))
                 carry_mapped = None
+                carry_type_label = None
                 carry_line_raw = None
+                carry_line_origin = None
+                carry_stitch_pages = None
                 carry_type_count = None
+                stitch_checked = True
                 continue
             if explicit_type:
-                if carry_mapped is None or mapped[:2] != carry_mapped[:2]:
+                new_label = row_label_val or row_type_val
+                if (carry_mapped is None or mapped[:2] != carry_mapped[:2]
+                        or (row_label_val and carry_type_label and row_label_val != carry_type_label)):
                     carry_line_raw = None
+                    carry_line_origin = None
+                    carry_stitch_pages = None
                     carry_type_count = None
                 carry_mapped = mapped
-                carry_type_label = row_label_val or row_type_val
+                carry_type_label = new_label
             type_label = row_label_val or row_type_val or carry_type_label or mapped[1].strip()
 
-            if type_count_col is not None and row[type_count_col] and _text(row[type_count_col]):
+            explicit_count = bool(type_count_col is not None and row[type_count_col] and _text(row[type_count_col]))
+            if explicit_count:
                 tc = _amount(row[type_count_col])
                 carry_type_count = (page['page'], table['id'], row[type_count_col]['origin'], tc)
+                carry_stitch_pages = None
 
+            evidence_pages = [page['page']]
             if has_line:
                 line_raw = _col_raw_text(row, cols, 'line')
-                if line_raw and compact(line_raw) not in DASHES:
+                row_line_origin = (page['page'], table['id'], _col_origin_key(row, cols, 'line'))
+                has_line_text = bool(line_raw and compact(line_raw) not in DASHES)
+
+                if not stitch_checked:
+                    stitch_checked = True
+                    if (can_stitch_boundary and not explicit_type and not explicit_count
+                            and has_line_text and carry_line_raw and carry_line_origin is not None):
+                        stitched = _can_stitch_building_lines(carry_line_raw, line_raw)
+                        if stitched is not None:
+                            combined_raw, combined_parsed = stitched
+                            prev_page_num = prev_entry['page']['page']
+                            both_pages = sorted({prev_page_num, page['page']})
+                            for prev_rec in reversed(resolved_rows):
+                                if prev_rec['line_origin'] != carry_line_origin:
+                                    break
+                                prev_rec['line_raw'] = combined_raw
+                                prev_rec['parsed_loc'] = combined_parsed
+                                prev_rec['evidence_pages'] = sorted({*prev_rec['evidence_pages'], page['page']})
+                            carry_line_raw = combined_raw
+                            carry_stitch_pages = both_pages
+                            stitched_curr_origin = row_line_origin
+
+                if stitched_curr_origin is not None and row_line_origin == stitched_curr_origin and not explicit_type and not explicit_count:
+                    line_raw = carry_line_raw
+                    parsed_loc = _parse_building_lines(line_raw) if line_raw else None
+                    evidence_pages = list(carry_stitch_pages)
+                elif has_line_text:
                     carry_line_raw = line_raw
+                    carry_line_origin = row_line_origin
+                    carry_stitch_pages = None
+                    stitched_curr_origin = None
+                    parsed_loc = _parse_building_lines(line_raw)
                 else:
                     line_raw = carry_line_raw
-                parsed_loc = _parse_building_lines(line_raw) if line_raw else None
+                    parsed_loc = _parse_building_lines(line_raw) if line_raw else None
+                    if carry_stitch_pages is not None:
+                        evidence_pages = list(carry_stitch_pages)
             else:
+                line_raw = None
                 parsed_loc = ([], [], [])
 
-            floor_info = _parse_floor_band(floor_text)
-            households = _amount(row[hh_col]) if hh_col is not None else None
-            if households is not None and households <= 0:
-                households = None
-
-            buildings, lines, pairs = parsed_loc if parsed_loc is not None else ([], [], [])
-            floor_label = floor_info['label'] if floor_info else (floor_text or f'행{index}')
-            display_name = _band_display_name(buildings, lines, pairs, floor_label, type_label=type_label)
-            unit = {
-                'kind': 'band',
-                'buildings': buildings,
-                'lines': lines,
-                'floors': {'from': floor_info['from'], 'to': floor_info['to']} if floor_info else {'from': None, 'to': None},
-                'households': households if households is not None else 1,
-            }
-            field = _Field('sale_price', page['page'], table['id'], index,
-                           modelNo=mapped[0], houseType=mapped[1], room=display_name, unit=unit)
-            field.mapped = mapped
-            if mapped[2]:
-                field.hold(mapped[2], 'conflict' if mapped[2] == 'house_type_mismatch' else 'unverified')
-            if has_line and parsed_loc is None:
-                field.hold('band_location_unreadable')
-            if floor_info is None:
-                field.hold('band_floor_unreadable')
-            if households is None:
-                field.hold('band_households_unreadable')
-
-            field.raw, field.data['cell'] = _text(total_cell) or None, total_cell['bbox'] if total_cell else None
-            total = _amount(total_cell)
-            field.check('unit', 'pass' if multiplier else 'fail',
-                        'amount_unit_ambiguous' if units[0] else 'amount_unit_unverified', 'unverified')
-            if not total:
-                field.hold('sale_price_unreadable')
-            else:
-                crosschecked = False
-                comp_sum, comp_state = _component_sum(row, cols)
-                if comp_state == 'ok':
-                    field.check('total_equals_land_plus_building', 'pass' if comp_sum == total else 'fail',
-                                'sale_price_component_mismatch')
-                    crosschecked = comp_sum == total
-                elif comp_state == 'unreadable':
-                    field.check('total_equals_land_plus_building', 'fail', 'sale_price_component_mismatch')
-                paid = _payments([(index, row)], cols)
-                if paid is not None:
-                    field.check('total_equals_payment_schedule', 'pass' if paid == total else 'fail',
-                                'sale_price_payment_mismatch')
-                    crosschecked = crosschecked or paid == total
-                if not crosschecked and not field.held:
-                    field.hold('sale_price_uncrosschecked')
-                won = total * (multiplier or 1)
-                top = next((t['topWon'] for t in types if t['modelNo'] == mapped[0]), None)
-                if top is not None:
-                    field.check('within_api_top_amount', 'pass' if won // 10000 <= top // 10000 else 'fail',
-                                'sale_price_exceeds_api_top_amount')
-                if len(str(won)) <= WON_LENGTH and WON.fullmatch(str(won)):
-                    field.value = str(won)
-
-            group = model_groups.setdefault(mapped[:2], {
-                'fields': [], 'sub_groups': {}, 'bad_households': False, 'bands': [],
+            resolved_rows.append({
+                'entry': entry,
+                'page': page,
+                'table': table,
+                'cols': cols,
+                'units': units,
+                'has_line': has_line,
+                'hh_col': hh_col,
+                'row_idx': index,
+                'row': row,
+                'floor_text': floor_text,
+                'total_cell': total_cell,
+                'mapped': mapped,
+                'type_label': type_label,
+                'type_count': carry_type_count,
+                'line_raw': line_raw,
+                'line_origin': carry_line_origin,
+                'parsed_loc': parsed_loc,
+                'evidence_pages': evidence_pages,
             })
-            group['fields'].append(field)
-            if households is None:
-                group['bad_households'] = True
-            sub = group['sub_groups'].setdefault(type_label, {'fields': [], 'type_counts': {}, 'households': 0})
-            sub['fields'].append(field)
-            if households is not None:
-                sub['households'] += households
-            if carry_type_count is not None:
-                tc_key = carry_type_count[:3]
-                sub['type_counts'][tc_key] = carry_type_count[3]
-            group['bands'].append((field, pairs, floor_info, households, has_line))
-            all_records.append((field, entry, index, row, pairs, floor_info, type_label))
-            fields.append(field)
 
-    # 교차 검사 1: 주택형별(하위 타입 포함) 해당세대수 합 == 공급세대수 (가격표 공급세대수 및 공급대상 표 세대수 모두 확인)
+    # 2단계: 확정된 동·라인·근거 쪽으로 가격 항목을 만들고 묶음 소계·주택형 합계·층 구간 겹침을 교차 검산한다.
+    for rec in resolved_rows:
+        entry, page, table, cols, units = rec['entry'], rec['page'], rec['table'], rec['cols'], rec['units']
+        index, row, mapped, type_label = rec['row_idx'], rec['row'], rec['mapped'], rec['type_label']
+        has_line, hh_col, floor_text, total_cell = rec['has_line'], rec['hh_col'], rec['floor_text'], rec['total_cell']
+        parsed_loc = rec['parsed_loc']
+        multiplier = next(iter(units[0])) if len(units[0]) == 1 else None
+
+        floor_info = _parse_floor_band(floor_text)
+        households = _amount(row[hh_col]) if hh_col is not None else None
+        if households is not None and households <= 0:
+            households = None
+
+        buildings, lines, pairs = parsed_loc if parsed_loc is not None else ([], [], [])
+        floor_label = floor_info['label'] if floor_info else (floor_text or f'행{index}')
+        display_name = _band_display_name(buildings, lines, pairs, floor_label, type_label=type_label)
+        unit = {
+            'kind': 'band',
+            'buildings': buildings,
+            'lines': lines,
+            'floors': {'from': floor_info['from'], 'to': floor_info['to']} if floor_info else {'from': None, 'to': None},
+            'households': households if households is not None else 1,
+        }
+        field_ctx = {'modelNo': mapped[0], 'houseType': mapped[1], 'room': display_name, 'unit': unit}
+        if len(rec['evidence_pages']) > 1:
+            field_ctx['evidencePages'] = list(rec['evidence_pages'])
+        field = _Field('sale_price', page['page'], table['id'], index, **field_ctx)
+        field.mapped = mapped
+        if mapped[2]:
+            field.hold(mapped[2], 'conflict' if mapped[2] == 'house_type_mismatch' else 'unverified')
+        if has_line and parsed_loc is None:
+            field.hold('band_location_unreadable')
+        if floor_info is None:
+            field.hold('band_floor_unreadable')
+        if households is None:
+            field.hold('band_households_unreadable')
+
+        field.raw, field.data['cell'] = _text(total_cell) or None, total_cell['bbox'] if total_cell else None
+        total = _amount(total_cell)
+        field.check('unit', 'pass' if multiplier else 'fail',
+                    'amount_unit_ambiguous' if units[0] else 'amount_unit_unverified', 'unverified')
+        if not total:
+            field.hold('sale_price_unreadable')
+        else:
+            crosschecked = False
+            comp_sum, comp_state = _component_sum(row, cols)
+            if comp_state == 'ok':
+                field.check('total_equals_land_plus_building', 'pass' if comp_sum == total else 'fail',
+                            'sale_price_component_mismatch')
+                crosschecked = comp_sum == total
+            elif comp_state == 'unreadable':
+                field.check('total_equals_land_plus_building', 'fail', 'sale_price_component_mismatch')
+            paid = _payments([(index, row)], cols)
+            if paid is not None:
+                field.check('total_equals_payment_schedule', 'pass' if paid == total else 'fail',
+                            'sale_price_payment_mismatch')
+                crosschecked = crosschecked or paid == total
+            if not crosschecked and not field.held:
+                field.hold('sale_price_uncrosschecked')
+            won = total * (multiplier or 1)
+            top = next((t['topWon'] for t in types if t['modelNo'] == mapped[0]), None)
+            if top is not None:
+                field.check('within_api_top_amount', 'pass' if won // 10000 <= top // 10000 else 'fail',
+                            'sale_price_exceeds_api_top_amount')
+            if len(str(won)) <= WON_LENGTH and WON.fullmatch(str(won)):
+                field.value = str(won)
+
+        group = model_groups.setdefault(mapped[:2], {
+            'fields': [], 'sub_groups': {}, 'bad_households': False, 'bands': [],
+        })
+        group['fields'].append(field)
+        if households is None:
+            group['bad_households'] = True
+        sub = group['sub_groups'].setdefault(type_label, {
+            'fields': [], 'count_spans': {}, 'has_unscoped': False, 'households': 0,
+        })
+        sub['fields'].append(field)
+        if households is not None:
+            sub['households'] += households
+        tc = rec['type_count']
+        if tc is not None:
+            tc_key = tc[:3]
+            span = sub['count_spans'].setdefault(tc_key, {'expected': tc[3], 'households': 0, 'bad': False, 'fields': []})
+            span['fields'].append(field)
+            if households is not None:
+                span['households'] += households
+            else:
+                span['bad'] = True
+        else:
+            sub['has_unscoped'] = True
+        group['bands'].append((field, pairs, floor_info, households, has_line))
+        all_records.append((field, entry, index, row, pairs, floor_info, type_label))
+        fields.append(field)
+
+    # 교차 검사 1: 묶음 소계(동·라인별 공급세대수) 및 주택형 공급세대수 == 해당세대수 합 (공급대상 표 세대수와도 교차 확인)
     for (model_no, _), group in model_groups.items():
         sub_expected_total = 0
         sub_all_have_counts = True
         sub_any_failed = False
         for sub in group['sub_groups'].values():
-            if not sub['type_counts']:
+            if not sub['count_spans']:
                 sub_all_have_counts = False
                 continue
-            vals = list(sub['type_counts'].values())
-            if None in vals:
+            spans = list(sub['count_spans'].values())
+            if sub['has_unscoped'] or any(s['expected'] is None or s['expected'] <= 0 or s['bad'] for s in spans):
                 sub_any_failed = True
                 for field in sub['fields']:
                     field.check('band_households_equal_supply_count', 'fail', 'band_household_count_mismatch', 'unverified')
                 continue
-            distinct_tc = set(vals)
-            if len(distinct_tc) != 1:
-                sub_any_failed = True
-                for field in sub['fields']:
-                    field.check('band_households_equal_supply_count', 'fail', 'band_household_count_mismatch', 'unverified')
-                continue
-            sub_expected = next(iter(distinct_tc))
-            sub_expected_total += sub_expected
-            if sub['households'] != sub_expected:
+            if all(s['households'] == s['expected'] for s in spans):
+                # 묶음별 공급세대수 소계 서식(또는 단일 소계): 각 묶음 소계 == 묶음 안 구간 세대수 합.
+                sub_expected_total += sum(s['expected'] for s in spans)
+            elif len({s['expected'] for s in spans}) == 1 and sub['households'] == spans[0]['expected']:
+                # 주택형 전체 공급세대수가 다음 쪽 머리말 등에 반복 표기된 기존 서식.
+                sub_expected_total += spans[0]['expected']
+            else:
                 sub_any_failed = True
                 for field in sub['fields']:
                     field.check('band_households_equal_supply_count', 'fail', 'band_household_count_mismatch', 'unverified')
@@ -2038,10 +2324,10 @@ def _page_labels(pages):
 
 # ---------------------------------------------------------------- 조립
 
-def _evidence_row(meta, field):
+def _evidence_row(meta, field, *, page=None):
     data, status = field.data, field.status
-    row = {'document': dict(meta), 'page': data['page'], 'modelNo': data['modelNo'], 'houseType': data['houseType'],
-           'item': data['item'], 'check': status}
+    row = {'document': dict(meta), 'page': page if page is not None else data['page'], 'modelNo': data['modelNo'],
+           'houseType': data['houseType'], 'item': data['item'], 'check': status}
     if data['item'] == 'supply_area':
         row.update(basis='supply', unit='m2', m2=field.value if status == 'confirmed' else None)
     else:
@@ -2392,7 +2678,9 @@ def _inspect(pages, target, catalog, document, result):
             issues.append(_issue(document, reason, item=entry['item'], modelNo=entry['modelNo'], room=entry['room'],
                                  page=entry['page']))
         if not {'pdf_model_not_in_catalog', 'pdf_model_ambiguous'} & set(field.data['reasons']):
-            result['evidence'].append(_evidence_row(meta, field))
+            ev_pages = field.data.get('evidencePages') or [field.data['page']]
+            for ev_page in ev_pages:
+                result['evidence'].append(_evidence_row(meta, field, page=ev_page))
         if entry['item'] in ('sale_price', 'required_options'):
             payment = payments.get(field, {'reasons': ('payment_evidence_missing',)})
             reasons = list(payment['reasons'])

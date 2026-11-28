@@ -8,6 +8,7 @@ import argparse
 import hashlib
 import json
 import sys
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -88,12 +89,16 @@ def verify_sample(notice_dir):
             'unitKinds': {},
             'paymentSchedules': {'confirmed': 0, 'unverified': 0, 'conflict': 0},
             'correction': {'detected': False, 'fullReplacementDeclared': False, 'affectedScopes': []},
+            'pages': {'total': 0, 'scanned': 0, 'incomplete': 0},
+            'elapsedSec': 0.0,
             'reasons': ['attachment_not_found'],
             'baseline': baseline,
         }
     pdf_bytes = pdfs[0].read_bytes()
     doc_meta = _document_meta(notice_dir, catalog, pdf_bytes)
+    t0 = time.perf_counter()
     result = inspect_notice_pdf(pdf_bytes, target=target, catalog=catalog, document=doc_meta)
+    elapsed_sec = round(time.perf_counter() - t0, 3)
     unit_kinds = Counter()
     for field in result.get('fields') or ():
         if field.get('item') == 'sale_price':
@@ -103,6 +108,9 @@ def verify_sample(notice_dir):
     reasons = sorted({issue['code'] for issue in (result.get('issues') or ()) if isinstance(issue, dict) and issue.get('code')})
     tables = result.get('tables') or {}
     corr = result.get('correction') or {}
+    page_info = result.get('pages') or {}
+    scan_info = page_info.get('tableScan') or {}
+    incomplete_count = sum(len(scan_info.get(k) or ()) for k in ('skipped_limit', 'failed', 'text_failed'))
     return {
         'noticeNo': notice_no,
         'kind': kind,
@@ -118,6 +126,12 @@ def verify_sample(notice_dir):
             'fullReplacementDeclared': bool(corr.get('fullReplacementDeclared')),
             'affectedScopes': list(corr.get('affectedScopes') or ()),
         },
+        'pages': {
+            'total': int((result.get('source') or {}).get('pageCount') or 0),
+            'scanned': len(scan_info.get('scanned') or ()),
+            'incomplete': incomplete_count,
+        },
+        'elapsedSec': elapsed_sec,
         'reasons': reasons,
         'baseline': baseline,
     }
@@ -125,9 +139,9 @@ def verify_sample(notice_dir):
 
 def _format_table(rows):
     header = (
-        '| 공고 | 유형 | 상태 | 식별 | 공급면적(확/보/충) | 분양가(확/보/충) | 필수옵션(확/보/충) | 단위 | 납부일정(확/보/충) | 사유 코드 |'
+        '| 공고 | 유형 | 상태 | 식별 | 공급면적(확/보/충) | 분양가(확/보/충) | 필수옵션(확/보/충) | 단위 | 납부일정(확/보/충) | 스캔(쪽) | 시간(초) | 사유 코드 |'
     )
-    sep = '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |'
+    sep = '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |'
     lines = [header, sep]
     for row in rows:
         by = row['byItem']
@@ -135,11 +149,14 @@ def _format_table(rows):
         ps = row['paymentSchedules']
         ps_text = f"{ps.get('confirmed', 0)}/{ps.get('unverified', 0)}/{ps.get('conflict', 0)}"
         units_text = ', '.join(f'{k}:{v}' for k, v in row['unitKinds'].items()) or '-'
+        pages = row.get('pages') or {}
+        scan_text = f"{pages.get('scanned', 0)}/{pages.get('total', 0)}" if pages.get('total') else '-'
+        elapsed_text = f"{row.get('elapsedSec', 0.0):.3f}"
         reasons_text = ', '.join(row['reasons']) or '-'
         lines.append(
             f"| {row['noticeNo']} | {row['kind']} | {row['status']} | {row['identityStatus'] or '-'} "
             f"| {fmt('supply_area')} | {fmt('sale_price')} | {fmt('required_options')} "
-            f"| {units_text} | {ps_text} | {reasons_text} |"
+            f"| {units_text} | {ps_text} | {scan_text} | {elapsed_text} | {reasons_text} |"
         )
     return '\n'.join(lines)
 
